@@ -13,6 +13,8 @@ MiniConstruct's original source code is licensed under GPL-3.0-or-later.
 MiniMax H3 and its official documentation are separate third-party materials;
 see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+<img width="2108" height="844" alt="MiniConstruct" src="https://github.com/user-attachments/assets/d348f791-caf8-4498-90c5-132e03f1dd6a" />
+
 ## Requirements
 
 - Python 3.12 or newer
