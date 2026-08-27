@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Local MiniMax H3 structured-prompt workbench">
+  <title>MiniConstruct</title>
+  <link rel="icon" type="image/svg+xml" href="/static/assets/favicon1.svg">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark"><img src="/static/assets/favicon.png" alt=""></span><div><h1>MiniConstruct</h1><p>H3 prompt workbench</p></div></div>
+    <div class="project-bar" aria-label="Project controls">
+      <label class="sr-only" for="project-select">Project</label>
+      <select id="project-select"><option value="">Unsaved workspace</option></select>
+      <input id="project-name" value="Untitled Project" aria-label="Project name" maxlength="160">
+      <button id="project-new" class="quiet">New</button>
+      <button id="project-save">Save</button>
+      <button id="project-save-as" class="quiet">Save As</button>
+      <button id="project-rename" class="quiet">Rename</button>
+      <button id="project-delete" class="quiet danger">Delete</button>
+      <button id="project-export" class="icon-button" title="Export project" aria-label="Export project">⇩</button>
+      <label class="icon-button file-button" title="Import project" aria-label="Import project">⇧<input id="project-import" type="file" accept=".json,.miniconstruct.json,.miniconstruct-project.json"></label>
+      <span id="dirty-indicator" class="dirty" aria-live="polite">Unsaved</span>
+    </div>
+    <div class="backend-status" aria-live="polite">
+      <span id="active-model-status"><span class="status-dot"></span>No model selected</span>
+      <button id="open-settings" class="quiet">⚙ Settings</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="left-rail">
+      <section class="panel settings-panel">
+        <div class="section-heading"><div><span class="eyebrow">Target format</span><h2>H3 setup</h2></div></div>
+        <div class="mode-tabs" role="radiogroup" aria-label="H3 mode">
+          <button data-mode="T2VA" class="active" role="radio" aria-checked="true">T2VA</button>
+          <button data-mode="I2VA" role="radio" aria-checked="false">I2VA</button>
+          <button data-mode="FL2VA" role="radio" aria-checked="false">FL2VA</button>
+          <button data-mode="L2VA" role="radio" aria-checked="false">L2VA</button>
+          <button data-mode="Ref2VA" role="radio" aria-checked="false">Ref2VA</button>
+        </div>
+        <p id="mode-description" class="helper">Text-driven video and audio generation using the official three-field base format.</p>
+        <div class="field-grid four">
+          <label>Duration <span class="unit">seconds</span><input id="duration" type="number" min="4" max="15" step="0.01" value="6"></label>
+          <label>Shots <span class="muted">auto or integer</span><input id="shots" inputmode="numeric" placeholder="auto"></label>
+          <label>Aspect ratio<select id="aspect-ratio"><option value="auto">Automatic</option><option>16:9</option><option>9:16</option><option>1:1</option><option>4:3</option><option>3:4</option><option value="custom">Custom…</option></select></label>
+          <label>Variations<input id="variations" type="number" min="1" max="8" step="1" value="1"></label>
+        </div>
+        <label id="custom-ratio-wrap" class="hidden">Custom ratio<input id="custom-ratio" placeholder="e.g. 2.39:1"></label>
+      </section>
+
+      <section class="panel author-panel">
+        <div class="section-heading"><div><span class="eyebrow">Direction</span><h2>Main prompt / idea</h2></div><span id="char-count" class="muted">0</span></div>
+        <textarea id="creative-request" rows="8" placeholder="Describe what the target video should contain and do: action, staging, timing, camera behavior, performance, atmosphere…"></textarea>
+        <details>
+          <summary>Exact dialogue / lyrics</summary>
+          <p class="helper">Keep conversational timing, reactions, pauses, and performance in Main Prompt. Enter only the exact words that must remain verbatim here; speaker IDs follow vocal-event order, not Subject numbers.</p>
+          <textarea id="dialogue" rows="4" placeholder="Subject 1: First exact line.&#10;Subject 2: Second exact line."></textarea>
+        </details>
+      </section>
+
+      <section id="references-panel" class="panel references-panel hidden">
+        <div class="section-heading"><div><span class="eyebrow">Multimodal context</span><h2>Reference assets</h2></div><div id="asset-actions" class="inline-row"></div></div>
+        <p id="reference-helper" class="helper"></p>
+        <div id="asset-drop-hint" class="asset-drop-hint" aria-hidden="true">Drop image, video or audio references here</div>
+        <div id="asset-list" class="asset-list"></div>
+        <details id="reference-labels-wrap" class="advanced-field">
+          <summary>Reference relationships <span class="muted">advanced</span></summary>
+          <p class="helper">Usually leave this blank. Use asset Notes for facts about individual references. Use this only for relationships spanning multiple references or timelines.</p>
+          <textarea id="reference-labels" rows="4" placeholder="Picture 1 is the final frame extracted from Video 1.&#10;Audio 1 and Video 1 begin at the same source timeline position.&#10;Video 2 immediately follows Video 1."></textarea>
+        </details>
+      </section>
+    </aside>
+
+    <section class="right-stage">
+      <div class="generate-bar">
+        <div><span class="eyebrow">Structured result</span><h2>Generated H3 prompt</h2></div>
+        <div class="inline-row wrap">
+          <span id="generation-status" class="generation-status" data-state="idle" role="status" aria-live="polite">Idle</span>
+          <button id="show-instructions" class="quiet">Show LLM Instructions</button>
+          <button id="generate" class="primary"><span>Generate prompt</span><kbd>Ctrl ↵</kbd></button>
+        </div>
+      </div>
+      <div id="performance-summary" class="performance-summary hidden" aria-live="polite"></div>
+      <details id="performance-details" class="performance-details hidden">
+        <summary>Performance diagnostics</summary>
+        <pre id="performance-diagnostics"></pre>
+      </details>
+      <div id="warning-banner" class="warning-banner hidden" role="status"></div>
+      <div id="variation-tabs" class="variation-tabs hidden"></div>
+      <div class="output-card">
+        <div id="output-view-controls" class="output-view-controls hidden" role="tablist" aria-label="Prompt view">
+          <button id="highlighted-view" class="view-tab active" role="tab" aria-selected="true">Highlighted</button>
+          <button id="edit-raw" class="view-tab" role="tab" aria-selected="false">Edit raw</button>
+        </div>
+        <div id="empty-output" class="empty-state">
+          <div class="empty-icon">⌁</div>
+          <h3>Your H3 prompt will appear here</h3>
+          <p>Connect a prompt-writing model, describe the target, then generate. MiniConstruct validates structure before marking the result ready.</p>
+        </div>
+        <div id="output-highlighted" class="output-highlighted hidden" role="textbox" tabindex="0" aria-label="Highlighted generated H3 prompt"></div>
+        <textarea id="output" class="hidden" spellcheck="false" aria-label="Generated H3 prompt"></textarea>
+      </div>
+      <div class="output-toolbar">
+        <div id="validation-summary" class="validation-summary neutral"><span class="status-dot"></span><span>Not validated</span></div>
+        <div class="inline-row wrap">
+          <button id="copy-output" class="quiet" disabled>Copy Prompt</button>
+          <button id="download-output" class="quiet" disabled>Save .txt</button>
+          <button id="validate-output" class="quiet" disabled>Validate</button>
+          <button id="repair-output" class="quiet" disabled>Repair Format</button>
+          <button id="regenerate" class="quiet" disabled>Regenerate</button>
+        </div>
+      </div>
+      <section class="lower-grid">
+        <div class="panel validation-panel">
+          <div class="section-heading"><div><span class="eyebrow">Format audit</span><h2>Validation</h2></div></div>
+          <div id="validation-list" class="validation-list"><p class="muted">Generate or paste a prompt to inspect official H3 grammar and invariants.</p></div>
+        </div>
+        <div class="panel history-panel">
+          <div class="section-heading"><div><span class="eyebrow">Local only</span><h2>History</h2></div><button id="clear-history" class="text-button">Clear</button></div>
+          <div id="history-list" class="history-list"><p class="muted">No generated prompts yet.</p></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="instructions-dialog">
+    <div class="dialog-head"><div><span class="eyebrow">Secrets excluded</span><h2>Assembled LLM instructions</h2></div><button class="icon-button" data-close-dialog aria-label="Close">×</button></div>
+    <pre id="instructions-output"></pre>
+    <div class="dialog-actions"><button id="copy-instructions" class="quiet">Copy</button><button data-close-dialog>Close</button></div>
+  </dialog>
+
+  <dialog id="settings-dialog">
+    <div class="dialog-head"><div><span class="eyebrow">Prompt-writing backend</span><h2>Settings</h2></div><button class="icon-button" data-close-settings aria-label="Close">×</button></div>
+    <div class="settings-content">
+      <p class="helper">Choose a model together with its endpoint. MiniConstruct only probes known loopback local servers automatically; manual endpoints remain available.</p>
+      <div class="field-grid two">
+        <label>Endpoint name<input id="endpoint-display-name" value="Manual endpoint" maxlength="160"></label>
+        <label>Base URL<input id="base-url" type="url" value="http://127.0.0.1:1234/v1" spellcheck="false"></label>
+        <label class="span-2">Pooled discovered models<select id="model-selector"><option value="">Manual / custom model ID</option></select></label>
+        <label class="span-2">Model ID<input id="model-id" placeholder="Discover or enter model ID" spellcheck="false"></label>
+        <label>API key <span class="muted">optional</span><input id="api-key" type="password" autocomplete="off" placeholder="Not stored by default"></label>
+        <label class="check settings-check"><input id="persist-key" type="checkbox"> Remember API key</label>
+        <label>Temperature<input id="temperature" type="number" min="0" max="2" step="0.05" value="0.4"></label>
+        <label>Max output tokens<input id="max-tokens" type="number" min="128" max="65536" step="128" value="4096"></label>
+        <label class="span-2">Reasoning<select id="reasoning-mode"><option value="off" selected>Off — recommended</option><option value="default">Backend default</option><option value="on">On</option></select></label>
+      </div>
+      <div class="inline-row wrap settings-actions">
+        <label class="check"><input id="vision-support" type="checkbox"> Model accepts images</label>
+        <span class="spacer"></span>
+        <button id="discover-local-endpoints" class="quiet">Discover local servers</button>
+        <button id="discover-models" class="quiet">Discover this endpoint</button>
+        <button id="test-connection" class="quiet">Test connection</button>
+      </div>
+      <p id="connection-message" class="helper" aria-live="polite">Supports LM Studio, Ollama, Unsloth Studio, and compatible Chat Completions endpoints.</p>
+    </div>
+    <div class="dialog-actions"><button data-close-settings>Done</button></div>
+  </dialog>
+
+  <input id="asset-file-input" class="hidden" type="file">
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+.upstream-minimax-h3/
+.env
+/miniconstruct/h3/guides/SKILL.md
+/miniconstruct/h3/guides/base-en.txt
+/miniconstruct/h3/guides/ref-en.txt
+

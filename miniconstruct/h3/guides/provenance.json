@@ -1,0 +1,27 @@
+{
+  "upstreamRepository": "https://github.com/MiniMax-AI/MiniMax-H3",
+  "retrievalDate": "2026-08-26",
+  "upstreamCommit": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+  "files": [
+    {
+      "local": "SKILL.md",
+      "upstreamPath": "skills/h3-prompt-writing/SKILL.md",
+      "sourceUrl": "https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/d21241f0a4b3acbb34c97dae47fa417b7065e438/skills/h3-prompt-writing/SKILL.md",
+      "sha256": "a7000443588ca3f145e3b3fd8900f14e0325dc460bd811268fac89a9dc8e56d0"
+    },
+    {
+      "local": "base-en.txt",
+      "upstreamPath": "skills/h3-prompt-writing/references/base-en.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/d21241f0a4b3acbb34c97dae47fa417b7065e438/skills/h3-prompt-writing/references/base-en.txt",
+      "sha256": "2cfebc096a6e08370f288d468d90b60f7f9bcb938f94bf090816e910e48e75fc"
+    },
+    {
+      "local": "ref-en.txt",
+      "upstreamPath": "skills/h3-prompt-writing/references/ref-en.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/d21241f0a4b3acbb34c97dae47fa417b7065e438/skills/h3-prompt-writing/references/ref-en.txt",
+      "sha256": "1e574f356716ad55612247ffb7bbccbcdb484ad96599d63c7dca1af186b1fab7"
+    }
+  ],
+  "policy": "Public-release packaging does not redistribute these read-only upstream files. sha256 values are for the canonical raw upstream bytes (LF), not platform-normalized working-tree text. Acquire them from sourceUrl or install them manually at local. MiniConstruct additions live under h3/operating."
+}
+

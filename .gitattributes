@@ -1,0 +1,4 @@
+# These upstream artifacts are byte-verified as canonical raw downloads.
+/miniconstruct/h3/guides/SKILL.md -text
+/miniconstruct/h3/guides/base-en.txt -text
+/miniconstruct/h3/guides/ref-en.txt -text
