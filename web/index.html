@@ -62,6 +62,33 @@
         </details>
       </section>
 
+      <section id="creative-controls" class="panel creative-controls-panel">
+        <details>
+          <summary>Creative Controls <span class="muted">optional precision</span></summary>
+          <div class="section-heading compact-heading"><div><span class="eyebrow">Workspace preferences</span><h2>Creative Controls</h2></div><button id="reset-creative-controls" type="button" class="quiet">Reset Creative Controls</button></div>
+          <details class="creative-control-group">
+            <summary>Music</summary>
+            <div class="creative-control-content"><label>Non-diegetic music</label><div id="music-mode-controls" class="segmented" role="group" aria-label="Non-diegetic music"></div><label id="music-description-wrap" class="hidden">Music description<textarea id="music-description" rows="2" placeholder="dark electronic pulse with restrained industrial percussion"></textarea></label></div>
+          </details>
+          <details class="creative-control-group">
+            <summary>Camera</summary>
+            <div class="creative-control-content"><div class="section-heading compact-heading"><span></span><button id="reset-camera-controls" type="button" class="quiet">Reset Camera to Auto</button></div><div id="camera-control-rows" class="camera-control-rows"></div></div>
+          </details>
+          <details class="creative-control-group" open>
+            <summary>Visual Style / Medium</summary>
+            <div class="creative-control-content"><label>Visual style<select id="visual-style-preset" aria-label="Visual style"></select></label><label id="visual-style-custom-wrap" class="hidden">Custom visual style<textarea id="visual-style-custom" rows="2" placeholder="90s cel-animated anime with hand-painted backgrounds"></textarea></label><p id="visual-style-helper" class="helper"></p></div>
+          </details>
+          <details class="creative-control-group">
+            <summary>Subject Identity Fidelity</summary>
+            <div class="creative-control-content"><div id="subject-identity-fidelity-controls" class="segmented" role="group" aria-label="Subject Identity Fidelity"></div><p id="subject-identity-fidelity-helper" class="helper"></p></div>
+          </details>
+          <details class="creative-control-group">
+            <summary>Tone &amp; Performance</summary>
+            <div class="creative-control-content"><div class="section-heading compact-heading"><div><h3>Tone / Mood</h3></div><button id="reset-tone-performance" type="button" class="quiet">Reset Tone &amp; Performance</button></div><div id="tone-mood-controls" class="tone-range-controls"></div><h3 class="tone-performance-heading">Performance</h3><div id="performance-controls" class="tone-range-controls"></div></div>
+          </details>
+        </details>
+      </section>
+
       <section id="references-panel" class="panel references-panel hidden">
         <div class="section-heading"><div><span class="eyebrow">Multimodal context</span><h2>Reference assets</h2></div><div id="asset-actions" class="inline-row"></div></div>
         <p id="reference-helper" class="helper"></p>
@@ -111,9 +138,36 @@
           <button id="download-output" class="quiet" disabled>Save .txt</button>
           <button id="validate-output" class="quiet" disabled>Validate</button>
           <button id="repair-output" class="quiet" disabled>Repair Format</button>
+          <button id="revise-selection" class="quiet" disabled>Revise Selection</button>
           <button id="regenerate" class="quiet" disabled>Regenerate</button>
         </div>
       </div>
+      <section id="revision-panel" class="revision-panel hidden" aria-labelledby="revision-heading">
+        <div class="section-heading">
+          <div><span class="eyebrow">Iterative edit</span><h2 id="revision-heading">Revise selection</h2></div>
+          <button id="cancel-revision" class="icon-button" aria-label="Cancel revision">×</button>
+        </div>
+        <details open>
+          <summary>Selected excerpt</summary>
+          <pre id="revision-selected"></pre>
+        </details>
+        <label>Revision request
+          <textarea id="revision-instruction" rows="3" placeholder="Make these shots more dynamic and faster paced while preserving continuity."></textarea>
+        </label>
+        <div class="inline-row wrap revision-actions">
+          <button id="generate-revision" class="primary"><span>Generate Revision</span></button>
+          <button id="stop-revision" class="quiet hidden">Stop</button>
+          <button id="apply-revision" disabled>Apply Revision</button>
+          <button id="apply-revision-anyway" class="quiet hidden" disabled>Apply Anyway</button>
+          <button id="retry-revision" class="quiet hidden">Retry</button>
+        </div>
+        <p id="revision-status" class="helper" role="status" aria-live="polite">Ready to generate a replacement preview.</p>
+        <div id="revision-preview-wrap" class="hidden">
+          <span class="eyebrow">Revision preview</span>
+          <pre id="revision-preview"></pre>
+          <div id="revision-validation" class="revision-validation"></div>
+        </div>
+      </section>
       <section class="lower-grid">
         <div class="panel validation-panel">
           <div class="section-heading"><div><span class="eyebrow">Format audit</span><h2>Validation</h2></div></div>
@@ -147,6 +201,9 @@
         <label>Temperature<input id="temperature" type="number" min="0" max="2" step="0.05" value="0.4"></label>
         <label>Max output tokens<input id="max-tokens" type="number" min="128" max="65536" step="128" value="4096"></label>
         <label class="span-2">Reasoning<select id="reasoning-mode"><option value="off" selected>Off — recommended</option><option value="default">Backend default</option><option value="on">On</option></select></label>
+        <label>Seed<select id="seed-mode"><option value="backend_default" selected>Backend default</option><option value="random">Random each generation</option><option value="fixed">Fixed</option></select></label>
+        <label id="fixed-seed-wrap" class="hidden">Seed value<input id="fixed-seed" type="number" min="0" max="2147483647" step="1" inputmode="numeric" placeholder="3407"></label>
+        <p class="helper span-2">Seed affects supported stochastic backends. A fixed seed improves reproducibility; Random generates a new seed for each creative LLM request. Fully deterministic sampling (for example temperature 0) may still produce the same output regardless of seed.</p>
       </div>
       <div class="inline-row wrap settings-actions">
         <label class="check"><input id="vision-support" type="checkbox"> Model accepts images</label>

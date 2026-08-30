@@ -1,6 +1,4 @@
-export function snapshotGenerationRequest(request) {
-  return structuredClone(request);
-}
+export { snapshotGenerationRequest } from "./seed.js";
 
 export function createEventStreamParser(onEvent) {
   let buffer = "";

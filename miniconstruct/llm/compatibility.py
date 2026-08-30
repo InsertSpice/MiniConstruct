@@ -37,6 +37,7 @@ def build_generation_payload(
     *,
     stream: bool,
     include_optional: bool = True,
+    include_seed: bool = True,
 ) -> tuple[dict[str, Any], set[str]]:
     payload: dict[str, Any] = {
         "model": settings.selected_model_id,
@@ -46,6 +47,9 @@ def build_generation_payload(
         "stream": stream,
     }
     optional_fields: set[str] = set()
+    if include_seed and settings.seed is not None:
+        payload["seed"] = settings.seed
+        optional_fields.add("seed")
     if stream and include_optional:
         payload["stream_options"] = {"include_usage": True}
         optional_fields.add("stream_options")

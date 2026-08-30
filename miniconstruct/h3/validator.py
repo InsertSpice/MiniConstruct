@@ -17,8 +17,13 @@ SHOT_RE = re.compile(r"\[Shot\s+(\d+)\](?:\s+At\s+(\d{2}):(\d{2})\.(\d{3}),)?", 
 LABEL_RE = re.compile(r"<(Subject|Picture|Video|Audio)\s+(\d+)>")
 
 
-def _finding(severity: str, code: str, message: str) -> ValidationFinding:
-    return ValidationFinding(severity=severity, code=code, message=message)  # type: ignore[arg-type]
+def _finding(
+    severity: str,
+    code: str,
+    message: str,
+    category: str = "structural",
+) -> ValidationFinding:
+    return ValidationFinding(severity=severity, code=code, message=message, category=category)  # type: ignore[arg-type]
 
 
 def _asset_label_limits(assets: list[ReferenceAsset]) -> dict[str, int]:
@@ -109,7 +114,14 @@ def validate_prompt(
         if numbers != list(range(1, len(numbers) + 1)):
             findings.append(_finding("ERROR", "shot_sequence", "Shot numbers must be sequential from Shot 1."))
         if expected_shots is not None and len(shots) != expected_shots:
-            findings.append(_finding("ERROR", "shot_count", f"Requested {expected_shots} shots, but the output contains {len(shots)}."))
+            findings.append(
+                _finding(
+                    "ERROR",
+                    "shot_count",
+                    f"Requested {expected_shots} shots, but the output contains {len(shots)}.",
+                    "workspace_consistency",
+                )
+            )
         if mode == H3Mode.FL2VA and f"Picture 2 (from Shot {len(shots)})" not in first_line:
             findings.append(_finding("ERROR", "final_shot_alignment", "FL2VA Picture 2 must belong to the actual final shot."))
         if mode == H3Mode.L2VA and f"<Picture 1> (from [Shot {len(shots)}])" not in first_line:

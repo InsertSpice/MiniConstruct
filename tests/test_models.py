@@ -48,12 +48,24 @@ def test_asset_role_is_kind_specific():
 
 
 def test_project_schema_round_trip_persists_image(workspace_factory, image_asset_factory):
-    workspace = workspace_factory(mode="Ref2VA", assets=[image_asset_factory()])
+    workspace = workspace_factory(
+        mode="Ref2VA", assets=[image_asset_factory()],
+        creativeControls={
+            "music": {"mode": "on", "description": "quiet synth"},
+            "camera": {"arc": "avoid"},
+            "visualStyle": {"preset": "custom", "custom": "painted animation"},
+            "subjectIdentityFidelity": {"level": "strict"},
+        },
+    )
     project = ProjectEnvelope.model_validate({
         "format": "MiniConstruct Project", "schemaVersion": 1, "workspace": workspace.model_dump(by_alias=True),
     })
     dumped = project.model_dump(mode="json", by_alias=True)
     assert dumped["workspace"]["assets"][0]["image"]["data_url"].startswith("data:image/")
+    assert dumped["workspace"]["creativeControls"]["music"]["description"] == "quiet synth"
+    assert dumped["workspace"]["creativeControls"]["camera"]["arc"] == "avoid"
+    assert dumped["workspace"]["creativeControls"]["visualStyle"]["custom"] == "painted animation"
+    assert dumped["workspace"]["creativeControls"]["subjectIdentityFidelity"]["level"] == "strict"
 
 
 def test_project_backwards_compatible_optional_defaults(image_asset_factory):
@@ -67,6 +79,7 @@ def test_project_backwards_compatible_optional_defaults(image_asset_factory):
     })
     assert project.workspace.dialogue == ""
     assert project.workspace.variations == 1
+    assert project.workspace.creative_controls.subject_identity_fidelity.level.value == "auto"
 
 
 def test_video_audio_metadata_round_trip(workspace_factory):

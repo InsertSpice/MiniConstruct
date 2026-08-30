@@ -4,7 +4,22 @@ import {
   listHistory, listProjects, putProject,
 } from "./db.js";
 import { snapshotGenerationRequest } from "./streaming.js";
+import { fullHistoryPrompt, historyPreview } from "./history-preview.js";
 import { highlightPrompt } from "./highlighter.js";
+import {
+  defaultCreativeControls, normalizeCreativeControls, renderCreativeControls,
+  resetCameraControls, resetCreativeControls, resetTonePerformance,
+  PERFORMANCE_ENERGY_LEVELS, PERFORMANCE_STYLE_LEVELS, TONE_LEVELS, semanticFromRange, semanticLabel,
+} from "./creative-controls.js";
+import {
+  applyRevisionCandidate, assessRevisionFindings, createRevisionSnapshot, findingSignature, revisionIsStale,
+  selectionFromHighlighted, selectionFromTextarea,
+} from "./revision.js";
+import {
+  defaultSubjectIdentity, IDENTITY_FOCUS_OPTIONS, IDENTITY_VIEW_OPTIONS, isSubjectIdentityAsset,
+  normalizeSubjectIdentity, subjectIdentityHelperText, subjectIdentityNotesGuidance, subjectIdentityNotesPlaceholder,
+} from "./subject-identity.js";
+import { normalizeSeedSettings, resolveSeed } from "./seed.js";
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -56,7 +71,10 @@ const state = {
   connectionState: "unverified",
   dragDepth: 0,
   generation: null,
+  revisionSelection: null,
+  revision: null,
   rawEdit: false,
+  creativeControls: defaultCreativeControls(),
 };
 
 function uid() {
@@ -113,6 +131,10 @@ function endpointProfile() {
 }
 
 function settings() {
+  const seed = normalizeSeedSettings({
+    seedMode: $("#seed-mode").value,
+    fixedSeed: $("#fixed-seed").value,
+  });
   return {
     endpoint: endpointProfile(),
     modelId: $("#model-id").value.trim(),
@@ -121,7 +143,15 @@ function settings() {
     timeoutSeconds: 120,
     supportsVision: $("#vision-support").checked,
     reasoningMode: $("#reasoning-mode").value,
+    ...seed,
   };
+}
+
+function renderSeedSettings() {
+  const seed = normalizeSeedSettings({ seedMode: $("#seed-mode").value, fixedSeed: $("#fixed-seed").value });
+  $("#seed-mode").value = seed.seedMode;
+  $("#fixed-seed-wrap").classList.toggle("hidden", seed.seedMode !== "fixed");
+  $("#fixed-seed").required = seed.seedMode === "fixed";
 }
 
 function persistSettings() {
@@ -147,10 +177,14 @@ function restoreSettings() {
     if (value.temperature !== undefined) $("#temperature").value = value.temperature;
     if (value.maxTokens) $("#max-tokens").value = value.maxTokens;
     if (["off", "default", "on"].includes(value.reasoningMode)) $("#reasoning-mode").value = value.reasoningMode;
+    const seed = normalizeSeedSettings(value);
+    $("#seed-mode").value = seed.seedMode;
+    if (seed.fixedSeed !== null) $("#fixed-seed").value = seed.fixedSeed;
     $("#vision-support").checked = value.supportsVision === true;
     $("#persist-key").checked = value.persistKey === true;
     if (value.persistKey && (endpoint?.apiKey || value.apiKey)) $("#api-key").value = endpoint?.apiKey || value.apiKey;
   } catch { /* ignore malformed local preference */ }
+  renderSeedSettings();
   setActiveModelStatus();
 }
 
@@ -239,13 +273,24 @@ export function captureWorkspace() {
     dialogue: $("#dialogue").value,
     referenceLabels: $("#reference-labels").value,
     assets: structuredClone(state.assets),
+    creativeControls: structuredClone(state.creativeControls),
   };
 }
 
+function renderCreativeControlsUi() {
+  renderCreativeControls(
+    $("#creative-controls"),
+    state.creativeControls,
+    visibleAssets().some(asset => asset.kind === "image" && asset.role === "subject_identity"),
+  );
+}
+
 export function restoreWorkspace(workspace) {
+  markRevisionStale("A different workspace was loaded.");
   state.currentProjectId = workspace.projectId || null;
   state.assets = structuredClone(workspace.assets || []).map(asset => ({
     notes: "", options: {}, order: 0, attached: asset.kind === "image", ...asset,
+    subjectIdentity: normalizeSubjectIdentity(asset.subjectIdentity),
     attached: asset.kind === "image" ? true : false,
   }));
   $("#project-name").value = workspace.projectName || "Untitled Project";
@@ -260,8 +305,10 @@ export function restoreWorkspace(workspace) {
   $("#creative-request").value = workspace.creativeRequest || "";
   $("#dialogue").value = workspace.dialogue || "";
   $("#reference-labels").value = workspace.referenceLabels || "";
+  state.creativeControls = normalizeCreativeControls(workspace.creativeControls);
   setMode(workspace.mode || "T2VA", false);
   renderAssets();
+  renderCreativeControlsUi();
   updateCharCount();
   state.outputs = [];
   renderOutput();
@@ -340,9 +387,11 @@ function renderAssets() {
     empty.className = "muted";
     empty.textContent = state.mode === "FL2VA" ? "Add first- and last-frame images." : "No references added for this mode.";
     container.append(empty);
+    renderCreativeControlsUi();
     return;
   }
   for (const asset of assets) container.append(assetCard(asset, numbering.get(asset.id)));
+  renderCreativeControlsUi();
 }
 
 function assetCard(asset, label) {
@@ -380,9 +429,42 @@ function assetCard(asset, label) {
   role.addEventListener("change", () => { asset.role = role.value; renderAssets(); setDirty(); });
   roleLabel.append(role);
   const notesLabel = document.createElement("label"); notesLabel.textContent = "Notes";
-  const notes = document.createElement("textarea"); notes.rows = 2; notes.placeholder = "Asset-specific facts or constraints"; notes.value = asset.notes || "";
+  const notes = document.createElement("textarea"); notes.rows = 2;
+  notes.placeholder = isSubjectIdentityAsset(asset) ? subjectIdentityNotesPlaceholder(asset.subjectIdentity) : "Asset-specific facts or constraints";
+  notes.value = asset.notes || "";
   notes.addEventListener("input", () => { asset.notes = notes.value; setDirty(); });
-  notesLabel.append(notes); fields.append(roleLabel, notesLabel);
+  notesLabel.append(notes);
+  if (isSubjectIdentityAsset(asset)) {
+    fields.classList.add("subject-identity-fields");
+    const identity = asset.subjectIdentity = normalizeSubjectIdentity(asset.subjectIdentity);
+    const notesInfo = document.createElement("span");
+    notesInfo.className = "notes-info";
+    notesInfo.textContent = " ⓘ";
+    notesInfo.title = subjectIdentityNotesGuidance(identity);
+    notesInfo.setAttribute("aria-label", notesInfo.title);
+    notesInfo.setAttribute("role", "img");
+    notesLabel.insertBefore(notesInfo, notes);
+    const focusLabel = document.createElement("label"); focusLabel.textContent = "Identity focus";
+    const focus = document.createElement("select");
+    focus.title = "What identity information this Picture provides.";
+    for (const [value, text, guidance] of IDENTITY_FOCUS_OPTIONS) {
+      const option = new Option(text, value, false, value === identity.focus); option.title = guidance; focus.append(option);
+    }
+    focus.disabled = state.mode !== "Ref2VA";
+    focus.addEventListener("change", () => { asset.subjectIdentity.focus = focus.value; renderAssets(); setDirty(); });
+    focusLabel.append(focus);
+    const viewLabel = document.createElement("label"); viewLabel.textContent = "View";
+    const view = document.createElement("select");
+    view.title = "Which appearance viewpoint this Picture documents, not a required generated camera view.";
+    for (const [value, text, guidance] of IDENTITY_VIEW_OPTIONS) {
+      const option = new Option(text, value, false, value === identity.view); option.title = guidance; view.append(option);
+    }
+    view.disabled = state.mode !== "Ref2VA";
+    view.addEventListener("change", () => { asset.subjectIdentity.view = view.value; renderAssets(); setDirty(); });
+    viewLabel.append(view);
+    const helper = document.createElement("p"); helper.className = "subject-identity-helper"; helper.textContent = subjectIdentityHelperText(identity);
+    fields.append(roleLabel, focusLabel, viewLabel, notesLabel, helper);
+  } else fields.append(roleLabel, notesLabel);
 
   if (asset.kind === "audio" && asset.role === "music_beat_rhythm") {
     const sync = document.createElement("label"); sync.className = "check";
@@ -502,7 +584,7 @@ async function createAssetFromFile(file, kind, reattachId = null) {
   const asset = {
     id: uid(), kind, filename: file.name, mimeType: file.type || `${kind}/unknown`,
     durationSeconds: null, role: kind === "image" ? defaultImageRole() : roleCatalog[kind][0][0],
-    notes: "", options: {}, order: state.assets.filter(item => item.kind === kind).length, attached: true, image: null,
+    notes: "", options: {}, subjectIdentity: defaultSubjectIdentity(), order: state.assets.filter(item => item.kind === kind).length, attached: true, image: null,
   };
   if (kind === "image") asset.image = await processImage(file);
   else asset.durationSeconds = await readDuration(file, kind);
@@ -640,6 +722,7 @@ function seconds(value) {
 function renderPerformance(session, metrics = null) {
   if (metrics) session.metrics.set(metrics.variation, metrics);
   const current = session.metrics.get(state.outputIndex) || metrics;
+  const effectiveSeed = current && Object.hasOwn(current, "seed") ? current.seed : session.outputs[state.outputIndex]?.seed;
   const summary = $("#performance-summary");
   const details = $("#performance-details");
   summary.classList.remove("hidden");
@@ -658,6 +741,7 @@ function renderPerformance(session, metrics = null) {
     `Images: ${diagnostic.imageCount ?? 0}${diagnostic.imageDimensions?.length ? ` (${diagnostic.imageDimensions.map(item => `${item.width}×${item.height}`).join(", ")})` : ""}`,
     `Reasoning mode: ${diagnostic.reasoningMode || session.requestSnapshot.llm.reasoningMode}`,
     `Backend/model: ${diagnostic.backend || "—"} / ${diagnostic.model || "—"}`,
+    `Seed used: ${effectiveSeed ?? "backend default"}`,
     `Cache-input fingerprint: ${diagnostic.fingerprint || "waiting"}`,
   ];
   if (current) {
@@ -686,6 +770,7 @@ async function saveCompletedGenerationHistory(session) {
       createdAt: new Date().toISOString(), mode: snapshot.mode,
       projectId: snapshot.projectId, projectName: snapshot.projectName,
       prompt: variation.prompt, validation: variation.validation,
+      seed: variation.seed ?? null,
     });
   }
   await renderHistory();
@@ -693,6 +778,7 @@ async function saveCompletedGenerationHistory(session) {
 
 async function generate() {
   if (state.generation) { stopGeneration(); return; }
+  markRevisionStale("The source prompt was replaced by a new generation.");
   persistSettings();
   const requestSnapshot = snapshotGenerationRequest(buildGenerateRequest());
   const controller = new AbortController();
@@ -724,6 +810,7 @@ async function generate() {
           setGenerationStatus("Waiting for first token…", "waiting");
         } else if (event === "variation_start") {
           session.outputs[data.variation].generationStatus = "waiting";
+          session.outputs[data.variation].seed = data.seed ?? null;
           if (state.outputs === session.outputs) {
             state.outputIndex = data.variation;
             renderOutput();
@@ -735,6 +822,9 @@ async function generate() {
           setGenerationStatus(`Reasoning…${requestSnapshot.workspace.variations > 1 ? ` Variation ${data.variation + 1}` : ""}`, "waiting");
         } else if (event === "compatibility_fallback") {
           setGenerationStatus("Backend rejected optional reasoning controls; retrying with backend defaults…", "waiting");
+        } else if (event === "seed_unsupported") {
+          if (session.outputs[data.variation]) session.outputs[data.variation].seed = null;
+          renderWarnings(["This endpoint does not support the seed parameter; continuing with backend defaults."]);
         } else if (event === "delta") {
           const output = session.outputs[data.variation];
           if (!output || typeof data.text !== "string") return;
@@ -743,10 +833,10 @@ async function generate() {
           setGenerationStatus(`Generating…${requestSnapshot.workspace.variations > 1 ? ` Variation ${data.variation + 1}` : ""}`, "generating");
           updateStreamedOutput(data.variation);
         } else if (event === "complete") {
-          renderPerformance(session, data.metrics);
           session.outputs[data.variation] = {
-            prompt: data.prompt, validation: data.validation, generationStatus: "complete",
+            prompt: data.prompt, validation: data.validation, generationStatus: "complete", seed: data.seed ?? null,
           };
+          renderPerformance(session, data.metrics);
           session.completed.add(data.variation);
           if (state.outputs === session.outputs) renderOutput();
         } else if (event === "error") {
@@ -812,10 +902,14 @@ function renderOutput() {
   $("#output").readOnly = generating;
   for (const id of ["copy-output", "download-output"]) $("#" + id).disabled = !current;
   for (const id of ["validate-output", "repair-output", "regenerate"]) $("#" + id).disabled = !current || generating;
+  updateReviseSelectionButton();
   const tabs = $("#variation-tabs"); tabs.replaceChildren(); tabs.classList.toggle("hidden", state.outputs.length < 2);
   state.outputs.forEach((_, index) => {
     const button = document.createElement("button"); button.textContent = `Variation ${index + 1}`; button.classList.toggle("active", index === state.outputIndex);
-    button.addEventListener("click", () => { state.outputIndex = index; renderOutput(); }); tabs.append(button);
+    button.addEventListener("click", () => {
+      if (index !== state.outputIndex) markRevisionStale("The active output variation changed.");
+      state.outputIndex = index; state.revisionSelection = null; renderOutput();
+    }); tabs.append(button);
   });
   renderValidation(current?.validation);
 }
@@ -826,10 +920,210 @@ function setOutputView(raw) {
   const from = state.rawEdit ? $("#output") : $("#output-highlighted");
   const scrollTop = from.scrollTop;
   state.rawEdit = raw;
+  state.revisionSelection = null;
   renderOutput();
   const to = raw ? $("#output") : $("#output-highlighted");
   to.scrollTop = scrollTop;
   if (raw) to.focus();
+}
+
+function updateReviseSelectionButton() {
+  const current = state.outputs[state.outputIndex];
+  const selected = state.revisionSelection;
+  $("#revise-selection").disabled = !current || Boolean(state.generation) || Boolean(state.revision?.running)
+    || !selected || selected.outputIndex !== state.outputIndex || selected.fullPrompt !== current.prompt;
+}
+
+function captureActiveSelection() {
+  const current = state.outputs[state.outputIndex];
+  if (!current || state.generation) return;
+  const snapshot = state.rawEdit
+    ? selectionFromTextarea($("#output"), current.prompt)
+    : selectionFromHighlighted($("#output-highlighted"), window.getSelection(), current.prompt);
+  state.revisionSelection = snapshot ? { ...snapshot, outputIndex: state.outputIndex } : null;
+  updateReviseSelectionButton();
+}
+
+function revisionStale() {
+  return Boolean(state.revision?.stale) || revisionIsStale(state.outputs, state.outputIndex, state.revision);
+}
+
+function markRevisionStale(message = "The source prompt changed.") {
+  if (!state.revision) return;
+  state.revision.stale = true;
+  state.revision.staleMessage = message;
+  if (!$("#revision-panel").classList.contains("hidden")) {
+    $("#revision-status").textContent = `${message} Apply Revision is disabled.`;
+    $("#apply-revision").disabled = true;
+    $("#apply-revision-anyway").disabled = true;
+    $("#apply-revision-anyway").classList.add("hidden");
+  }
+}
+
+function openRevisionPanel() {
+  const selected = state.revisionSelection;
+  const current = state.outputs[state.outputIndex];
+  if (!selected || !current || selected.fullPrompt !== current.prompt) return;
+  state.revision = createRevisionSnapshot(
+    state.outputs, state.outputIndex, selected, "", captureWorkspace(), settings(),
+  );
+  Object.assign(state.revision, { running: false, stale: false, preview: "", complete: false });
+  $("#revision-selected").textContent = selected.selectedText;
+  $("#revision-preview").textContent = "";
+  $("#revision-preview-wrap").classList.add("hidden");
+  $("#revision-validation").replaceChildren();
+  $("#revision-status").textContent = "Ready to generate a replacement preview.";
+  $("#revision-instruction").value = "";
+  $("#apply-revision").disabled = true;
+  $("#apply-revision-anyway").disabled = true;
+  $("#apply-revision-anyway").classList.add("hidden");
+  $("#retry-revision").classList.add("hidden");
+  $("#generate-revision").classList.remove("hidden");
+  $("#stop-revision").classList.add("hidden");
+  $("#revision-panel").classList.remove("hidden");
+  $("#revision-instruction").focus();
+  updateReviseSelectionButton();
+}
+
+function renderRevisionValidation(validation, originalValidation) {
+  const target = $("#revision-validation");
+  const assessment = assessRevisionFindings(validation, originalValidation);
+  target.replaceChildren();
+  const summary = document.createElement("p");
+  if (assessment.newStructural.length) {
+    summary.textContent = `Candidate has ${assessment.newStructural.length} new structural error(s). Apply Anyway is required to accept it.`;
+  } else if (assessment.workspaceMismatches.length) {
+    summary.textContent = `Candidate has ${assessment.workspaceMismatches.length} workspace consistency mismatch(es); the revised output may intentionally diverge from workspace settings.`;
+  } else if (assessment.preexistingStructural.length) {
+    summary.textContent = `Candidate retains ${assessment.preexistingStructural.length} pre-existing structural finding(s), but introduces none.`;
+  } else {
+    summary.textContent = "Candidate has no structural errors.";
+  }
+  target.append(summary);
+  for (const item of validation?.findings || []) {
+    const row = document.createElement("p");
+    const scope = item.category === "workspace_consistency" ? "Workspace mismatch" : item.severity;
+    const prior = assessment.preexistingStructural.some(existing => findingSignature(existing) === findingSignature(item));
+    row.textContent = `${scope}${prior ? " (pre-existing)" : ""} · ${item.code}: ${item.message}`;
+    target.append(row);
+  }
+  return assessment;
+}
+
+function updateRevisionApplyActions(revision) {
+  const ready = Boolean(revision?.complete && revision.candidatePrompt && revision.assessment && !revisionStale());
+  const hasNewStructural = Boolean(revision?.assessment?.newStructural.length);
+  $("#apply-revision").disabled = !ready || hasNewStructural;
+  $("#apply-revision-anyway").disabled = !ready || !hasNewStructural;
+  $("#apply-revision-anyway").classList.toggle("hidden", !ready || !hasNewStructural);
+}
+
+function setRevisionRunning(running) {
+  if (state.revision) state.revision.running = running;
+  $("#generate-revision").classList.toggle("hidden", running);
+  $("#stop-revision").classList.toggle("hidden", !running);
+  $("#revision-instruction").disabled = running;
+  updateReviseSelectionButton();
+}
+
+async function generateRevision() {
+  const revision = state.revision;
+  if (!revision || revision.running) return;
+  const instruction = $("#revision-instruction").value;
+  if (!instruction.trim()) { $("#revision-status").textContent = "Enter a revision request first."; return; }
+  revision.instruction = instruction;
+  revision.preview = ""; revision.complete = false; revision.candidatePrompt = null; revision.validation = null; revision.assessment = null;
+  revision.controller = new AbortController();
+  $("#revision-preview").textContent = "";
+  $("#revision-preview-wrap").classList.remove("hidden");
+  $("#apply-revision").disabled = true;
+  $("#apply-revision-anyway").disabled = true;
+  $("#apply-revision-anyway").classList.add("hidden");
+  $("#retry-revision").classList.add("hidden");
+  $("#revision-status").textContent = "Waiting for revision…";
+  setRevisionRunning(true);
+  const request = {
+    workspace: revision.workspace,
+    llm: { ...revision.llm, seed: resolveSeed(revision.llm) },
+    outputIndex: revision.originIndex,
+    selection: {
+      fullPrompt: revision.selection.fullPrompt,
+      beforeSelection: revision.selection.beforeSelection,
+      selectedText: revision.selection.selectedText,
+      afterSelection: revision.selection.afterSelection,
+    },
+    instruction,
+  };
+  try {
+    await api.streamRevision(request, {
+      signal: revision.controller.signal,
+      onEvent: ({ event, data }) => {
+        if (state.revision !== revision) return;
+        if (event === "reasoning" && !revisionStale()) $("#revision-status").textContent = "Reasoning about the selected excerpt…";
+        else if (event === "compatibility_fallback" && !revisionStale()) $("#revision-status").textContent = "Retrying with backend-default compatibility…";
+        else if (event === "seed_unsupported" && !revisionStale()) $("#revision-status").textContent = "Seed is unsupported here; continuing with backend defaults…";
+        else if (event === "delta") {
+          revision.preview += data.text || ""; $("#revision-preview").textContent = revision.preview;
+          if (!revisionStale()) $("#revision-status").textContent = "Streaming revision preview…";
+        } else if (event === "complete") {
+          revision.preview = data.replacement; revision.candidatePrompt = data.candidatePrompt;
+          revision.validation = data.validation; revision.complete = true;
+          $("#revision-preview").textContent = data.replacement;
+          revision.assessment = renderRevisionValidation(data.validation, data.originalValidation);
+          const stale = revisionStale();
+          updateRevisionApplyActions(revision);
+          $("#revision-status").textContent = stale
+            ? `${revision.staleMessage || "The source prompt changed."} Apply Revision is disabled.`
+            : revision.assessment.newStructural.length
+              ? "Candidate has new structural errors. Retry, or use Apply Anyway after review."
+              : revision.assessment.workspaceMismatches.length
+                ? "Workspace mismatch noted. Apply Revision keeps the intentional output divergence."
+                : revision.assessment.preexistingStructural.length
+                  ? "Candidate retains pre-existing structural findings but introduces none. Review and apply when ready."
+                  : "Revision preview complete. Review it before applying.";
+        } else if (event === "error") {
+          revision.error = data.message; $("#revision-status").textContent = data.message;
+        }
+      },
+    });
+  } catch (error) {
+    $("#revision-status").textContent = error.name === "AbortError"
+      ? "Revision stopped. The original prompt is unchanged; partial preview cannot be applied."
+      : error.message;
+  } finally {
+    if (state.revision === revision) {
+      setRevisionRunning(false);
+      $("#retry-revision").classList.remove("hidden");
+      if (!revision.complete) {
+        $("#apply-revision").disabled = true;
+        $("#apply-revision-anyway").disabled = true;
+        $("#apply-revision-anyway").classList.add("hidden");
+      }
+    }
+  }
+}
+
+function stopRevision() {
+  if (state.revision?.running) state.revision.controller.abort();
+}
+
+function cancelRevision() {
+  stopRevision(); state.revision = null; state.revisionSelection = null;
+  $("#revision-panel").classList.add("hidden"); updateReviseSelectionButton();
+}
+
+function applyRevision(anyway = false) {
+  anyway = anyway === true;
+  const revision = state.revision;
+  const permitted = anyway
+    ? !$("#apply-revision-anyway").disabled
+    : !$("#apply-revision").disabled;
+  if (!revision || !permitted || !applyRevisionCandidate(state.outputs, state.outputIndex, revision)) {
+    if (revision) markRevisionStale();
+    return;
+  }
+  state.revision = null; state.revisionSelection = null; $("#revision-panel").classList.add("hidden");
+  renderOutput(); toast(anyway ? "Revision applied despite structural findings" : "Revision applied to the selected excerpt");
 }
 
 function renderValidation(validation) {
@@ -866,6 +1160,7 @@ async function validateCurrent() {
 async function repairCurrent() {
   const current = state.outputs[state.outputIndex]; if (!current) return;
   try {
+    markRevisionStale("The source prompt was replaced by format repair.");
     const result = await api.repair({ ...buildGenerateRequest(), prompt: $("#output").value, findings: current.validation?.findings || [] });
     state.outputs[state.outputIndex] = result; renderOutput(); toast("One repair pass completed");
     await addHistory({ createdAt: new Date().toISOString(), mode: state.mode, projectId: state.currentProjectId, projectName: $("#project-name").value, prompt: result.prompt, validation: result.validation, repaired: true });
@@ -956,9 +1251,10 @@ async function renderHistory() {
     const item = document.createElement("article"); item.className = "history-item"; item.tabIndex = 0;
     const title = document.createElement("strong"); title.textContent = `${entry.mode} · ${entry.projectName || "Unsaved"}`;
     const time = document.createElement("span"); time.textContent = new Date(entry.createdAt).toLocaleString();
-    const preview = document.createElement("p"); preview.textContent = entry.prompt;
-    item.append(title, time, preview);
-    const restore = () => { state.outputs = [{ prompt: entry.prompt, validation: entry.validation }]; state.outputIndex = 0; renderOutput(); };
+    const seed = document.createElement("span"); seed.className = "muted"; seed.textContent = entry.seed == null ? "Seed: backend default" : `Seed: ${entry.seed}`;
+    const preview = document.createElement("p"); preview.textContent = historyPreview(entry.prompt);
+    item.append(title, time, seed, preview);
+    const restore = () => { markRevisionStale("A History prompt was loaded."); state.outputs = [{ prompt: fullHistoryPrompt(entry), validation: entry.validation }]; state.outputIndex = 0; renderOutput(); };
     item.addEventListener("click", restore); item.addEventListener("keydown", event => { if (event.key === "Enter") restore(); }); container.append(item);
   }
 }
@@ -1010,13 +1306,59 @@ function bindEvents() {
   $("#open-settings").addEventListener("click", () => $("#settings-dialog").showModal());
   $$('[data-close-settings]').forEach(button => button.addEventListener("click", () => $("#settings-dialog").close()));
   $("#settings-dialog").addEventListener("close", persistSettings);
+  $("#seed-mode").addEventListener("change", renderSeedSettings);
   $("#model-selector").addEventListener("change", event => selectPooledModel(event.target.value));
   $("#model-id").addEventListener("input", () => { setActiveModelStatus(); renderPooledModels(); });
   $("#endpoint-display-name").addEventListener("input", markManualEndpoint);
   $("#base-url").addEventListener("input", markManualEndpoint);
+  $("#creative-controls").addEventListener("click", event => {
+    const button = event.target.closest("[data-creative-field]");
+    if (!button) return;
+    const { creativeField: field, creativeValue: value } = button.dataset;
+    if (field === "music.mode") state.creativeControls.music.mode = value;
+    else if (field === "subjectIdentityFidelity.level") state.creativeControls.subjectIdentityFidelity.level = value;
+    else if (field.startsWith("camera.")) state.creativeControls.camera[field.slice("camera.".length)] = value;
+    renderCreativeControlsUi(); setDirty();
+  });
+  $("#creative-controls").addEventListener("input", event => {
+    const field = event.target.dataset.toneField;
+    if (!field) return;
+    const levels = field === "performanceStyle" ? PERFORMANCE_STYLE_LEVELS
+      : field === "performanceEnergy" ? PERFORMANCE_ENERGY_LEVELS : TONE_LEVELS;
+    const value = semanticFromRange(levels, event.target.value);
+    state.creativeControls.tonePerformance[field] = value;
+    event.target.setAttribute("aria-valuetext", semanticLabel(value));
+    event.target.parentElement.querySelector("output").textContent = semanticLabel(value);
+    setDirty();
+  });
+  $("#music-description").addEventListener("input", event => {
+    state.creativeControls.music.description = event.target.value; setDirty();
+  });
+  $("#visual-style-preset").addEventListener("change", event => {
+    state.creativeControls.visualStyle.preset = event.target.value; renderCreativeControlsUi(); setDirty();
+  });
+  $("#visual-style-custom").addEventListener("input", event => {
+    state.creativeControls.visualStyle.custom = event.target.value; setDirty();
+  });
+  $("#reset-camera-controls").addEventListener("click", () => {
+    state.creativeControls = resetCameraControls(state.creativeControls); renderCreativeControlsUi(); setDirty();
+  });
+  $("#reset-tone-performance").addEventListener("click", () => {
+    state.creativeControls = resetTonePerformance(state.creativeControls); renderCreativeControlsUi(); setDirty();
+  });
+  $("#reset-creative-controls").addEventListener("click", () => {
+    state.creativeControls = resetCreativeControls(state.creativeControls); renderCreativeControlsUi(); setDirty();
+  });
   setupAssetDropTarget();
   $("#generate").addEventListener("click", generate); $("#regenerate").addEventListener("click", generate);
   $("#validate-output").addEventListener("click", validateCurrent); $("#repair-output").addEventListener("click", repairCurrent);
+  $("#revise-selection").addEventListener("click", openRevisionPanel);
+  $("#generate-revision").addEventListener("click", generateRevision);
+  $("#retry-revision").addEventListener("click", generateRevision);
+  $("#stop-revision").addEventListener("click", stopRevision);
+  $("#cancel-revision").addEventListener("click", cancelRevision);
+  $("#apply-revision").addEventListener("click", () => applyRevision());
+  $("#apply-revision-anyway").addEventListener("click", () => applyRevision(true));
   $("#show-instructions").addEventListener("click", showInstructions);
   $("#highlighted-view").addEventListener("click", () => setOutputView(false));
   $("#edit-raw").addEventListener("click", () => setOutputView(true));
@@ -1024,7 +1366,16 @@ function bindEvents() {
   $("#copy-instructions").addEventListener("click", () => navigator.clipboard.writeText($("#instructions-output").textContent).then(() => toast("Instructions copied")));
   $("#copy-output").addEventListener("click", () => navigator.clipboard.writeText($("#output").value).then(() => toast("Clean prompt copied")));
   $("#download-output").addEventListener("click", () => download($("#output").value, `${safeFilename($("#project-name").value)}-${state.mode}.txt`, "text/plain"));
-  $("#output").addEventListener("input", () => { const current = state.outputs[state.outputIndex]; if (current) { current.prompt = $("#output").value; current.validation = null; renderValidation(null); } });
+  $("#output").addEventListener("input", () => {
+    const current = state.outputs[state.outputIndex];
+    if (current) { markRevisionStale("The source prompt was edited."); current.prompt = $("#output").value; current.validation = null; state.revisionSelection = null; renderValidation(null); updateReviseSelectionButton(); }
+  });
+  $("#output").addEventListener("select", captureActiveSelection);
+  $("#output").addEventListener("keyup", captureActiveSelection);
+  $("#output").addEventListener("mouseup", captureActiveSelection);
+  $("#output-highlighted").addEventListener("keyup", captureActiveSelection);
+  $("#output-highlighted").addEventListener("mouseup", captureActiveSelection);
+  document.addEventListener("selectionchange", () => { if (!state.rawEdit) captureActiveSelection(); });
   $("#aspect-ratio").addEventListener("change", () => { $("#custom-ratio-wrap").classList.toggle("hidden", $("#aspect-ratio").value !== "custom"); setDirty(); });
   $("#creative-request").addEventListener("input", updateCharCount);
   $("#project-new").addEventListener("click", newProject); $("#project-save").addEventListener("click", () => saveProject(false));
@@ -1036,12 +1387,15 @@ function bindEvents() {
   document.addEventListener("input", event => {
     if (event.target.closest(".left-rail")) setDirty();
   });
-  document.addEventListener("keydown", event => { if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); if (!state.generation) generate(); } });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !$("#revision-panel").classList.contains("hidden")) { cancelRevision(); return; }
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); if (!state.generation && !state.revision?.running) generate(); }
+  });
   window.addEventListener("beforeunload", event => { if (state.dirty) { event.preventDefault(); event.returnValue = ""; } });
 }
 
 async function init() {
-  restoreSettings(); renderPooledModels(); bindEvents(); setMode("T2VA", false); updateCharCount(); await refreshProjects(); await renderHistory(); setDirty(false);
+  restoreSettings(); renderPooledModels(); bindEvents(); setMode("T2VA", false); renderCreativeControlsUi(); updateCharCount(); await refreshProjects(); await renderHistory(); setDirty(false);
 }
 
 init().catch(error => toast(error.message));

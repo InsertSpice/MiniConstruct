@@ -8,7 +8,7 @@ async function request(path, body) {
   try { data = await response.json(); } catch { data = {}; }
   if (!response.ok) {
     const detail = Array.isArray(data.detail)
-      ? data.detail.map(item => item.msg).join("; ")
+      ? data.detail.map(item => `${(item.loc || []).slice(1).join(".")}: ${item.msg}`).join("; ")
       : data.detail || `Request failed (${response.status})`;
     throw new Error(detail);
   }
@@ -26,7 +26,7 @@ async function streamRequest(path, body, { signal, onEvent }) {
     let data = {};
     try { data = await response.json(); } catch { /* response was not JSON */ }
     const detail = Array.isArray(data.detail)
-      ? data.detail.map(item => item.msg).join("; ")
+      ? data.detail.map(item => `${(item.loc || []).slice(1).join(".")}: ${item.msg}`).join("; ")
       : data.detail || `Request failed (${response.status})`;
     throw new Error(detail);
   }
@@ -55,6 +55,7 @@ export const api = {
   assemble: body => request("assemble", body),
   generate: body => request("generate", body),
   streamGenerate: (body, options) => streamRequest("generate-stream", body, options),
+  streamRevision: (body, options) => streamRequest("revise-stream", body, options),
   validate: body => request("validate", body),
   repair: body => request("repair", body),
   validateProject: body => request("validate-project", body),

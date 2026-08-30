@@ -8,6 +8,7 @@ from typing import Any
 
 from miniconstruct.h3.guide_acquisition import GuideAcquisitionError, guide_setup_message
 from miniconstruct.models.workspace import AssetKind, H3Mode, ReferenceAsset, Workspace
+from miniconstruct.h3.creative_controls import compile_creative_controls
 
 
 ROOT = Path(__file__).resolve().parent
@@ -82,6 +83,13 @@ def build_reference_manifest(workspace: Workspace) -> dict[str, Any]:
             }
         else:
             entry["visionInputAttached"] = False
+        if asset.kind == AssetKind.IMAGE and asset.role == "subject_identity":
+            identity = asset.subject_identity
+            if identity.focus.value != "general" or identity.view.value != "unspecified":
+                entry["subjectIdentity"] = {
+                    "focus": identity.focus.value,
+                    "view": identity.view.value,
+                }
         assets.append(entry)
     return {"assets": assets, "referenceLabels": workspace.reference_labels}
 
@@ -169,6 +177,9 @@ def assemble_prompt(workspace: Workspace, supports_vision: bool | None) -> Assem
         )
     if workspace.reference_labels.strip():
         user_parts.append("REFERENCE LABEL RELATIONSHIPS (authoritative):\n" + workspace.reference_labels)
+    creative_controls = compile_creative_controls(workspace, supports_vision is True)
+    if creative_controls:
+        user_parts.append(creative_controls)
     user_parts.append("Return only the clean H3 prompt as plain text. Do not use Markdown fences or commentary.")
     user_text = "\n\n".join(user_parts)
 

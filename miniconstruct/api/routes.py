@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 import asyncio
 import json
+import secrets
 import time
 from collections.abc import AsyncIterator, Callable
 
@@ -10,6 +11,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from miniconstruct.h3.builder import assemble_prompt, build_reference_manifest
+from miniconstruct.h3.repair import assemble_repair_prompt
+from miniconstruct.h3.revision import assemble_revision_prompt, splice_revision, validate_replacement
 from miniconstruct.h3.validator import validate_prompt, validate_workspace_prompt
 from miniconstruct.llm.client import LLMBackendError, LLMStreamEvent, OpenAICompatibleClient
 from miniconstruct.llm.compatibility import build_generation_payload
@@ -24,6 +27,9 @@ from miniconstruct.models.api import (
     LLMSettings,
     ProjectEnvelope,
     RepairRequest,
+    RevisionRequest,
+    SEED_MAX,
+    SeedMode,
     ValidationRequest,
 )
 
@@ -33,6 +39,20 @@ router = APIRouter(prefix="/api")
 
 def _http_error(exc: LLMBackendError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+def _resolved_generation_seeds(request: GenerationRequest) -> list[int | None]:
+    """Use the browser snapshot when available; retain sane API-call behavior."""
+    if request.resolved_seeds:
+        return request.resolved_seeds
+    if request.llm.seed_mode == SeedMode.FIXED:
+        return [request.llm.fixed_seed] * request.workspace.variations
+    if request.llm.seed_mode == SeedMode.RANDOM:
+        seeds: set[int] = set()
+        while len(seeds) < request.workspace.variations:
+            seeds.add(secrets.randbelow(SEED_MAX + 1))
+        return list(seeds)
+    return [None] * request.workspace.variations
 
 
 @router.get("/health")
@@ -106,9 +126,11 @@ async def validate(request: ValidationRequest) -> dict:
 async def generate(request: GenerationRequest) -> GenerationResponse:
     assembled = assemble_prompt(request.workspace, request.llm.supports_vision)
     generated: list[GeneratedVariation] = []
+    warnings = list(assembled.warnings)
     try:
-        async with OpenAICompatibleClient(request.llm) as client:
-            for _ in range(request.workspace.variations):
+        for seed in _resolved_generation_seeds(request):
+            settings = request.llm.model_copy(update={"seed": seed})
+            async with OpenAICompatibleClient(settings) as client:
                 prompt = await client.generate(deepcopy(assembled.messages))
                 generated.append(
                     GeneratedVariation(
@@ -116,9 +138,11 @@ async def generate(request: GenerationRequest) -> GenerationResponse:
                         validation=validate_workspace_prompt(prompt, request.workspace),
                     )
                 )
+                if client.seed_unsupported:
+                    warnings.append("This endpoint does not support the seed parameter; MiniConstruct retried with backend defaults.")
     except LLMBackendError as exc:
         raise _http_error(exc) from exc
-    return GenerationResponse(variations=generated, warnings=assembled.warnings)
+    return GenerationResponse(variations=generated, warnings=list(dict.fromkeys(warnings)))
 
 
 def _stream_event(event: str, data: dict) -> str:
@@ -133,7 +157,9 @@ async def stream_generation_events(
     assembly_started = time.perf_counter()
     assembled = assemble_prompt(request.workspace, request.llm.supports_vision)
     assembly_ms = (time.perf_counter() - assembly_started) * 1000
-    preview_payload, _ = build_generation_payload(request.llm, assembled.messages, stream=True)
+    preview_payload, _ = build_generation_payload(
+        request.llm.model_copy(update={"seed": None}), assembled.messages, stream=True
+    )
     fingerprint = cache_input_fingerprint(preview_payload)
     image_dimensions = [
         {"width": asset.image.width, "height": asset.image.height}
@@ -163,9 +189,10 @@ async def stream_generation_events(
         },
     })
     try:
-        async with client_factory(request.llm) as client:
-            for variation_index in range(request.workspace.variations):
-                yield _stream_event("variation_start", {"variation": variation_index})
+        for variation_index, seed in enumerate(_resolved_generation_seeds(request)):
+            settings = request.llm.model_copy(update={"seed": seed})
+            async with client_factory(settings) as client:
+                yield _stream_event("variation_start", {"variation": variation_index, "seed": seed})
                 parts: list[str] = []
                 upstream_started = time.perf_counter()
                 first_event_at: float | None = None
@@ -196,6 +223,7 @@ async def stream_generation_events(
                         "reasoningChars": reasoning_chars,
                         "usage": usage,
                         "compatibilityFallback": compatibility_fallback,
+                        "seed": getattr(client, "effective_seed", seed),
                     }
                 try:
                     if hasattr(client, "stream_events"):
@@ -213,6 +241,8 @@ async def stream_generation_events(
                         if upstream_event.kind == "compatibility_fallback":
                             compatibility_fallback = True
                             yield _stream_event("compatibility_fallback", {"variation": variation_index})
+                        elif upstream_event.kind == "seed_unsupported":
+                            yield _stream_event("seed_unsupported", {"variation": variation_index, "seed": None})
                         elif upstream_event.kind == "usage":
                             usage.update(upstream_event.usage)
                         elif upstream_event.kind == "reasoning":
@@ -245,6 +275,7 @@ async def stream_generation_events(
                     "prompt": prompt,
                     "validation": validation.model_dump(mode="json"),
                     "metrics": metrics(completed_at),
+                    "seed": getattr(client, "effective_seed", seed),
                 })
         yield _stream_event("done", {"variations": request.workspace.variations})
     except asyncio.CancelledError:
@@ -261,28 +292,75 @@ async def generate_stream(request: GenerationRequest) -> StreamingResponse:
     )
 
 
+async def stream_revision_events(
+    request: RevisionRequest,
+    client_factory: Callable[[LLMSettings], OpenAICompatibleClient] = OpenAICompatibleClient,
+) -> AsyncIterator[str]:
+    assembled = assemble_revision_prompt(request)
+    yield _stream_event("start", {"warnings": assembled.warnings, "outputIndex": request.output_index})
+    replacement_parts: list[str] = []
+    reasoning_chars = 0
+    try:
+        async with client_factory(request.llm) as client:
+            try:
+                async for upstream_event in client.stream_events(deepcopy(assembled.messages)):
+                    if upstream_event.kind == "compatibility_fallback":
+                        yield _stream_event("compatibility_fallback", {})
+                    elif upstream_event.kind == "seed_unsupported":
+                        yield _stream_event("seed_unsupported", {})
+                    elif upstream_event.kind == "reasoning":
+                        reasoning_chars += len(upstream_event.text)
+                        yield _stream_event("reasoning", {"characterCount": reasoning_chars})
+                    elif upstream_event.kind == "content":
+                        replacement_parts.append(upstream_event.text)
+                        yield _stream_event("delta", {"text": upstream_event.text})
+            except LLMBackendError as exc:
+                yield _stream_event("error", {"message": str(exc), "partial": bool(replacement_parts)})
+                return
+        replacement = "".join(replacement_parts)
+        invalid = validate_replacement(request.selection, replacement)
+        if invalid:
+            yield _stream_event("error", {"message": invalid, "partial": bool(replacement)})
+            return
+        candidate = splice_revision(request.selection, replacement)
+        validation = validate_workspace_prompt(candidate, request.workspace)
+        original_validation = validate_workspace_prompt(request.selection.full_prompt, request.workspace)
+        yield _stream_event("complete", {
+            "replacement": replacement,
+            "candidatePrompt": candidate,
+            "validation": validation.model_dump(mode="json"),
+            "originalValidation": original_validation.model_dump(mode="json"),
+        })
+        yield _stream_event("done", {})
+    except asyncio.CancelledError:
+        raise
+
+
+@router.post("/revise-stream")
+async def revise_stream(request: RevisionRequest) -> StreamingResponse:
+    return StreamingResponse(
+        stream_revision_events(request),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/repair", response_model=GeneratedVariation)
 async def repair(request: RepairRequest) -> GeneratedVariation:
-    assembled = assemble_prompt(request.workspace, request.llm.supports_vision)
-    messages = deepcopy(assembled.messages)
-    failures = "\n".join(
-        f"- {item.get('severity', 'ERROR')} {item.get('code', '')}: {item.get('message', '')}"
-        for item in request.findings
-    ) or "- Repair any structural violation of the selected official guide."
-    messages.append(
-        {
-            "role": "system",
-            "content": (
-                "Perform one format-repair pass. Repair only H3 grammar and the listed validation failures. "
-                "Preserve creative intent, reference relationships, and all verbatim dialogue. Return only clean plain text.\n\n"
-                f"Validator findings:\n{failures}"
-            ),
-        }
-    )
-    messages.append({"role": "user", "content": f"INVALID H3 PROMPT TO REPAIR:\n\n{request.prompt}"})
+    current_validation = validate_workspace_prompt(request.prompt, request.workspace)
+    structural_failures = [
+        finding
+        for finding in current_validation.findings
+        if finding.severity == "ERROR" and finding.category == "structural"
+    ]
+    if not structural_failures:
+        return GeneratedVariation(prompt=request.prompt, validation=current_validation)
+    assembled = assemble_repair_prompt(request, structural_failures)
     try:
-        async with OpenAICompatibleClient(request.llm) as client:
-            prompt = await client.generate(messages)
+        # Repair is deliberately syntax-focused: it neither resolves nor sends a creative seed.
+        repair_settings = request.llm.model_copy(update={"seed": None})
+        async with OpenAICompatibleClient(repair_settings) as client:
+            prompt = await client.generate(assembled.messages)
     except LLMBackendError as exc:
         raise _http_error(exc) from exc
     return GeneratedVariation(prompt=prompt, validation=validate_workspace_prompt(prompt, request.workspace))

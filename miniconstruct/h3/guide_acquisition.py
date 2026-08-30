@@ -16,11 +16,11 @@ from typing import Callable, Iterable
 from urllib.error import URLError
 from urllib.request import urlopen
 
+from miniconstruct.h3.guide_snapshot import GUIDE_SNAPSHOT, UPSTREAM_COMMIT, UPSTREAM_REPOSITORY
+
 
 H3_ROOT = Path(__file__).resolve().parent
 GUIDES_DIR = H3_ROOT / "guides"
-UPSTREAM_COMMIT = "d21241f0a4b3acbb34c97dae47fa417b7065e438"
-UPSTREAM_REPOSITORY = "https://github.com/MiniMax-AI/MiniMax-H3"
 
 
 @dataclass(frozen=True)
@@ -35,10 +35,9 @@ def _source_url(upstream_path: str) -> str:
     return f"https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/{UPSTREAM_COMMIT}/{upstream_path}"
 
 
-GUIDE_SPECS = (
-    GuideSpec("SKILL.md", "skills/h3-prompt-writing/SKILL.md", _source_url("skills/h3-prompt-writing/SKILL.md"), "a7000443588ca3f145e3b3fd8900f14e0325dc460bd811268fac89a9dc8e56d0"),
-    GuideSpec("base-en.txt", "skills/h3-prompt-writing/references/base-en.txt", _source_url("skills/h3-prompt-writing/references/base-en.txt"), "2cfebc096a6e08370f288d468d90b60f7f9bcb938f94bf090816e910e48e75fc"),
-    GuideSpec("ref-en.txt", "skills/h3-prompt-writing/references/ref-en.txt", _source_url("skills/h3-prompt-writing/references/ref-en.txt"), "1e574f356716ad55612247ffb7bbccbcdb484ad96599d63c7dca1af186b1fab7"),
+GUIDE_SPECS = tuple(
+    GuideSpec(local_name, upstream_path, _source_url(upstream_path), sha256)
+    for local_name, upstream_path, sha256 in GUIDE_SNAPSHOT
 )
 
 

@@ -67,6 +67,8 @@ class ReasoningSplitter:
 
 
 class OpenAICompatibleClient:
+    _unsupported_seed_endpoints: set[tuple[str, str]] = set()
+
     def __init__(self, settings: LLMSettings, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self.settings = settings
         headers = {"Accept": "application/json"}
@@ -78,6 +80,10 @@ class OpenAICompatibleClient:
             timeout=settings.timeout_seconds,
             transport=transport,
         )
+        self._seed_endpoint_key = (settings.endpoint.base_url, settings.selected_model_id)
+        self._seed_known_unsupported = self._seed_endpoint_key in self._unsupported_seed_endpoints
+        self.seed_unsupported = False
+        self.effective_seed: int | None = None if self._seed_known_unsupported else settings.seed
 
     async def __aenter__(self) -> "OpenAICompatibleClient":
         return self
@@ -119,16 +125,34 @@ class OpenAICompatibleClient:
     async def generate(self, messages: list[dict[str, Any]]) -> str:
         if not self.settings.selected_model_id.strip():
             raise LLMBackendError("A model ID is required.", 400)
-        payload, optional = build_generation_payload(self.settings, messages, stream=False)
-        try:
-            data = await self._request("POST", "chat/completions", json=payload)
-        except LLMBackendError as exc:
-            if exc.upstream_status not in {400, 422} or not optional:
-                raise
-            payload, _ = build_generation_payload(
-                self.settings, messages, stream=False, include_optional=False
+        include_seed = not self._seed_known_unsupported
+        include_optional = True
+        seed_fallback_used = False
+        optional_fallback_used = False
+        for _ in range(3):
+            payload, optional = build_generation_payload(
+                self.settings,
+                messages,
+                stream=False,
+                include_optional=include_optional,
+                include_seed=include_seed,
             )
-            data = await self._request("POST", "chat/completions", json=payload)
+            try:
+                data = await self._request("POST", "chat/completions", json=payload)
+                break
+            except LLMBackendError as exc:
+                if not seed_fallback_used and _is_seed_rejection(exc, optional):
+                    include_seed = False
+                    seed_fallback_used = True
+                    self.seed_unsupported = True
+                    self.effective_seed = None
+                    self._unsupported_seed_endpoints.add(self._seed_endpoint_key)
+                    continue
+                if not optional_fallback_used and _is_optional_compatibility_rejection(exc, optional):
+                    include_optional = False
+                    optional_fallback_used = True
+                    continue
+                raise
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
@@ -160,25 +184,43 @@ class OpenAICompatibleClient:
             raise LLMBackendError("A model ID is required.", 400)
         timeout = httpx.Timeout(connect=10.0, write=30.0, read=None, pool=10.0)
         try:
-            payload, optional = build_generation_payload(self.settings, messages, stream=True)
-            for attempt in range(2):
+            include_seed = not self._seed_known_unsupported
+            include_optional = True
+            seed_fallback_used = False
+            optional_fallback_used = False
+            for _ in range(3):
+                payload, optional = build_generation_payload(
+                    self.settings,
+                    messages,
+                    stream=True,
+                    include_optional=include_optional,
+                    include_seed=include_seed,
+                )
                 splitter = ReasoningSplitter()
                 async with self.client.stream(
                     "POST", "chat/completions", json=payload, timeout=timeout,
                 ) as response:
                     if response.is_error:
                         detail = (await response.aread()).decode(errors="replace")[:500]
-                        if attempt == 0 and response.status_code in {400, 422} and optional:
-                            payload, _ = build_generation_payload(
-                                self.settings, messages, stream=True, include_optional=False
-                            )
-                            yield LLMStreamEvent("compatibility_fallback")
-                            continue
-                        raise LLMBackendError(
+                        error = LLMBackendError(
                             f"LLM endpoint returned HTTP {response.status_code}: {detail}",
                             502,
                             upstream_status=response.status_code,
                         )
+                        if not seed_fallback_used and _is_seed_rejection(error, optional):
+                            include_seed = False
+                            seed_fallback_used = True
+                            self.seed_unsupported = True
+                            self.effective_seed = None
+                            self._unsupported_seed_endpoints.add(self._seed_endpoint_key)
+                            yield LLMStreamEvent("seed_unsupported")
+                            continue
+                        if not optional_fallback_used and _is_optional_compatibility_rejection(error, optional):
+                            include_optional = False
+                            optional_fallback_used = True
+                            yield LLMStreamEvent("compatibility_fallback")
+                            continue
+                        raise error
                     data_lines: list[str] = []
                     async for line in response.aiter_lines():
                         if line == "":
@@ -206,6 +248,28 @@ class OpenAICompatibleClient:
             raise LLMBackendError("The LLM endpoint timed out while connecting or writing the request.", 504) from exc
         except httpx.RequestError as exc:
             raise LLMBackendError(f"The LLM stream ended unexpectedly: {exc}", 502) from exc
+
+
+def _is_seed_rejection(error: LLMBackendError, optional_fields: set[str]) -> bool:
+    """Only retry a seed-bearing request when the backend identifies seed itself."""
+    if "seed" not in optional_fields or error.upstream_status not in {400, 422}:
+        return False
+    text = str(error).lower()
+    return "seed" in text and any(token in text for token in ("unknown", "unsupported", "unrecognized", "unexpected", "extra field", "invalid parameter"))
+
+
+def _is_optional_compatibility_rejection(error: LLMBackendError, optional_fields: set[str]) -> bool:
+    """Retry only when a 400/422 specifically names an optional compatibility field."""
+    fields = optional_fields - {"seed"}
+    if not fields or error.upstream_status not in {400, 422}:
+        return False
+    text = str(error).lower()
+    recognized = ("unknown", "unsupported", "unrecognized", "unexpected", "extra field", "invalid parameter")
+    if any(field.lower() in text for field in fields):
+        return any(token in text for token in recognized)
+    # Some Unsloth-compatible servers report its known thinking kwargs only as
+    # "unknown field". Preserve that existing, narrowly scoped compatibility path.
+    return "chat_template_kwargs" in fields and "unknown field" in text
 
 
 def _decode_sse_data(

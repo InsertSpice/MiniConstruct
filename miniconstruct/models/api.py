@@ -21,6 +21,15 @@ class ReasoningMode(StrEnum):
     ON = "on"
 
 
+class SeedMode(StrEnum):
+    BACKEND_DEFAULT = "backend_default"
+    RANDOM = "random"
+    FIXED = "fixed"
+
+
+SEED_MAX = 2_147_483_647
+
+
 class EndpointProfile(BaseModel):
     """One OpenAI-compatible endpoint and its user-owned connection details."""
 
@@ -65,6 +74,9 @@ class LLMSettings(BaseModel):
     timeout_seconds: float = Field(default=120, alias="timeoutSeconds", ge=1, le=600)
     supports_vision: bool | None = Field(default=None, alias="supportsVision")
     reasoning_mode: ReasoningMode = Field(default=ReasoningMode.OFF, alias="reasoningMode")
+    seed_mode: SeedMode = Field(default=SeedMode.BACKEND_DEFAULT, alias="seedMode")
+    fixed_seed: int | None = Field(default=None, alias="fixedSeed", ge=0, le=SEED_MAX)
+    seed: int | None = Field(default=None, ge=0, le=SEED_MAX)
 
     @model_validator(mode="before")
     @classmethod
@@ -83,6 +95,12 @@ class LLMSettings(BaseModel):
         if "modelId" not in normalized and isinstance(normalized.get("model"), str):
             normalized["modelId"] = normalized["model"]
         return normalized
+
+    @model_validator(mode="after")
+    def validate_seed_settings(self) -> "LLMSettings":
+        if self.seed_mode == SeedMode.FIXED and self.fixed_seed is None:
+            raise ValueError("fixedSeed is required when seedMode is fixed")
+        return self
 
     @property
     def selected_model_id(self) -> str:
@@ -115,6 +133,47 @@ class GenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     workspace: Workspace
     llm: LLMSettings
+    resolved_seeds: list[int | None] = Field(default_factory=list, alias="resolvedSeeds")
+
+    @model_validator(mode="after")
+    def validate_resolved_seeds(self) -> "GenerationRequest":
+        if self.resolved_seeds and len(self.resolved_seeds) != self.workspace.variations:
+            raise ValueError("resolvedSeeds must contain one seed per variation")
+        return self
+
+
+class RevisionSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    full_prompt: str = Field(alias="fullPrompt", min_length=1)
+    before_selection: str = Field(alias="beforeSelection")
+    selected_text: str = Field(alias="selectedText", min_length=1)
+    after_selection: str = Field(alias="afterSelection")
+
+    @model_validator(mode="after")
+    def verify_snapshot(self) -> "RevisionSelection":
+        if not self.selected_text.strip():
+            raise ValueError("selected text must contain non-whitespace content")
+        if self.before_selection + self.selected_text + self.after_selection != self.full_prompt:
+            raise ValueError("selection snapshot does not reconstruct the full prompt")
+        return self
+
+
+class RevisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    workspace: Workspace
+    llm: LLMSettings
+    output_index: int = Field(alias="outputIndex", ge=0)
+    selection: RevisionSelection
+    instruction: str = Field(min_length=1, max_length=8000)
+
+    @field_validator("instruction")
+    @classmethod
+    def validate_instruction(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("revision instruction must contain non-whitespace content")
+        return value
 
 
 class ValidationRequest(BaseModel):
@@ -136,6 +195,7 @@ class ValidationFinding(BaseModel):
     severity: Literal["ERROR", "WARNING", "INFO"]
     code: str
     message: str
+    category: Literal["structural", "workspace_consistency"] = "structural"
 
 
 class ValidationResult(BaseModel):

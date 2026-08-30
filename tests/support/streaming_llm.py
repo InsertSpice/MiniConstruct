@@ -24,13 +24,16 @@ async def models() -> dict:
 
 @app.post("/v1/chat/completions")
 async def completions(body: dict):
+    message_text = "\n".join(
+        str(message.get("content", "")) for message in body.get("messages", [])
+    )
     prompt = (
         "integrated_multimodal_description: [Shot 1] Live-action, a cyclist waits in gentle rain. "
         "[Shot 2] At 00:03.500, the camera cuts to the cyclist crossing.\n\n"
         "overall_soundscape: Rain and distant traffic.\n\n"
         "non_diegetic_music: N/A"
     )
-    if any("Ref2VA" in str(message.get("content", "")) for message in body.get("messages", [])):
+    if "Ref2VA" in message_text:
         prompt = (
             "subject_definitions:\n<Subject 1> is the person in a rainy street scene.\n\n"
             "summary:\n[reference generation + audio reference] The target follows <Subject 1>.\n\n"
@@ -38,6 +41,41 @@ async def completions(body: dict):
             "detailed_description:\n[Shot 1] <Subject 1> (S1) walks through rain and says, <d>[English] Keep moving.</d>\n\n"
             "overall_soundscape:\nRain and distant traffic.\n\n"
             "non_diegetic_music:\nN/A"
+        )
+    is_revision = "<MINICONSTRUCT_SELECTION>" in message_text
+    is_repair = "CURRENT H3 PROMPT TO REPAIR:" in message_text
+    is_slow_revision = False
+    if is_revision:
+        revision_instruction = message_text.split("REVISION REQUEST (authoritative):\n", 1)[1].split(
+            "\n\nCOMPLETE CURRENT H3 PROMPT", 1
+        )[0]
+        is_slow_revision = "slow" in revision_instruction.lower()
+        selected = message_text.split("<MINICONSTRUCT_SELECTION>\n", 1)[1].split(
+            "\n</MINICONSTRUCT_SELECTION>", 1
+        )[0]
+        prompt = selected.replace("waits", "surges forward").replace("crossing", "racing across")
+        if prompt == selected:
+            prompt = selected.replace("surges forward", "dashes forward").replace(
+                "racing across", "sprinting across"
+            )
+        if prompt == selected:
+            prompt = selected + " The staging becomes faster and more dynamic."
+        if is_slow_revision:
+            prompt += " Dynamic momentum builds." * 20
+        if "malformed" in revision_instruction.lower():
+            prompt = "Malformed replacement without H3 shot syntax."
+        elif "combine" in revision_instruction.lower():
+            prompt = (
+                "integrated_multimodal_description:\n"
+                "[Shot 1] A cyclist waits.\n"
+                "[Shot 2] At 00:01.000, the cyclist launches and accelerates.\n"
+                "[Shot 3] At 00:05.000, the cyclist arrives.\n\n"
+                "overall_soundscape:\nRain.\n\n"
+                "non_diegetic_music:\nN/A"
+            )
+    elif is_repair:
+        prompt = message_text.split("CURRENT H3 PROMPT TO REPAIR:\n", 1)[1].replace(
+            "At 09.000", "At 00:05.000"
         )
     if not body.get("stream"):
         return {"choices": [{"message": {"content": prompt}}]}
@@ -51,7 +89,7 @@ async def completions(body: dict):
                 await asyncio.sleep(0.12)
         for token in [prompt[index:index + 12] for index in range(0, len(prompt), 12)]:
             yield f"data: {json.dumps({'choices': [{'delta': {'content': token}}]})}\n\n"
-            await asyncio.sleep(0.18)
+            await asyncio.sleep(0.28 if is_slow_revision else 0.18)
         usage = {"prompt_tokens": 321, "completion_tokens": len(prompt) // 4, "total_tokens": 321 + len(prompt) // 4}
         yield f"data: {json.dumps({'choices': [], 'usage': usage})}\n\n"
         yield "data: [DONE]\n\n"

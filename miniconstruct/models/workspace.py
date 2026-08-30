@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class H3Mode(StrEnum):
@@ -18,6 +18,79 @@ class AssetKind(StrEnum):
     IMAGE = "image"
     VIDEO = "video"
     AUDIO = "audio"
+
+
+class MusicMode(StrEnum):
+    AUTO = "auto"
+    OFF = "off"
+    ON = "on"
+
+
+class CameraPreference(StrEnum):
+    AUTO = "auto"
+    AVOID = "avoid"
+    PREFER = "prefer"
+
+
+class ReferenceFidelityLevel(StrEnum):
+    AUTO = "auto"
+    BALANCED = "balanced"
+    STRONG = "strong"
+    STRICT = "strict"
+
+
+class VisualStylePreset(StrEnum):
+    AUTO = "auto"
+    CINEMATIC = "cinematic"
+    LIVE_ACTION = "live_action"
+    ANIMATED_2D = "animated_2d"
+    ANIMATED_2D_ANIME = "animated_2d_anime"
+    CG_3D = "cg_3d"
+    CG_3D_STYLIZED = "cg_3d_stylized"
+    CLAYMATION = "claymation"
+    WATERCOLOR = "watercolor"
+    VINTAGE_FILM = "vintage_film"
+    CUSTOM = "custom"
+
+
+class ToneLevel(StrEnum):
+    AUTO = "auto"
+    SUBTLE = "subtle"
+    MODERATE = "moderate"
+    STRONG = "strong"
+    INTENSE = "intense"
+
+
+class PerformanceStyle(StrEnum):
+    RESTRAINED = "restrained"
+    SUBTLE = "subtle"
+    AUTO = "auto"
+    EXPRESSIVE = "expressive"
+    EXAGGERATED = "exaggerated"
+
+
+class PerformanceEnergy(StrEnum):
+    CALM = "calm"
+    LOW = "low"
+    AUTO = "auto"
+    ENERGETIC = "energetic"
+    INTENSE = "intense"
+
+
+class SubjectIdentityFocus(StrEnum):
+    GENERAL = "general"
+    FACE = "face"
+    FULL_BODY = "full_body"
+    OUTFIT = "outfit"
+    DETAIL = "detail"
+
+
+class SubjectIdentityView(StrEnum):
+    UNSPECIFIED = "unspecified"
+    FRONT = "front"
+    THREE_QUARTER = "three_quarter"
+    PROFILE = "profile"
+    REAR = "rear"
 
 
 IMAGE_ROLES = {
@@ -55,6 +128,15 @@ class ImagePayload(BaseModel):
         return value
 
 
+class SubjectIdentityReference(BaseModel):
+    """Typed Picture metadata that is active only with the subject_identity role."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    focus: SubjectIdentityFocus = SubjectIdentityFocus.GENERAL
+    view: SubjectIdentityView = SubjectIdentityView.UNSPECIFIED
+
+
 class ReferenceAsset(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -66,6 +148,7 @@ class ReferenceAsset(BaseModel):
     role: str
     notes: str = Field(default="", max_length=8000)
     options: dict[str, Any] = Field(default_factory=dict)
+    subject_identity: SubjectIdentityReference = Field(default_factory=SubjectIdentityReference, alias="subjectIdentity")
     order: int = Field(default=0, ge=0)
     image: ImagePayload | None = None
     attached: bool = True
@@ -84,6 +167,70 @@ class ReferenceAsset(BaseModel):
         return self
 
 
+class MusicControls(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: MusicMode = MusicMode.AUTO
+    description: str = Field(default="", max_length=8000)
+
+
+class CameraControls(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    zoom: CameraPreference = CameraPreference.AUTO
+    push_pull: CameraPreference = Field(default=CameraPreference.AUTO, alias="pushPull")
+    pan: CameraPreference = CameraPreference.AUTO
+    truck: CameraPreference = CameraPreference.AUTO
+    tilt: CameraPreference = CameraPreference.AUTO
+    pedestal: CameraPreference = CameraPreference.AUTO
+    arc: CameraPreference = CameraPreference.AUTO
+    tracking: CameraPreference = CameraPreference.AUTO
+    static: CameraPreference = CameraPreference.AUTO
+    shake: CameraPreference = CameraPreference.AUTO
+    pov: CameraPreference = CameraPreference.AUTO
+    roll: CameraPreference = CameraPreference.AUTO
+
+
+class SubjectIdentityFidelityControls(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    level: ReferenceFidelityLevel = ReferenceFidelityLevel.AUTO
+
+
+class VisualStyleControls(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    preset: VisualStylePreset = VisualStylePreset.AUTO
+    custom: str = Field(default="", max_length=8000)
+
+
+class TonePerformanceControls(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    sensuality: ToneLevel = ToneLevel.AUTO
+    drama: ToneLevel = ToneLevel.AUTO
+    horror: ToneLevel = ToneLevel.AUTO
+    tension: ToneLevel = ToneLevel.AUTO
+    romance: ToneLevel = ToneLevel.AUTO
+    whimsy: ToneLevel = ToneLevel.AUTO
+    performance_style: PerformanceStyle = Field(default=PerformanceStyle.AUTO, alias="performanceStyle")
+    performance_energy: PerformanceEnergy = Field(default=PerformanceEnergy.AUTO, alias="performanceEnergy")
+
+
+class CreativeControls(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    music: MusicControls = Field(default_factory=MusicControls)
+    camera: CameraControls = Field(default_factory=CameraControls)
+    visual_style: VisualStyleControls = Field(default_factory=VisualStyleControls, alias="visualStyle")
+    subject_identity_fidelity: SubjectIdentityFidelityControls = Field(
+        default_factory=SubjectIdentityFidelityControls,
+        alias="subjectIdentityFidelity",
+        validation_alias=AliasChoices("subjectIdentityFidelity", "referenceFidelity"),
+    )
+    tone_performance: TonePerformanceControls = Field(default_factory=TonePerformanceControls, alias="tonePerformance")
+
+
 class Workspace(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -99,6 +246,7 @@ class Workspace(BaseModel):
     dialogue: str = Field(default="", max_length=30000)
     reference_labels: str = Field(default="", alias="referenceLabels", max_length=30000)
     assets: list[ReferenceAsset] = Field(default_factory=list)
+    creative_controls: CreativeControls = Field(default_factory=CreativeControls, alias="creativeControls")
 
     @field_validator("creative_request")
     @classmethod
