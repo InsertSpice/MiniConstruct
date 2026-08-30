@@ -24,7 +24,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="MiniConstruct",
     description="Local MiniMax H3 structured-prompt workbench",
-    version="0.1.0",
+    version="0.2.0",
     docs_url="/api/docs",
     redoc_url=None,
     lifespan=lifespan,

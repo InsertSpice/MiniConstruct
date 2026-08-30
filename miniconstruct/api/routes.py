@@ -57,7 +57,7 @@ def _resolved_generation_seeds(request: GenerationRequest) -> list[int | None]:
 
 @router.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "application": "MiniConstruct", "version": "0.1.0"}
+    return {"status": "ok", "application": "MiniConstruct", "version": "0.2.0"}
 
 
 async def enumerate_endpoint_models(settings: LLMSettings) -> dict:
