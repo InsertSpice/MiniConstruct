@@ -1,322 +1,368 @@
 # MiniConstruct
 
-MiniConstruct is a local, dark-themed web workbench for turning a creative idea
-and semantic reference manifest into a structured **MiniMax H3** prompt. It uses
-a separate OpenAI-compatible prompt-writing LLM, validates the returned H3
-grammar, and keeps editable Projects and generated-output History in your
-browser.
+**MiniConstruct is a local prompt-writing workbench for MiniMax H3.**
 
-MiniConstruct generates prompts. It does **not** run MiniMax H3, perform ComfyUI
-inference, inspect video, listen to audio, extract frames, or transcribe media.
+Describe the video you want, attach your references, choose the relevant H3 mode and creative controls, and MiniConstruct uses a separate OpenAI-compatible LLM to turn that workspace into a structured H3 prompt.
 
-MiniConstruct's original source code is licensed under GPL-3.0-or-later.
-MiniMax H3 and its official documentation are separate third-party materials;
-see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+It is designed for people who want the flexibility of writing H3 prompts with an LLM without repeatedly explaining H3 syntax, reference semantics, dialogue rules, continuation behavior, camera preferences, and formatting requirements by hand.
 
-<img width="2108" height="844" alt="MiniConstruct" src="https://github.com/user-attachments/assets/d348f791-caf8-4498-90c5-132e03f1dd6a" />
+> **MiniConstruct writes H3 prompts. It does not run MiniMax H3 itself.**
+>
+> Use the resulting prompt with your existing H3 workflow, such as ComfyUI or another compatible frontend.
 
-## Requirements
+## What can MiniConstruct do?
+
+MiniConstruct can:
+
+- Build prompts for **T2VA, I2VA, FL2VA, L2VA, and Ref2VA**
+- Organize **Picture, Video, and Audio references**
+- Associate references with semantic **Subjects**
+- Use image references directly with a vision-capable prompt-writing model
+- Preserve **exact dialogue**
+- Build **video continuation** and **seamless overlap continuation** prompts
+- Control camera preferences, tone, performance, music, visual style, identity fidelity, and prompt-generation seed
+- Generate multiple prompt variations
+- Validate generated H3 structure and reference usage
+- Repair formatting problems without rewriting the creative intent
+- Highlight part of a generated prompt and **revise only that selection**
+- Save editable Projects and keep recent generated prompts in local History
+
+MiniConstruct handles the H3-specific instructions behind the scenes while keeping the creative request itself editable.
+
+## Example workflows
+
+### Reference-driven character performance
+
+Attach one or more images of a character, mark them as Subject / Identity references, describe the scene and performance you want, then use Creative Controls to steer things such as camera movement, performance energy, tone, and identity fidelity.
+
+MiniConstruct turns the workspace into a Ref2VA prompt that explains how H3 should use the supplied references.
+
+### Image-to-video
+
+Choose **I2VA**, attach the required first-frame Picture, describe what should happen after that frame, and generate the finished H3 prompt.
+
+For first-and-last-frame generation, use **FL2VA**. For last-frame-only generation, use **L2VA**.
+
+### Video continuation
+
+Attach a previous video as the continuation source and describe what should happen next.
+
+For transitions between separately generated clips, **Seamless overlap continuation** can use the ending portion of the previous clip as an overlap reference so the new generation continues through the boundary instead of resetting the action, pose, camera, or momentum.
+
+### Exact dialogue
+
+Enter dialogue separately from the creative request:
+
+```text
+Subject 1: Where are we?
+Subject 2: Somewhere we shouldn't be.
+```
+
+MiniConstruct instructs the prompt-writing model to preserve those lines verbatim in H3 dialogue syntax while the main creative request controls timing, acting, reactions, camera behavior, and surrounding action.
+
+### Fix one bad part of a prompt
+
+Generate a prompt, highlight the section you want changed, enter a revision instruction, and use **Revise Selection**.
+
+MiniConstruct replaces only that selected section instead of regenerating the entire prompt.
+
+## How it works
+
+MiniConstruct sits between you and a prompt-writing LLM:
+
+```text
+Your workspace
+    ↓
+MiniConstruct H3 instructions + reference manifest
+    ↓
+OpenAI-compatible prompt-writing model
+    ↓
+Structured MiniMax H3 prompt
+    ↓
+Your H3 generation workflow
+```
+
+The prompt-writing model does not need to memorize MiniMax H3 prompting conventions itself. MiniConstruct supplies the relevant H3 guide, mode rules, reference relationships, dialogue constraints, Creative Controls, and workspace information with each request.
+
+## Creative Controls
+
+Creative Controls let you influence the generated prompt without stuffing every preference into the main creative request.
+
+### Camera
+
+Individual camera behaviors can be marked **Avoid**, **Auto**, or **Prefer**.
+
+This is useful when you want, for example, an energetic moving camera without encouraging particular motions that do not suit the scene.
+
+### Tone & Performance
+
+Tone controls can emphasize qualities such as sensuality, drama, horror, tension, romance, and whimsy.
+
+Performance controls separately influence how restrained, expressive, exaggerated, calm, or energetic the subject should be.
+
+These controls affect presentation and performance rather than silently changing the requested character, scene, or wardrobe.
+
+### Visual style and music
+
+Visual Style can provide an additional stylistic direction to the prompt writer.
+
+Music can be left on **Auto**, explicitly encouraged, or disabled when you do not want the generated H3 prompt inventing musical content.
+
+### Subject Identity Fidelity
+
+Identity Fidelity controls how strongly MiniConstruct tells the prompt writer to preserve identity evidence supplied by Subject references.
+
+Identity references can also be described by focus, such as facial identity, full-body appearance, outfit/clothing, or detail.
+
+### Seed
+
+MiniConstruct supports backend-default, random, and fixed seed behavior for compatible prompt-writing backends.
+
+A fixed seed can help reproduce the prompt-writing model's output where the backend supports deterministic seeded sampling.
+
+## Iterative prompt editing
+
+Generated prompts remain editable.
+
+You can:
+
+- edit the raw prompt manually
+- highlight a contiguous section and use **Revise Selection**
+- validate the current prompt
+- use **Repair Format** when the creative content is correct but the H3 structure is not
+
+Revision works from the current generated prompt rather than regenerating the entire output.
+
+**Repair Format** is deliberately narrower: it receives the current prompt, the relevant H3 guide, and structural findings, and is instructed to repair formatting rather than reinterpret the scene.
+
+## Reference-driven prompting
+
+Pictures, Videos, and Audio are numbered independently.
+
+A reference can be assigned a role, Notes, and semantic relationships describing how it should be used.
+
+For example, a Picture may define:
+
+- Subject identity
+- environment
+- composition
+- outfit
+- a visual detail
+- another reference-specific purpose
+
+A `<Subject N>` represents a visible entity in the target video rather than being another name for `<Picture N>` or `<Video N>`.
+
+Several assets may contribute to the same Subject, and reference relationships can explain how those assets relate to one another.
+
+### Image vision
+
+When **Model accepts images** is enabled, Pictures are sent to the prompt-writing LLM using OpenAI-compatible `image_url` content.
+
+Pictures are resized in the browser to a maximum longest side of 1600 pixels before being stored and used.
+
+### Video and Audio
+
+Raw Video and Audio are **not** sent to the prompt-writing LLM.
+
+MiniConstruct sends their metadata, duration, role, Notes, options, and semantic relationships instead.
+
+This means the prompt writer cannot actually watch a supplied Video or hear a supplied Audio file, so MiniConstruct avoids asking it to invent properties it cannot inspect.
+
+## H3 modes
+
+MiniConstruct supports the main MiniMax H3 audiovisual generation modes:
+
+- **T2VA** — text-driven audiovisual generation
+- **I2VA** — one exact first-frame Picture at `0.00`
+- **FL2VA** — exact first and last Pictures
+- **L2VA** — one exact last-frame Picture
+- **Ref2VA** — full semantic reference-driven generation
+
+Duration is limited to H3's supported **4–15 second** range.
+
+Shot count may be automatic or explicitly chosen. MiniConstruct validates shot timestamps, required sections, reference resolution, dialogue, mode-specific alignment, and other structural rules.
+
+## Dialogue and continuation
+
+Exact dialogue is entered separately from the main creative request so wording can be preserved verbatim while the creative field remains free to describe timing, reactions, interruptions, pauses, camera behavior, and performance.
+
+MiniConstruct also supports the official `[video continuation]` relationship for continuing from a source video's ending state.
+
+**Seamless overlap continuation** is a stronger continuation strategy that uses the ending portion of the previous clip as overlap material so the next generation can continue through the boundary with less risk of replay, reset, camera discontinuity, or lost momentum.
+
+## Installation
+
+### Requirements
 
 - Python 3.12 or newer
 - A modern Chromium, Firefox, or Safari browser
-- An OpenAI Chat Completions-compatible local server such as LM Studio, Ollama,
-  Unsloth Studio, or another compatible implementation
+- An OpenAI Chat Completions-compatible prompt-writing server
 
-No Node.js, frontend build, database server, account, or cloud service is
-required.
+Typical local options include LM Studio, Ollama, Unsloth Studio, and other compatible servers.
 
-## Cross-platform setup
-
-MiniConstruct runs on Windows, Linux, and macOS. A new installation is:
-clone the repository → create and activate a virtual environment → install
-MiniConstruct → explicitly acquire the official guides once → start the local
-server.
-
-After activating the virtual environment, use these portable commands on every
-platform:
-
-```sh
-python -m pip install -e ".[dev]"
-python -m miniconstruct.h3.guide_acquisition
-python -m miniconstruct
-```
-
-Guide acquisition is a one-time, explicit download of the official MiniMax
-files. It never occurs silently during generation. If you start before
-acquiring them, MiniConstruct prints the same acquisition command and expected
-paths.
+No Node.js frontend toolchain, database server, account, or cloud service is required.
 
 ### Windows
 
-In PowerShell, from the repository directory:
+From the repository directory in PowerShell:
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
-python -m miniconstruct.h3.guide_acquisition
-python -m miniconstruct
+.\run.ps1
 ```
 
-`start-miniconstruct.bat` is an optional double-click launcher after setup. It
-uses `.venv\Scripts\python.exe`, binds to `127.0.0.1:8743`, keeps its terminal
-visible, and can be stopped with Ctrl+C. `run.ps1` is also optional; it is not
-required to run MiniConstruct.
+Open:
 
-To allow LAN access deliberately with the PowerShell wrapper:
+```text
+http://127.0.0.1:8743
+```
+
+To deliberately allow LAN access:
 
 ```powershell
 .\run.ps1 -BindHost 0.0.0.0 -Port 8743
 ```
 
-### Linux and macOS
+The default loopback binding is safer. Binding to all interfaces can expose MiniConstruct and its configured API credentials to other devices on the network.
+
+### Unix-like systems
 
 ```sh
 python3.12 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e '.[dev]'
-python -m miniconstruct.h3.guide_acquisition
-python -m miniconstruct
+chmod +x run.sh
+./run.sh
 ```
 
-`run.sh` is an optional convenience wrapper after setup.
+You can also start MiniConstruct directly:
 
-Binding to all interfaces can expose the UI and its configured API key to other
-devices on your network. The default remains `127.0.0.1`.
+```sh
+python -m miniconstruct --host 127.0.0.1 --port 8743
+```
 
-The health endpoint is <http://127.0.0.1:8743/api/health>, and local API docs
-are available at <http://127.0.0.1:8743/api/docs>.
+The health endpoint is:
+
+```text
+http://127.0.0.1:8743/api/health
+```
+
+Local API documentation is available at:
+
+```text
+http://127.0.0.1:8743/api/docs
+```
 
 ## Connect a prompt-writing model
 
-The Base URL must include the compatible API prefix when the server uses one.
-MiniConstruct calls only `GET /models` and `POST /chat/completions` beneath that
-URL. Model discovery is optional; you can always type a model ID manually.
+Open **Settings** and enter the OpenAI-compatible Base URL, API key if required, and model ID.
 
-Generate and Regenerate use standard OpenAI-compatible SSE token streaming.
-The output grows while the model is working, the authoring workspace remains
-editable, and **Stop** closes the browser request and upstream HTTP stream.
-Stopped or failed partial output remains available to copy, but is not validated
-or saved to History as a completed prompt. Each in-flight request uses an
-immutable snapshot of the Workspace and selected model settings captured when
-generation begins.
+The Base URL should include the API prefix expected by the server, commonly `/v1`.
 
-### LM Studio
+MiniConstruct can discover models when the server exposes a compatible model-list endpoint, but manual model IDs are always supported.
 
-1. Load a text or multimodal instruction model and start LM Studio's local
-   server.
-2. Use `http://127.0.0.1:1234/v1` as the Base URL.
-3. Choose **Discover**, select a model, and use **Test connection**.
-4. Enable **Model accepts images** only when that loaded model and server route
-   really accept OpenAI `image_url` content parts.
+Enable **Model accepts images** only when both the selected model and server support OpenAI-compatible multimodal Chat Completions.
 
-### Ollama
+Generate and Regenerate use streaming output, so the prompt appears while the model is writing it. **Stop** closes the active browser request and upstream HTTP stream.
 
-1. Start Ollama and make sure the selected model is installed.
-2. Use `http://127.0.0.1:11434/v1`.
-3. Discover or enter the exact Ollama model ID, then test the connection.
-
-### Other compatible servers
-
-Enter the server's OpenAI-compatible base URL, optional API key, model ID,
-temperature, and output-token budget. MiniConstruct does not infer vision or any
-other capability from the model name. If model listing is unsupported, manual
-model entry still works.
-
-## H3 modes
-
-- **T2VA** — text-driven audiovisual generation using the official three-field
-  base format.
-- **I2VA** — one exact first-frame Picture at 0.00 seconds.
-- **FL2VA** — exact first and last Pictures, with official alignment syntax and
-  effective-duration ending.
-- **L2VA** — one exact last-frame Picture at the effective-duration ending.
-- **Ref2VA** — semantic full-reference generation using the official six-section
-  format.
-
-Duration is hard-limited to the official 4–15 second range. Shots may be auto or
-any positive integer; MiniConstruct does not invent a four-shot cap. Later cuts
-must have increasing `MM:SS.mmm` timestamps within the duration. Variations are
-independent prompt rewrites and are never treated as shots.
-
-## Reference semantics
-
-Pictures, Videos, and Audio are numbered independently within their categories.
-Stable internal IDs survive reordering. A `<Subject N>` is a semantic visible
-entity, not an asset alias: it may draw from several assets, and one asset may
-contribute to several Subjects.
-
-- **Role** says what an asset does.
-- **Notes** provide asset-specific facts or constraints.
-- **Reference Labels** describe relationships among Subjects and reference
-  labels.
-- **Main prompt / idea** says what happens in the target video.
-
-Images are downscaled in the browser to at most 1600 pixels on their longest
-side and saved in Project data. When vision is explicitly enabled, they are sent
-to the prompt-writing LLM as standard OpenAI-compatible `image_url` content
-parts. MiniConstruct shows a warning when image vision is disabled.
-
-Video and Audio are always metadata-only to the prompt-writing LLM. Only
-filename, MIME type, browser-derived duration, role, Notes, options, and semantic
-relationships are sent. Raw video/audio is never base64-encoded into generation
-requests. A Video with sound never creates an Audio reference automatically.
-
-Audio roles distinguish direct full/partial signal reuse from guidance such as
-voice timbre, beat, dialogue content, or audio style. For voice timbre, connect
-the explicit Audio and Subject in Reference Labels; the LLM is reminded that it
-cannot hear the Audio and must not invent its properties.
-
-## Continuation modes
-
-**Continuation source** uses the official `[video continuation]` relationship:
-the target proceeds from the source video's ending state and need not replay the
-whole source at its opening.
-
-**Seamless overlap continuation** is a stronger strategy, not a new H3 task
-type. Supply the final roughly 1–2 seconds of the preceding video (a recommendation,
-not a hard limit). Shot 1 reproduces that complete clip as the same physical
-moments, then advances beyond its final frame without replay, rewind, reset,
-pose/state snap, camera discontinuity, or lost momentum. When a duration is
-known, the assembled instructions use its real `00:00.000–MM:SS.mmm` range;
-otherwise they refer to the complete Video duration without fabricating a time.
-The outgoing camera crosses the boundary before any later editorial cut.
-
-## Dialogue
-
-Enter exact lines separately, for example:
-
-```text
-Subject 1: First exact line.
-Subject 2: Second exact line.
-Subject 1: Third exact line.
-```
-
-The main creative field remains the place for timing, reactions, interruptions,
-pauses, camera behavior, and performance. MiniConstruct tells the writer to keep
-dialogue verbatim inside `<d>...</d>` in its source language. `(S1)`, `(S2)`,
-and later IDs follow actual vocal-event order; they do not equal Subject numbers.
-
-## Validation and repair
-
-MiniConstruct validates exact required section names/order, mode alignment lines,
-Shot 1 and later cut grammar, timestamp order and bounds, reference resolution,
-Ref2VA retention, speaker consistency where practical, and verbatim dialogue.
-Findings are classified as ERROR, WARNING, or INFO. The validator checks explicit
-grammar and invariants rather than stylistic prose.
-
-**Repair Format** performs one user-requested LLM pass with the official guide
-and current findings. It is never an uncontrolled retry loop. **Show LLM
-Instructions** displays the same layered textual context used by generation,
-excluding API keys and binary image data.
-
-Generation uses a short connection timeout but no short read timeout after the
-stream is established, accommodating long first-token latency and slow local
-inference. Model discovery and connection testing retain short timeouts. The
-portable cancellation mechanism is closing the active stream; a backend may
-continue computing after disconnect if it does not stop inference when its
-client connection closes.
-
-### Reasoning and performance diagnostics
-
-Reasoning defaults to **Off** for structured H3 rewriting. MiniConstruct adds a
-direct-output instruction and, for identified Unsloth Studio endpoints, sends
-the Gemma/Qwen-compatible `thinking` and `enable_thinking` chat-template flags.
-**Backend default** sends no reasoning preference; **On** explicitly requests it
-where that compatibility is known. If a strict backend rejects optional fields,
-MiniConstruct retries once without them. Reasoning deltas and inline reasoning
-tags are measured separately and never enter the canonical H3 prompt.
-
-The output area reports request assembly, first upstream event, first reasoning
-delta, first final-content delta, final-output duration, safe token usage when
-provided, and a SHA-256 cache-input fingerprint. The fingerprint includes the
-model-visible messages, image-content hashes, and relevant generation/template
-parameters, but excludes API keys and raw image data. Matching fingerprints on
-unchanged requests confirm equivalent model input; they do not guarantee that a
-backend will reuse its KV cache.
+Reasoning defaults to **Off** because MiniConstruct primarily wants direct structured output.
 
 ## Projects and History
 
-Projects are complete editable workspaces stored in IndexedDB. Save, Save As,
-load, delete, export, and import are available from the header. Exported
-`.miniconstruct-project.json` files contain processed Pictures but never API
-keys or raw Video/Audio. After reload or import, Video/Audio metadata remains and
-the card says **media not attached** until you reattach a local file without
-losing its semantic settings.
+**Projects** are complete editable workspaces stored locally in IndexedDB.
 
-History is a separate local list of the 50 most recent generated outputs. It
-stores prompt text and validation metadata, not editable Projects or secrets.
+They can be saved, loaded, deleted, exported, and imported.
 
-## Official H3 specification and architecture
+Exported `.miniconstruct-project.json` files can contain processed Pictures but never API keys or raw Video/Audio.
 
-MiniConstruct keeps its own operating instructions separate from the normative
-MiniMax material. For this public release, the complete official guides are not
-redistributed. After normal Python setup, run:
+Because raw Video and Audio are not stored inside a Project, imported or reloaded projects may show **media not attached** until the original local file is reattached. Its semantic settings are preserved.
 
-```powershell
-.\.venv\Scripts\python.exe -m miniconstruct.h3.guide_acquisition
+**History** stores the 50 most recent completed generated prompts and their validation metadata.
+
+Projects and History are separate.
+
+## Validation and diagnostics
+
+MiniConstruct validates structural H3 requirements including:
+
+- required sections and ordering
+- mode-specific alignment
+- shot syntax and timestamps
+- reference resolution
+- Ref2VA retention structures
+- dialogue consistency and verbatim dialogue where practical
+
+Findings are reported as **ERROR**, **WARNING**, or **INFO**.
+
+The output diagnostics also expose useful timing and request information such as first upstream event, first final-content token, total output duration, reported token usage where available, and a cache-input fingerprint.
+
+**Show LLM Instructions** displays the textual context MiniConstruct assembled for the prompt writer, excluding API keys and binary image data.
+
+## Official H3 specification
+
+MiniConstruct is built around the official MiniMax H3 prompting material from:
+
+[MiniMax-AI/MiniMax-H3](https://github.com/MiniMax-AI/MiniMax-H3)
+
+The development snapshot currently corresponds to upstream commit:
+
+```text
+d21241f0a4b3acbb34c97dae47fa417b7065e438
 ```
 
-The command fetches only missing guides from the official
-[`MiniMax-AI/MiniMax-H3`](https://github.com/MiniMax-AI/MiniMax-H3) repository
-at commit `d21241f0a4b3acbb34c97dae47fa417b7065e438`; it verifies the recorded
-SHA-256 hashes and never downloads guides during generation. Network access
-therefore occurs only when you explicitly run this setup command. If preferred,
-manually obtain the official `SKILL.md`, `base-en.txt`, and `ref-en.txt` files
-and place them under `miniconstruct/h3/guides/` as shown in that directory's
-README. Existing files are used and are not overwritten.
+Exact upstream paths and SHA-256 hashes are recorded in `provenance.json`.
 
-If the guides are missing, MiniConstruct stops before serving requests and
-prints the setup command and expected paths. Exact upstream paths, retrieval
-date, source URLs, revision, and SHA-256 hashes are in
-`miniconstruct/h3/guides/provenance.json`.
+MiniConstruct's own operating instructions are kept separately from the official guide material so application-specific behavior does not silently modify the underlying H3 specification.
 
-MiniConstruct additions live separately in
-`miniconstruct/h3/operating/miniconstruct.md`. Request construction layers the
-operating rules, only the relevant official guide, mode/reference guidance, the
-canonical manifest, and user material. FastAPI routing, Pydantic workspace
-models, H3 assembly/validation, and the generic OpenAI-compatible client remain
-separate modules. The frontend is plain HTML/CSS and browser ES modules with no
-build step.
+## Troubleshooting
 
-## Licensing and third-party materials
+**Model discovery fails**
 
-MiniConstruct's original source code is licensed under GPL-3.0-or-later; the
-full license is in [LICENSE](LICENSE). MiniMax H3, model weights, and official
-MiniMax documentation are separately licensed third-party materials. Obtaining
-the official H3 guides from upstream does not place them under MiniConstruct's
-GPL license. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for links to
-the applicable MiniMax sources and licensing information.
+Check that the Base URL includes the server's required API prefix, commonly `/v1`. You can always enter the model ID manually.
 
-## Development and tests
+**Connection refused**
+
+Make sure the prompt-writing server is running and the configured host/port are correct.
+
+**Images are ignored or rejected**
+
+Enable **Model accepts images** only when the selected model and backend support multimodal OpenAI Chat Completions.
+
+**The generated prompt has validation errors**
+
+Inspect the findings first. If the creative content is correct and only the H3 formatting is wrong, use **Repair Format**.
+
+**Imported Video or Audio says `media not attached`**
+
+Reattach the original local file to the existing reference card. Its saved semantic configuration is retained.
+
+## Development
+
+Run the Python tests with:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 pytest -q
 ```
 
-Tests use mocked HTTP transports and do not require a live LLM server.
+Tests use mocked HTTP transports and do not require a live prompt-writing model.
 
-## Troubleshooting
+The frontend is plain HTML, CSS, and browser ES modules with no Node.js build step.
 
-- **Model discovery fails:** verify the Base URL includes `/v1` if required,
-  then enter the model ID manually if the implementation lacks `GET /models`.
-- **Connection refused:** start the local LLM server and confirm its port.
-- **Images ignored or rejected:** enable the vision switch only for a model and
-  backend that accept OpenAI multimodal Chat Completions. MiniConstruct warns
-  when vision is off.
-- **Validation errors:** inspect each finding and the assembled instructions;
-  use one Repair Format pass if the content is correct but the grammar is not.
-- **Imported media says not attached:** this is intentional privacy behavior;
-  reattach the local Video/Audio file on its existing card.
-- **API key persistence:** keys are not remembered unless you explicitly enable
-  it. Browser storage is still readable by software with access to that local
-  browser profile, so prefer keyless local endpoints where possible.
+The backend uses FastAPI and Pydantic, with H3 assembly, validation, API routing, and the OpenAI-compatible client kept in separate modules.
 
 ## Privacy and security
 
-The server binds to loopback by default. Projects, settings, and History stay in
-the current browser profile. Project exports, History, inspectors, and server
-logs exclude API keys. Image data is sent only to the configured endpoint when
-vision is enabled; Video/Audio bytes are never sent. Treat any non-loopback bind
-or remote endpoint as an explicit expansion of your trust boundary.
+MiniConstruct binds to loopback by default.
+
+Projects, settings, and History remain in the current browser profile.
+
+API keys are excluded from Project exports, History, inspectors, and server logs. API keys are not persisted unless you explicitly enable key persistence.
+
+Image data is sent only to the configured prompt-writing endpoint when vision is enabled.
+
+Raw Video and Audio bytes are never sent to the prompt-writing LLM.
+
+Using a remote endpoint or binding MiniConstruct outside loopback expands the trust boundary accordingly.
