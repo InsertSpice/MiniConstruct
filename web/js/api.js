@@ -52,6 +52,7 @@ export const api = {
   models: settings => request("models", settings),
   discoverEndpoints: body => request("discover-endpoints", body),
   test: settings => request("test-connection", settings),
+  eject: settings => request("model-management/eject", settings),
   assemble: body => request("assemble", body),
   generate: body => request("generate", body),
   streamGenerate: (body, options) => streamRequest("generate-stream", body, options),

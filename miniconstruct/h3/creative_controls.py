@@ -190,28 +190,17 @@ def compile_creative_controls(workspace: Workspace, supports_vision: bool = True
     ]
     fidelity_level = controls.subject_identity_fidelity.level
     if subject_identity_pictures and fidelity_level != ReferenceFidelityLevel.AUTO:
+        subject_labels = {subject.id: f"Subject {subject.number}" for subject in workspace.subjects}
         labels = ", ".join(label for _, label in subject_identity_pictures)
         specialists: list[str] = []
         wardrobe_references: list[str] = []
         outfit_references: list[str] = []
+        facial_references: list[tuple[object, str, str]] = []
         for asset, label in subject_identity_pictures:
             identity = asset.subject_identity
+            subject_label = subject_labels[identity.subject_id]
             if identity.focus == SubjectIdentityFocus.FACE:
-                if supports_vision:
-                    strength = "strongly prefer" if fidelity_level == ReferenceFidelityLevel.STRICT else "prefer"
-                    specialists.append(
-                        f"{label} is a facial identity anchor: visually inspect it and {strength} a concise, confident inventory of its most identity-defining visible facial traits. "
-                        "Use positive concrete traits actually visible in the Picture, such as face shape or proportions, eye shape, spacing or iris treatment, unusual brows, distinctive eyelash treatment, nose, mouth, jawline, cheek structure, cheek marks / cheek lines, freckles, moles / beauty marks, scars, asymmetry, makeup markings, small line-art facial accents, distinctive hairline or face-framing bangs, skin tone, and other visible facial identifiers where relevant; do not invent unclear features. "
-                        f"Use authoritative Notes as supplemental facts, then encode the resulting feature-level anchor naturally in subject_definitions and/or retention_analysis with {label} as provenance, without repeating it in every shot."
-                    )
-                    if asset.notes.strip():
-                        specialists.append(
-                            f"{label} has explicit identity Notes: when they identify traits as important, defining, or must-preserve, prioritize that user emphasis over lower-salience automatic visual ranking; retain the fact naturally rather than copying Notes verbatim."
-                        )
-                else:
-                    specialists.append(
-                        f"{label} is a facial identity anchor. Vision is unavailable: preserve the structured facial-reference role and any authoritative Notes without claiming a visually inspected feature inventory."
-                    )
+                facial_references.append((asset, label, subject_label))
             elif identity.focus == SubjectIdentityFocus.GENERAL:
                 wardrobe_references.append(label)
                 if supports_vision:
@@ -253,6 +242,17 @@ def compile_creative_controls(workspace: Workspace, supports_vision: bool = True
                 specialists.append(f"{label} provides front-facing appearance information when that view is shown.")
             elif identity.view == SubjectIdentityView.THREE_QUARTER:
                 specialists.append(f"{label} provides three-quarter appearance information when that view is shown.")
+        if facial_references:
+            facial_labels = ", ".join(label for _, label, _ in facial_references)
+            if supports_vision:
+                strength = "strongly prefer" if fidelity_level == ReferenceFidelityLevel.STRICT else "prefer"
+                specialists.append(
+                    f"Facial Identity fidelity ({facial_labels}): visually inspect these stable-morphology anchors and {strength} a concise per-Subject inventory of visible face shape/proportions, eyes, brows, lashes, nose, mouth, jawline, cheeks, persistent marks, hairline/bangs, skin tone, and other persistent identifiers. Do not invent unclear features; encode the anchor naturally with Picture provenance without repeating it in every shot."
+                )
+                if any(asset.notes.strip() for asset, _, _ in facial_references):
+                    specialists.append("Facial Identity Notes may strengthen genuinely permanent morphology where important or must-preserve.")
+            else:
+                specialists.append(f"Facial Identity fidelity ({facial_labels}): vision is unavailable, so preserve the structured facial-reference role and authoritative Notes without claiming a visually inspected feature inventory.")
         if wardrobe_references and fidelity_level in {ReferenceFidelityLevel.STRONG, ReferenceFidelityLevel.STRICT}:
             reference_labels = ", ".join(wardrobe_references)
             if supports_vision:
@@ -279,8 +279,8 @@ def compile_creative_controls(workspace: Workspace, supports_vision: bool = True
                 )
         fidelity = {
             ReferenceFidelityLevel.BALANCED: "Preserve recognizable character identity and major appearance traits; normal pose, expression, action, staging, and viewpoint changes remain free.",
-            ReferenceFidelityLevel.STRONG: "Strongly preserve facial identity and structure, body proportions, hair, clothing or outfit, colors, and distinctive appearance traits. Use the Subject Identity Picture references as appearance anchors; requested action, expression, pose, and camera remain free.",
-            ReferenceFidelityLevel.STRICT: "Make close visual identity and appearance fidelity to the Subject Identity Picture references a very high priority across shots. Encode concise feature-level identity anchors where H3 naturally defines identity and retention, especially subject_definitions and retention_analysis, and keep them consistent across shots. Still allow new action, expression, pose, composition, framing, and camera movement.",
+            ReferenceFidelityLevel.STRONG: "Strongly preserve facial identity and structure, body proportions, hair, clothing or outfit, colors, and distinctive appearance traits. Use each Subject's combined Subject Identity Picture set as its appearance anchors; requested action, expression, pose, and camera remain free.",
+            ReferenceFidelityLevel.STRICT: "Make close visual identity and appearance fidelity to each Subject's combined Subject Identity Picture set a very high priority across shots. Encode concise feature-level anchors where H3 naturally defines identity and retention, and keep them consistent. New action, expression, pose, composition, framing, and camera movement remain free.",
         }[fidelity_level]
         specialist_text = f" {' '.join(specialists)}" if specialists and fidelity_level in {ReferenceFidelityLevel.STRONG, ReferenceFidelityLevel.STRICT} else ""
         lines.append(f"Subject Identity Fidelity ({fidelity_level.value}; anchors: {labels}): {fidelity}{specialist_text}")

@@ -1,12 +1,8 @@
 # MiniConstruct H3 operating instructions
 
-- Follow the official guide's exact H3 field names, section order, labels, and task types. Never invent a section or task type.
-- The structured reference manifest is authoritative. Role is the structured semantic function of one asset. Notes are authoritative facts, constraints, and Subject mappings for that one asset. Global Reference Relationships are optional cross-asset or cross-timeline facts. The main prompt says what happens in the target video.
-- `<Subject N>` is a semantic visible entity, independent of Picture/Video/Audio numbering. One Subject may derive from several assets and one asset may contribute to several Subjects.
-- You may inspect attached Pictures when vision is enabled. External Video and Audio are metadata-only: you cannot watch or hear them. Never invent their contents from filenames. Use only user instructions, Notes, Reference Labels, and inspectable Pictures.
-- A normal continuation source uses official `[video continuation]` semantics and begins after the source video's ending state; it need not replay the source.
-- A seamless-overlap continuation still uses official `[video continuation]` semantics. Shot 1 begins by reproducing the complete supplied overlap as the same physical moments, then proceeds forward beyond its final frame with no replay, rewind, reset, pose/state snap, camera discontinuity, or lost momentum. The overlap is part of Shot 1, not its own shot. Preserve the outgoing camera through the boundary and, when duration permits, continue about 0.5–1.0 seconds before an optional editorial cut unless the user specifies valid timing.
-- Exact Dialogue / Lyrics is immutable vocal text: preserve its wording and punctuation verbatim inside `<d>...</d>` in its source language. Conversational timing, reactions, pauses, staging, and performance remain in the Main Prompt. Semantic Subject numbers do not determine `(S1)`, `(S2)`: speaker IDs follow first actual vocal-event order and remain stable.
-- A Subject mapping such as `Voice timbre reference for Subject 1` may live entirely in that Audio asset's Notes. Do not require or duplicate it in Global Reference Relationships unless it is part of a wider cross-asset or timeline relationship.
-- Keep all reference labels stable. An ordinary Video with sound never creates an Audio label; Audio assets are explicit and independently numbered.
-- Audio reuse means direct signal retention; audio reference means guidance such as timbre, beat, dialogue content, or style. The prompt-writing model cannot hear Audio references and must not invent characteristics.
+- Follow the official guide's exact H3 grammar. Use canonical `<Subject N>`, `<Picture N>`, `<Video N>`, and `<Audio N>` labels.
+- The structured manifest is authoritative: Role defines an asset's function; Notes define its facts, constraints, and Subject mappings; Global Reference Relationships cover only cross-asset/timeline facts. The main prompt defines the target video.
+- `<Subject N>` is a stable visible entity independent of asset numbering; one Subject may combine several assets.
+- Inspect Pictures only when vision is enabled. Video and Audio are metadata-only: never invent their contents from filenames; use only explicit instructions, Notes, Reference Labels, and inspectable Pictures.
+- Follow the applicable mode guidance for continuation behavior. Exact Dialogue / Lyrics is immutable: preserve wording and punctuation inside `<d>...</d>` in its source language; speaker IDs follow first vocal-event order, not Subject numbers.
+- Keep labels stable: Video audio does not create an Audio label, and Audio reuse is direct signal retention while Audio reference is guidance only.

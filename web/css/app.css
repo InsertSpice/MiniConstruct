@@ -44,6 +44,7 @@ h1, h2, h3, p { margin-top: 0; }
 .dirty.saved { color: var(--muted); }
 .backend-status { display: flex; align-items: center; gap: .55rem; min-width: 190px; justify-content: flex-end; color: var(--muted); font-size: .72rem; }
 .backend-status > span { display: inline-flex; align-items: center; gap: .45rem; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.eject-button { padding: .42rem .6rem; font-size: .72rem; white-space: nowrap; }
 .workspace { display: grid; grid-template-columns: minmax(460px, 46%) 1fr; min-height: calc(100vh - 68px); }
 .left-rail { padding: 1rem; border-right: 1px solid var(--line-soft); overflow: auto; }
 .right-stage { padding: 1.2rem; min-width: 0; position: sticky; top: 68px; height: calc(100vh - 68px); overflow: auto; }
@@ -114,6 +115,10 @@ summary { cursor: pointer; color: #cbd2de; font-size: .75rem; font-weight: 650; 
 .asset-fields.subject-identity-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .subject-identity-fields > label:last-of-type { grid-column: 1 / -1; }
 .subject-identity-helper { grid-column: 1 / -1; margin: -.2rem 0 0; color: var(--muted); font-size: .67rem; line-height: 1.35; }
+.inactive-field { opacity: .58; }
+.comparison-fields { grid-template-columns: minmax(130px, .8fr) 1.2fr; }
+.comparison-subjects { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .45rem .75rem; margin: 0; padding: .45rem .6rem; border: 1px solid var(--line-soft); border-radius: 7px; }
+.comparison-subjects legend { padding: 0 .2rem; color: var(--muted); font-size: .67rem; }
 .notes-info { color: var(--muted); cursor: help; font-size: .8em; }
 .asset-actions { display: flex; gap: .3rem; margin-top: .45rem; }
 .asset-actions button { padding: .3rem .5rem; font-size: .68rem; }

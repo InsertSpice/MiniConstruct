@@ -41,8 +41,8 @@ def test_music_on_and_subject_identity_fidelity_only_emit_for_subject_identity_p
     text = compile_creative_controls(picture)
     assert "do not output N/A" in text and "dark electronic pulse" in text
     assert "Subject Identity Fidelity (strict; anchors: Picture 1)" in text
-    assert "subject_definitions and retention_analysis" in text
-    assert "Still allow new action, expression, pose, composition, framing, and camera movement" in text
+    assert "identity and retention" in text
+    assert "New action, expression, pose, composition, framing, and camera movement remain free" in text
 
 
 def test_music_on_without_a_description_is_still_an_active_valid_instruction(workspace_factory):
@@ -64,7 +64,7 @@ def test_subject_identity_fidelity_levels_have_distinct_identity_wording(workspa
     for level, expected in (
         ("balanced", "recognizable character identity"),
         ("strong", "facial identity and structure, body proportions, hair, clothing"),
-        ("strict", "feature-level identity anchors"),
+        ("strict", "feature-level anchors"),
     ):
         workspace = workspace_with_controls(
             workspace_factory,
@@ -94,22 +94,22 @@ def test_facial_identity_strong_and_strict_inspect_visible_traits_only_with_visi
             workspace_factory, {"subjectIdentityFidelity": {"level": level}}, mode="Ref2VA", assets=[asset],
         )
         text = compile_creative_controls(workspace, True)
-        assert "visually inspect it" in text
+        assert "visually inspect these stable-morphology anchors" in text
         assert expected_strength in text
-        assert "eye shape, spacing or iris treatment" in text
-        assert "cheek marks / cheek lines, freckles, moles / beauty marks, scars, asymmetry" in text
-        assert "subject_definitions and/or retention_analysis" in text
+        assert "eyes, brows, lashes, nose" in text
+        assert "persistent marks, hairline/bangs" in text
+        assert "Picture provenance" in text
         assert "without repeating it in every shot" in text
         assert "Notes" in text
-        assert "prioritize that user emphasis over lower-salience automatic visual ranking" in text
+        assert "Facial Identity Notes may strengthen genuinely permanent morphology" in text
 
     disabled = compile_creative_controls(workspace, False)
-    assert "Vision is unavailable" in disabled
-    assert "visually inspect it" not in disabled
+    assert "vision is unavailable" in disabled
+    assert "visually inspect these stable-morphology anchors" not in disabled
     assert "without claiming a visually inspected feature inventory" in disabled
     assembled = assemble_prompt(workspace, True)
-    assert "visually inspect it" in assembled.inspector_text
-    assert "keep them consistent across shots" in assembled.inspector_text
+    assert "visually inspect these stable-morphology anchors" in assembled.inspector_text
+    assert "keep them consistent" in assembled.inspector_text
 
 
 def test_balanced_facial_identity_does_not_require_feature_inventory(workspace_factory, image_asset_factory):

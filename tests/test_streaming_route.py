@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 
+import httpx
 import pytest
 
 from miniconstruct.api.routes import stream_generation_events
-from miniconstruct.llm.client import LLMBackendError
+from miniconstruct.llm.client import LLMBackendError, OpenAICompatibleClient
 from miniconstruct.llm.client import LLMStreamEvent
 from miniconstruct.models.api import GenerationRequest
 
@@ -74,6 +75,21 @@ async def test_route_preserves_partial_and_does_not_complete_on_error(workspace_
     assert any(event == "error" and data["partial"] for event, data in events)
     assert not any(event in {"complete", "done"} for event, _ in events)
     assert fake.closed
+
+
+@pytest.mark.asyncio
+async def test_http_backend_error_before_content_is_not_validated_as_empty(workspace_factory):
+    transport = httpx.MockTransport(lambda request: httpx.Response(
+        500, text="System message must be at the beginning.", request=request,
+    ))
+    events = [decode_event(raw) async for raw in stream_generation_events(
+        request_for(workspace_factory()), lambda settings: OpenAICompatibleClient(settings, transport),
+    )]
+    errors = [data for event, data in events if event == "error"]
+    assert errors and "System message must be at the beginning" in errors[0]["message"]
+    assert not errors[0]["partial"]
+    assert not any(event == "complete" for event, _ in events)
+    assert not any(data.get("validation", {}).get("findings", [{}])[0].get("code") == "empty" for event, data in events if event == "complete")
 
 
 class CancellableClient(FakeClient):

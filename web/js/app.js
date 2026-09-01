@@ -16,10 +16,15 @@ import {
   selectionFromHighlighted, selectionFromTextarea,
 } from "./revision.js";
 import {
-  defaultSubjectIdentity, IDENTITY_FOCUS_OPTIONS, IDENTITY_VIEW_OPTIONS, isSubjectIdentityAsset,
-  normalizeSubjectIdentity, subjectIdentityHelperText, subjectIdentityNotesGuidance, subjectIdentityNotesPlaceholder,
+  createSubject, defaultSubjectIdentity, IDENTITY_FOCUS_OPTIONS, IDENTITY_VIEW_OPTIONS, REFERENCE_LAYOUT_OPTIONS,
+  isComparisonAsset, isSubjectIdentityAsset, normalizeSubjectIdentity, normalizeSubjectRegistry, normalizedComparisonSubjects,
+  subjectIdentityHelperText, subjectIdentityNotesGuidance, subjectIdentityNotesPlaceholder, subjectLabel,
 } from "./subject-identity.js";
 import { normalizeSeedSettings, resolveSeed } from "./seed.js";
+import { canEjectModel } from "./eject.js";
+import { resolveProjectSave } from "./project-save.js";
+import { canStartRepair, repairUiState } from "./repair-state.js";
+import { migrateStoredSettings, parseStoredSettings, serializeEndpointProfile } from "./settings-persistence.js";
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -33,6 +38,7 @@ const modeDescriptions = {
 const roleCatalog = {
   image: [
     ["subject_identity", "Subject / identity reference"], ["environment", "Environment reference"],
+    ["character_comparison_scale", "Character Comparison / Scale"],
     ["style_appearance", "Style / appearance reference"], ["continuity_state", "Continuity-state reference"],
     ["first_frame_anchor", "First-frame anchor"], ["keyframe_anchor", "Keyframe anchor"],
     ["last_frame_anchor", "Last-frame anchor"], ["storyboard_composition", "Storyboard / composition"],
@@ -54,9 +60,12 @@ const roleCatalog = {
 const state = {
   mode: "T2VA",
   assets: [],
+  subjects: [],
+  nextSubjectNumber: 1,
   outputs: [],
   outputIndex: 0,
   currentProjectId: null,
+  currentProjectSavedName: null,
   dirty: true,
   pendingAssetKind: null,
   reattachId: null,
@@ -73,6 +82,8 @@ const state = {
   generation: null,
   revisionSelection: null,
   revision: null,
+  ejecting: false,
+  repairRunning: false,
   rawEdit: false,
   creativeControls: defaultCreativeControls(),
 };
@@ -121,13 +132,12 @@ function endpointKey(endpoint) {
 function endpointProfile() {
   const baseUrl = $("#base-url").value.trim();
   const isManual = state.endpoint.source === "manual";
-  return {
-    ...state.endpoint,
+  return serializeEndpointProfile(state.endpoint, {
     id: isManual ? manualEndpointId(baseUrl) : state.endpoint.id,
     displayName: $("#endpoint-display-name").value.trim() || "Manual endpoint",
     baseUrl,
     apiKey: $("#api-key").value || null,
-  };
+  });
 }
 
 function settings() {
@@ -155,25 +165,18 @@ function renderSeedSettings() {
 }
 
 function persistSettings() {
-  const value = settings();
-  if (!$("#persist-key").checked) delete value.endpoint.apiKey;
-  value.persistKey = $("#persist-key").checked;
+  const value = migrateStoredSettings({ ...settings(), persistKey: $("#persist-key").checked }, state.endpoint);
+  if (!value.persistKey) delete value.endpoint.apiKey;
   localStorage.setItem("miniconstruct-settings", JSON.stringify(value));
 }
 
 function restoreSettings() {
   try {
-    const value = JSON.parse(localStorage.getItem("miniconstruct-settings") || "{}");
-    const endpoint = value.endpoint || (value.baseUrl ? {
-      id: "manual-endpoint", displayName: "Manual endpoint", baseUrl: value.baseUrl,
-      source: "manual", apiKey: value.apiKey,
-    } : null);
-    if (endpoint) {
-      state.endpoint = { ...state.endpoint, ...endpoint };
-      $("#endpoint-display-name").value = state.endpoint.displayName || "Manual endpoint";
-      $("#base-url").value = state.endpoint.baseUrl || "http://127.0.0.1:1234/v1";
-    }
-    if (value.modelId || value.model) $("#model-id").value = value.modelId || value.model;
+    const value = parseStoredSettings(localStorage.getItem("miniconstruct-settings"), state.endpoint);
+    state.endpoint = value.endpoint;
+    $("#endpoint-display-name").value = state.endpoint.displayName;
+    $("#base-url").value = state.endpoint.baseUrl;
+    if (value.modelId) $("#model-id").value = value.modelId;
     if (value.temperature !== undefined) $("#temperature").value = value.temperature;
     if (value.maxTokens) $("#max-tokens").value = value.maxTokens;
     if (["off", "default", "on"].includes(value.reasoningMode)) $("#reasoning-mode").value = value.reasoningMode;
@@ -182,7 +185,7 @@ function restoreSettings() {
     if (seed.fixedSeed !== null) $("#fixed-seed").value = seed.fixedSeed;
     $("#vision-support").checked = value.supportsVision === true;
     $("#persist-key").checked = value.persistKey === true;
-    if (value.persistKey && (endpoint?.apiKey || value.apiKey)) $("#api-key").value = endpoint?.apiKey || value.apiKey;
+    if (value.persistKey && value.endpoint.apiKey) $("#api-key").value = value.endpoint.apiKey;
   } catch { /* ignore malformed local preference */ }
   renderSeedSettings();
   setActiveModelStatus();
@@ -197,6 +200,32 @@ function setActiveModelStatus() {
   const dot = document.createElement("span");
   dot.className = `status-dot ${state.connectionState === "connected" ? "ok" : state.connectionState === "disconnected" ? "bad" : ""}`;
   status.replaceChildren(dot, document.createTextNode(`${label}${suffix}`));
+  updateEjectButton();
+}
+
+function updateEjectButton() {
+  const button = $("#eject-model");
+  const disabled = !canEjectModel({
+    modelId: $("#model-id").value, generating: Boolean(state.generation), revising: Boolean(state.revision?.running),
+    repairing: state.repairRunning, ejecting: state.ejecting,
+  });
+  button.disabled = disabled;
+  button.textContent = state.ejecting ? "Ejecting…" : "⏏ Eject";
+}
+
+async function ejectSelectedModel() {
+  if ($("#eject-model").disabled) return;
+  state.ejecting = true;
+  updateEjectButton();
+  try {
+    const result = await api.eject(settings());
+    toast(result.message || "Model ejected.");
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    state.ejecting = false;
+    updateEjectButton();
+  }
 }
 
 function markManualEndpoint() {
@@ -273,6 +302,8 @@ export function captureWorkspace() {
     dialogue: $("#dialogue").value,
     referenceLabels: $("#reference-labels").value,
     assets: structuredClone(state.assets),
+    subjects: structuredClone(state.subjects),
+    nextSubjectNumber: state.nextSubjectNumber,
     creativeControls: structuredClone(state.creativeControls),
   };
 }
@@ -288,11 +319,15 @@ function renderCreativeControlsUi() {
 export function restoreWorkspace(workspace) {
   markRevisionStale("A different workspace was loaded.");
   state.currentProjectId = workspace.projectId || null;
+  state.currentProjectSavedName = state.currentProjectId ? (workspace.projectName || "Untitled Project") : null;
   state.assets = structuredClone(workspace.assets || []).map(asset => ({
     notes: "", options: {}, order: 0, attached: asset.kind === "image", ...asset,
     subjectIdentity: normalizeSubjectIdentity(asset.subjectIdentity),
     attached: asset.kind === "image" ? true : false,
   }));
+  const registry = normalizeSubjectRegistry(workspace.subjects, state.assets, workspace.nextSubjectNumber);
+  state.subjects = registry.subjects;
+  state.nextSubjectNumber = registry.nextSubjectNumber;
   $("#project-name").value = workspace.projectName || "Untitled Project";
   $("#duration").value = workspace.durationSeconds ?? 6;
   $("#shots").value = workspace.shots ?? "";
@@ -394,6 +429,19 @@ function renderAssets() {
   renderCreativeControlsUi();
 }
 
+function normalizeSubjectsInState() {
+  const registry = normalizeSubjectRegistry(state.subjects, state.assets, state.nextSubjectNumber);
+  state.subjects = registry.subjects;
+  state.nextSubjectNumber = registry.nextSubjectNumber;
+}
+
+function assignNewSubject(asset) {
+  const created = createSubject({ nextSubjectNumber: state.nextSubjectNumber });
+  state.subjects.push(created.subject);
+  state.nextSubjectNumber = created.nextSubjectNumber;
+  asset.subjectIdentity = { ...normalizeSubjectIdentity(asset.subjectIdentity), subjectId: created.subject.id };
+}
+
 function assetCard(asset, label) {
   const card = document.createElement("article");
   card.className = "asset-card";
@@ -426,11 +474,18 @@ function assetCard(asset, label) {
     const option = new Option(text, value, false, value === asset.role); role.append(option);
   }
   role.disabled = state.mode !== "Ref2VA";
-  role.addEventListener("change", () => { asset.role = role.value; renderAssets(); setDirty(); });
+  role.addEventListener("change", () => {
+    asset.role = role.value;
+    if (isSubjectIdentityAsset(asset)) normalizeSubjectsInState();
+    if (isComparisonAsset(asset)) asset.comparisonSubjects = normalizedComparisonSubjects(asset, state.subjects);
+    renderAssets(); setDirty();
+  });
   roleLabel.append(role);
   const notesLabel = document.createElement("label"); notesLabel.textContent = "Notes";
   const notes = document.createElement("textarea"); notes.rows = 2;
-  notes.placeholder = isSubjectIdentityAsset(asset) ? subjectIdentityNotesPlaceholder(asset.subjectIdentity) : "Asset-specific facts or constraints";
+  notes.placeholder = isSubjectIdentityAsset(asset) ? subjectIdentityNotesPlaceholder(asset.subjectIdentity)
+    : isComparisonAsset(asset) ? "Optional: describe the intended relative scale, e.g. Subject 2's head reaches Subject 1's upper chest."
+      : "Asset-specific facts or constraints";
   notes.value = asset.notes || "";
   notes.addEventListener("input", () => { asset.notes = notes.value; setDirty(); });
   notesLabel.append(notes);
@@ -444,6 +499,17 @@ function assetCard(asset, label) {
     notesInfo.setAttribute("aria-label", notesInfo.title);
     notesInfo.setAttribute("role", "img");
     notesLabel.insertBefore(notesInfo, notes);
+    const subjectSetLabel = document.createElement("label"); subjectSetLabel.textContent = "Identity set";
+    const subjectSet = document.createElement("select"); subjectSet.title = "Stable character grouping; it does not depend on Picture order.";
+    for (const subject of state.subjects) subjectSet.append(new Option(subjectLabel(state.subjects, subject.id), subject.id, false, identity.subjectId === subject.id));
+    subjectSet.append(new Option("+ New Subject", "__new_subject__"));
+    subjectSet.disabled = state.mode !== "Ref2VA";
+    subjectSet.addEventListener("change", () => {
+      if (subjectSet.value === "__new_subject__") assignNewSubject(asset);
+      else asset.subjectIdentity.subjectId = subjectSet.value;
+      renderAssets(); setDirty();
+    });
+    subjectSetLabel.append(subjectSet);
     const focusLabel = document.createElement("label"); focusLabel.textContent = "Identity focus";
     const focus = document.createElement("select");
     focus.title = "What identity information this Picture provides.";
@@ -462,8 +528,41 @@ function assetCard(asset, label) {
     view.disabled = state.mode !== "Ref2VA";
     view.addEventListener("change", () => { asset.subjectIdentity.view = view.value; renderAssets(); setDirty(); });
     viewLabel.append(view);
+    const layoutLabel = document.createElement("label"); layoutLabel.textContent = "Reference layout";
+    const layout = document.createElement("select"); layout.title = "How this reference is arranged, separate from the identity information it provides.";
+    for (const [value, text, guidance] of REFERENCE_LAYOUT_OPTIONS) {
+      const option = new Option(text, value, false, value === identity.layout); option.title = guidance; layout.append(option);
+    }
+    layout.disabled = state.mode !== "Ref2VA";
+    layout.addEventListener("change", () => { asset.subjectIdentity.layout = layout.value; renderAssets(); setDirty(); });
+    layoutLabel.append(layout);
+    if (identity.layout === "reference_sheet") {
+      view.disabled = true;
+      view.title = "A reference sheet has multiple complementary views; this stored singular View is inactive until Single view is selected.";
+      viewLabel.classList.add("inactive-field");
+    }
     const helper = document.createElement("p"); helper.className = "subject-identity-helper"; helper.textContent = subjectIdentityHelperText(identity);
-    fields.append(roleLabel, focusLabel, viewLabel, notesLabel, helper);
+    fields.append(roleLabel, subjectSetLabel, focusLabel, viewLabel, layoutLabel, notesLabel, helper);
+  } else if (isComparisonAsset(asset)) {
+    fields.classList.add("comparison-fields");
+    asset.comparisonSubjects = normalizedComparisonSubjects(asset, state.subjects);
+    const comparisonLabel = document.createElement("fieldset"); comparisonLabel.className = "comparison-subjects";
+    const legend = document.createElement("legend"); legend.textContent = "Subjects (choose at least two)"; comparisonLabel.append(legend);
+    for (const subject of state.subjects) {
+      const option = document.createElement("label"); option.className = "check";
+      const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = asset.comparisonSubjects.includes(subject.id); checkbox.disabled = state.mode !== "Ref2VA";
+      checkbox.addEventListener("change", () => {
+        const selected = new Set(asset.comparisonSubjects);
+        checkbox.checked ? selected.add(subject.id) : selected.delete(subject.id);
+        asset.comparisonSubjects = [...selected]; renderAssets(); setDirty();
+      });
+      option.append(checkbox, ` ${subjectLabel(state.subjects, subject.id)}`); comparisonLabel.append(option);
+    }
+    const helper = document.createElement("p"); helper.className = "subject-identity-helper";
+    helper.textContent = asset.comparisonSubjects.length >= 2
+      ? "Preserves relative height, body size, and broad proportions. It does not prescribe target-shot poses, side-by-side staging, or camera."
+      : "Choose at least two Subjects. This comparison reference cannot be generated until it has two stable Subject selections.";
+    fields.append(roleLabel, comparisonLabel, notesLabel, helper);
   } else fields.append(roleLabel, notesLabel);
 
   if (asset.kind === "audio" && asset.role === "music_beat_rhythm") {
@@ -593,6 +692,7 @@ async function createAssetFromFile(file, kind, reattachId = null) {
       .forEach(item => { item.role = "general_visual"; });
   }
   state.assets.push(asset);
+  if (isSubjectIdentityAsset(asset)) normalizeSubjectsInState();
   return asset.filename;
 }
 
@@ -791,6 +891,7 @@ async function generate() {
     clickedAt: new Date().toISOString(), metrics: new Map(), diagnostics: null,
   };
   state.generation = session;
+  updateEjectButton();
   state.outputs = outputs;
   state.outputIndex = 0;
   renderWarnings([]);
@@ -877,6 +978,7 @@ async function generate() {
     if (state.generation === session) {
       state.generation = null;
       setGenerationControls(false);
+      updateEjectButton();
     }
   }
 }
@@ -899,9 +1001,14 @@ function renderOutput() {
   $("#edit-raw").classList.toggle("active", state.rawEdit);
   $("#highlighted-view").setAttribute("aria-selected", String(!state.rawEdit));
   $("#edit-raw").setAttribute("aria-selected", String(state.rawEdit));
-  $("#output").readOnly = generating;
+  $("#output").readOnly = generating || state.repairRunning;
   for (const id of ["copy-output", "download-output"]) $("#" + id).disabled = !current;
-  for (const id of ["validate-output", "repair-output", "regenerate"]) $("#" + id).disabled = !current || generating;
+  for (const id of ["validate-output", "regenerate"]) $("#" + id).disabled = !current || generating;
+  const repairButton = $("#repair-output");
+  const repairUi = repairUiState({ hasOutput: Boolean(current), generating, repairRunning: state.repairRunning });
+  repairButton.disabled = repairUi.disabled;
+  repairButton.textContent = repairUi.label;
+  repairButton.setAttribute("aria-busy", String(repairUi.busy));
   updateReviseSelectionButton();
   const tabs = $("#variation-tabs"); tabs.replaceChildren(); tabs.classList.toggle("hidden", state.outputs.length < 2);
   state.outputs.forEach((_, index) => {
@@ -1023,6 +1130,7 @@ function setRevisionRunning(running) {
   $("#generate-revision").classList.toggle("hidden", running);
   $("#stop-revision").classList.toggle("hidden", !running);
   $("#revision-instruction").disabled = running;
+  updateEjectButton();
   updateReviseSelectionButton();
 }
 
@@ -1158,7 +1266,9 @@ async function validateCurrent() {
 }
 
 async function repairCurrent() {
+  if (!canStartRepair(state.repairRunning)) return;
   const current = state.outputs[state.outputIndex]; if (!current) return;
+  state.repairRunning = true; renderOutput(); updateEjectButton();
   try {
     markRevisionStale("The source prompt was replaced by format repair.");
     const result = await api.repair({ ...buildGenerateRequest(), prompt: $("#output").value, findings: current.validation?.findings || [] });
@@ -1166,6 +1276,7 @@ async function repairCurrent() {
     await addHistory({ createdAt: new Date().toISOString(), mode: state.mode, projectId: state.currentProjectId, projectName: $("#project-name").value, prompt: result.prompt, validation: result.validation, repaired: true });
     await renderHistory();
   } catch (error) { toast(error.message); }
+  finally { state.repairRunning = false; renderOutput(); updateEjectButton(); }
 }
 
 async function showInstructions() {
@@ -1189,25 +1300,46 @@ async function refreshProjects() {
   select.value = state.currentProjectId || "";
 }
 
-async function saveProject(asNew = false) {
-  const id = asNew || !state.currentProjectId ? uid() : state.currentProjectId;
-  state.currentProjectId = id;
-  const workspace = persistenceWorkspace(); workspace.projectId = id;
+async function saveProject(asNew = false, renameInPlace = false) {
+  const workspace = persistenceWorkspace();
+  const projects = await listProjects();
+  const decision = resolveProjectSave({
+    currentProjectId: state.currentProjectId,
+    currentProjectSavedName: state.currentProjectSavedName,
+    currentProjectName: workspace.projectName,
+    projects,
+    asNew,
+    renameInPlace,
+  });
+  if (decision.collision) {
+    toast("A different saved project already uses that name. Choose another name.");
+    return { saved: false, created: false };
+  }
+  const id = decision.create ? uid() : state.currentProjectId;
+  workspace.projectId = id;
   const record = { id, name: workspace.projectName, schemaVersion: 1, updatedAt: new Date().toISOString(), workspace };
-  await putProject(record); setDirty(false); await refreshProjects(); toast("Project saved locally");
+  await putProject(record);
+  state.currentProjectId = id;
+  state.currentProjectSavedName = workspace.projectName;
+  setDirty(false); await refreshProjects(); toast("Project saved locally");
+  return { saved: true, created: decision.create };
 }
 
 async function newProject() {
   if (state.dirty && !confirm("Replace the unsaved workspace?")) return;
   restoreWorkspace({ schemaVersion: 1, projectName: "Untitled Project", mode: "T2VA", durationSeconds: 6, shots: null, aspectRatio: "auto", variations: 1, creativeRequest: "", dialogue: "", referenceLabels: "", assets: [] });
-  state.currentProjectId = null; setDirty(true); await refreshProjects();
+  state.currentProjectId = null; state.currentProjectSavedName = null; setDirty(true); await refreshProjects();
 }
 
 async function loadSelectedProject() {
   const id = $("#project-select").value;
   if (!id) return;
   if (state.dirty && !confirm("Replace the unsaved workspace?")) { $("#project-select").value = state.currentProjectId || ""; return; }
-  const project = await getProject(id); if (project) restoreWorkspace(project.workspace);
+  const project = await getProject(id);
+  if (project) {
+    restoreWorkspace({ ...project.workspace, projectId: project.id, projectName: project.name });
+    state.currentProjectSavedName = project.name;
+  }
 }
 
 async function removeCurrentProject() {
@@ -1217,8 +1349,8 @@ async function removeCurrentProject() {
 
 async function renameCurrentProject() {
   if (!$("#project-name").value.trim()) { toast("Enter a project name first"); return; }
-  await saveProject(false);
-  toast("Project renamed");
+  const result = await saveProject(false, true);
+  if (result.saved) toast("Project renamed");
 }
 
 function download(content, filename, type) {
@@ -1239,8 +1371,10 @@ async function importProject(file) {
     if (payload.workspace?.llm || payload.apiKey) throw new Error("Project contains unexpected connection secrets.");
     const validated = await api.validateProject(payload);
     const workspace = validated.workspace;
-    workspace.projectId = uid(); workspace.projectName = workspace.projectName || file.name.replace(/\.miniconstruct.*$/i, "");
-    restoreWorkspace(workspace); state.currentProjectId = workspace.projectId; setDirty(true); await saveProject(false); toast("Project imported");
+    workspace.projectId = null; workspace.projectName = workspace.projectName || file.name.replace(/\.miniconstruct.*$/i, "");
+    restoreWorkspace(workspace); setDirty(true);
+    const saved = await saveProject(false);
+    toast(saved.saved ? "Project imported" : "Project imported but not saved; choose a different name.");
   } catch (error) { toast(`Import failed: ${error.message}`); }
 }
 
@@ -1301,6 +1435,7 @@ function bindEvents() {
   $$("[data-mode]").forEach(button => button.addEventListener("click", () => setMode(button.dataset.mode)));
   $("#asset-file-input").addEventListener("change", event => ingestAssetFiles(event.target.files, state.pendingAssetKind, state.reattachId).catch(error => toast(error.message)));
   $("#discover-models").addEventListener("click", () => runConnection("models"));
+  $("#eject-model").addEventListener("click", ejectSelectedModel);
   $("#test-connection").addEventListener("click", () => runConnection("test"));
   $("#discover-local-endpoints").addEventListener("click", discoverLocalEndpoints);
   $("#open-settings").addEventListener("click", () => $("#settings-dialog").showModal());

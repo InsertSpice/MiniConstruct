@@ -59,6 +59,21 @@ def test_image_vision_payload_and_media_metadata_only(workspace_factory, image_a
     assert "data:video" not in payload and "data:audio" not in payload
 
 
+def test_generation_uses_one_leading_system_message_without_losing_layers_or_images(workspace_factory, image_asset_factory):
+    assembled = assemble_prompt(workspace_factory(mode="Ref2VA", assets=[image_asset_factory()]), True)
+    assert [message["role"] for message in assembled.messages] == ["system", "user"]
+    system = assembled.messages[0]["content"]
+    headings = [
+        "MiniConstruct core operating instructions", "Official MiniMax H3 guide (normative)",
+        "Mode and reference guidance", "Subject and reference semantics",
+        "Canonical workspace/reference manifest", "Generation policy",
+    ]
+    assert all(heading in system for heading in headings)
+    assert [system.index(heading) for heading in headings] == sorted(system.index(heading) for heading in headings)
+    assert any(part.get("type") == "image_url" for part in assembled.messages[1]["content"])
+    assert "===== Official MiniMax H3 guide (normative) =====" in assembled.inspector_text
+
+
 def test_vision_warning_is_explicit(workspace_factory, image_asset_factory):
     result = assemble_prompt(workspace_factory(mode="Ref2VA", assets=[image_asset_factory()]), False)
     assert result.warnings and "not sent as visual inputs" in result.warnings[0]
@@ -106,4 +121,3 @@ def test_dialogue_verbatim_and_speaker_mapping_instruction(workspace_factory):
     text = assemble_prompt(workspace, False).inspector_text
     assert "Don't touch that!" in text and "I won't." in text
     assert "actual speech order" in text
-

@@ -80,6 +80,15 @@ def test_revision_prompt_has_full_h3_workspace_and_dialogue_context(workspace_fa
     assert "Return ONLY replacement text" in text
 
 
+def test_revision_uses_one_system_message_and_replaces_generation_policy(workspace_factory):
+    assembled = assemble_revision_prompt(revision_request(workspace_factory()))
+    assert [message["role"] for message in assembled.messages] == ["system", "user"]
+    system = assembled.messages[0]["content"]
+    assert "Selective revision policy" in system
+    assert "Generation policy" not in system
+    assert "===== Selective revision policy =====" in assembled.inspector_text
+
+
 def test_revision_context_marks_one_unicode_selection_without_serializing_full_prompt_twice(workspace_factory):
     prompt = "before 🎬\n[Shot 1] <d>[Japanese] 行こう。</d>\nafter"
     selected = "[Shot 1] <d>[Japanese] 行こう。</d>"

@@ -15,6 +15,11 @@ REF_FIELDS = [
 FIELD_RE = re.compile(r"(?m)^(?P<name>[a-z_]+):")
 SHOT_RE = re.compile(r"\[Shot\s+(\d+)\](?:\s+At\s+(\d{2}):(\d{2})\.(\d{3}),)?", re.IGNORECASE)
 LABEL_RE = re.compile(r"<(Subject|Picture|Video|Audio)\s+(\d+)>")
+BARE_LABEL_RE = re.compile(r"(?<![<\w])(Subject|Picture|Video|Audio)\s+(\d+)(?![\w>])")
+RETENTION_SUBJECT_RE = re.compile(
+    r"(?ms)^<Subject\s+(?P<subject>\d+)>\s*\(appears\s+in\s+\[(?P<shots>.*?)\]\)"
+)
+RETENTION_SHOT_RE = re.compile(r"\bShot\s+(\d+)\b", re.IGNORECASE)
 
 
 def _finding(
@@ -34,6 +39,131 @@ def _asset_label_limits(assets: list[ReferenceAsset]) -> dict[str, int]:
     }
 
 
+def _comparison_scale_picture_numbers(assets: list[ReferenceAsset]) -> list[int]:
+    pictures = sorted((asset for asset in assets if asset.kind == AssetKind.IMAGE), key=lambda asset: (asset.order, asset.id))
+    return [
+        number for number, asset in enumerate(pictures, 1)
+        if asset.role == "character_comparison_scale"
+    ]
+
+
+def _section_text(text: str, name: str, following_name: str) -> str:
+    match = re.search(rf"(?ms)^{name}:\s*(.*?)(?=^{following_name}:)", text)
+    return match.group(1) if match else ""
+
+
+def _has_comparison_definition(definitions: str, picture: int) -> bool:
+    return bool(re.search(rf"(?m)^<Picture\s+{picture}>(?=\s|:)", _mask_literal_text(definitions)))
+
+
+def _comparison_definition_entry(definitions: str, picture: int) -> str | None:
+    match = re.search(
+        rf"(?ms)^<Picture\s+{picture}>(?=\s|:).*?(?=^<Subject\s+\d+>\s+is\b|^<Picture\s+\d+>(?=\s|:)|\Z)",
+        definitions,
+    )
+    return match.group(0).rstrip() if match else None
+
+
+def _comparison_subject_labels(workspace: Workspace, asset: ReferenceAsset) -> str:
+    numbers = {subject.id: subject.number for subject in workspace.subjects}
+    labels = [f"<Subject {numbers[subject_id]}>" for subject_id in asset.comparison_subject_ids]
+    if len(labels) == 2:
+        return " and ".join(labels)
+    return ", ".join(labels[:-1]) + f", and {labels[-1]}"
+
+
+def _comparison_default_definition(workspace: Workspace, picture: int, asset: ReferenceAsset) -> str:
+    subjects = _comparison_subject_labels(workspace, asset)
+    return (
+        f"<Picture {picture}> is the Character Comparison / Scale reference for {subjects}, "
+        "establishing their relative height, body-size contrast, and broad body-proportion relationship."
+    )
+
+
+def _has_comparison_retention(retention: str, picture: int) -> bool:
+    return bool(re.search(rf"(?m)^<Picture\s+{picture}>(?=\s|:)", _mask_literal_text(retention)))
+
+
+def _comparison_retention_entry(retention: str, picture: int) -> str | None:
+    match = re.search(
+        rf"(?ms)^<Picture\s+{picture}>(?=\s|:).*?(?=^<(?:Subject|Picture|Video|Audio)\s+\d+>|\Z)",
+        retention,
+    )
+    return match.group(0).rstrip() if match else None
+
+
+def _comparison_default_retention(picture: int) -> str:
+    return (
+        f"<Picture {picture}> (relative scale relationship): fully_preserved - "
+        "the configured relative height, body-size contrast, and broad body-proportion relationship "
+        "is retained when the linked Subjects are co-visible."
+    )
+
+
+def _normalize_comparison_appears_in(retention: str, picture: int) -> str:
+    return re.sub(
+        rf"(?im)(^<Picture\s+{picture}>\s*)\(\s*appears\s+in\s+\[[^\n]*\)",
+        r"\1(relative scale relationship)",
+        retention,
+    )
+
+
+def normalize_comparison_scale_references(
+    prompt: str,
+    workspace: Workspace,
+    preserve_definitions_from: str | None = None,
+) -> str:
+    """Repair comparison bookkeeping only; callers keep this inside explicit Repair."""
+    if workspace.mode != H3Mode.REF2VA:
+        return prompt
+    pictures = sorted(
+        (asset for asset in workspace.assets if asset.kind == AssetKind.IMAGE),
+        key=lambda asset: (asset.order, asset.id),
+    )
+    comparisons = [
+        (number, asset)
+        for number, asset in enumerate(pictures, 1)
+        if asset.role == "character_comparison_scale"
+    ]
+    if not comparisons:
+        return prompt
+
+    definitions = _section_text(prompt, "subject_definitions", "summary")
+    source_definitions = _section_text(preserve_definitions_from or "", "subject_definitions", "summary")
+    additions: list[str] = []
+    for picture, asset in comparisons:
+        if _has_comparison_definition(definitions, picture):
+            continue
+        additions.append(
+            _comparison_definition_entry(source_definitions, picture)
+            or _comparison_default_definition(workspace, picture, asset)
+        )
+    if additions:
+        match = re.search(r"(?m)^summary:", prompt)
+        if match:
+            prefix = prompt[:match.start()].rstrip()
+            added_definitions = "\n".join(additions)
+            prompt = f"{prefix}\n{added_definitions}\n\n{prompt[match.start():]}"
+
+    retention_match = re.search(r"(?ms)^retention_analysis:\s*(.*?)(?=^detailed_description:)", prompt)
+    if not retention_match:
+        return prompt
+    retention = retention_match.group(1)
+    source_retention = _section_text(preserve_definitions_from or "", "retention_analysis", "detailed_description")
+    for picture, _ in comparisons:
+        retention = _normalize_comparison_appears_in(retention, picture)
+    additions = [
+        _comparison_retention_entry(source_retention, picture)
+        or _comparison_default_retention(picture)
+        for picture, _ in comparisons
+        if not _has_comparison_retention(retention, picture)
+    ]
+    if additions:
+        added_retentions = "\n".join(additions)
+        retention = f"{retention.rstrip()}\n{added_retentions}\n\n"
+    return f"{prompt[:retention_match.start(1)]}{retention}{prompt[retention_match.end(1):]}"
+
+
 def _dialogue_lines(dialogue: str) -> list[str]:
     lines: list[str] = []
     for raw in dialogue.splitlines():
@@ -43,6 +173,68 @@ def _dialogue_lines(dialogue: str) -> list[str]:
         _, separator, text = raw.partition(":")
         lines.append(text.strip() if separator else raw)
     return [line for line in lines if line]
+
+
+def _mask_literal_text(text: str) -> str:
+    """Mask literal dialogue and quoted scene text before structural label checks."""
+    masked = re.sub(r"(?is)<d>.*?</d>", lambda match: " " * len(match.group()), text)
+    return re.sub(r'"(?:\\.|[^"\\])*"', lambda match: " " * len(match.group()), masked)
+
+
+def canonicalize_bare_reference_labels(text: str) -> str:
+    """Bracket bare labels while preserving dialogue and quoted literal text."""
+    protected = _mask_literal_text(text)
+    parts: list[str] = []
+    cursor = 0
+    for match in BARE_LABEL_RE.finditer(protected):
+        parts.extend((text[cursor:match.start()], f"<{match.group(1)} {match.group(2)}>"))
+        cursor = match.end()
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def _subject_is_explicitly_offscreen(shot_text: str, subject: int) -> bool:
+    """Return true only when every local reference labels the Subject as off-screen."""
+    label = rf"<Subject\s+{subject}>"
+    occurrences = list(re.finditer(label, shot_text, re.IGNORECASE))
+    if not occurrences:
+        return False
+    marker = r"(?:explicitly\s+)?off[- ]screen"
+    return all(
+        re.search(
+            rf"{label}[^.\n]{{0,80}}\b(?:who\s+)?(?:is|remains|stays|kept|shown)\s+{marker}\b",
+            shot_text[max(0, match.start() - 12):match.end() + 100], re.IGNORECASE,
+        )
+        or re.search(rf"{label}\s*(?:,\s*|\(\s*)?{marker}\b", shot_text[match.start():match.end() + 32], re.IGNORECASE)
+        or re.search(rf"\b{marker}\s+{label}", shot_text[max(0, match.start() - 24):match.end() + 12], re.IGNORECASE)
+        for match in occurrences
+    )
+
+
+def _retention_visibility_findings(retention_text: str, shot_blocks: dict[int, str]) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for match in RETENTION_SUBJECT_RE.finditer(retention_text):
+        subject = int(match.group("subject"))
+        for shot_text in RETENTION_SHOT_RE.findall(match.group("shots")):
+            shot = int(shot_text)
+            block = shot_blocks.get(shot)
+            if block is None:
+                findings.append(_finding(
+                    "ERROR", "retention_unknown_shot",
+                    f"Retention analysis lists Subject {subject} in Shot {shot}, but Shot {shot} does not exist.",
+                ))
+                continue
+            if not re.search(rf"<Subject\s+{subject}>", block, re.IGNORECASE):
+                findings.append(_finding(
+                    "ERROR", "retention_subject_not_in_shot",
+                    f"Retention analysis lists Subject {subject} in Shot {shot}, but that shot has no <Subject {subject}> reference.",
+                ))
+            elif _subject_is_explicitly_offscreen(block, subject):
+                findings.append(_finding(
+                    "ERROR", "retention_subject_offscreen",
+                    f"Retention analysis lists Subject {subject} in Shot {shot}, but that Subject is explicitly off-screen there.",
+                ))
+    return findings
 
 
 def validate_prompt(
@@ -60,6 +252,13 @@ def validate_prompt(
         return ValidationResult(valid=False, findings=[_finding("ERROR", "empty", "The generated prompt is empty.")])
     if text.startswith("```") or text.endswith("```"):
         findings.append(_finding("ERROR", "markdown_fence", "Remove Markdown fences from the H3 prompt."))
+
+    for kind, number in BARE_LABEL_RE.findall(_mask_literal_text(text)):
+        token = f"{kind} {number}"
+        findings.append(_finding(
+            "ERROR", "bare_reference_label",
+            f'Bare reference label "{token}"; use canonical H3 label <{token}>.',
+        ))
 
     expected = REF_FIELDS if mode == H3Mode.REF2VA else BASE_FIELDS
     observed = [match.group("name") for match in FIELD_RE.finditer(text)]
@@ -105,6 +304,10 @@ def validate_prompt(
                 break
         main_text = text[main_start_match.end():main_end]
     shots = list(SHOT_RE.finditer(main_text))
+    shot_blocks = {
+        int(match.group(1)): main_text[match.end():shots[index + 1].start() if index + 1 < len(shots) else len(main_text)]
+        for index, match in enumerate(shots)
+    }
     if not shots or int(shots[0].group(1)) != 1:
         findings.append(_finding("ERROR", "missing_shot_1", "The main description must begin with [Shot 1]."))
     else:
@@ -155,6 +358,27 @@ def validate_prompt(
             seen_dangling.add((kind, number))
 
     if mode == H3Mode.REF2VA:
+        definitions = _section_text(text, "subject_definitions", "summary")
+        retention = _section_text(text, "retention_analysis", "detailed_description")
+        for picture in _comparison_scale_picture_numbers(assets):
+            label = f"<Picture {picture}>"
+            if not _has_comparison_definition(definitions, picture):
+                findings.append(_finding(
+                    "ERROR", "comparison_scale_reference_missing",
+                    f"Character Comparison / Scale {label} requires a relationship definition in subject_definitions.",
+                ))
+            if not _has_comparison_retention(retention, picture):
+                findings.append(_finding(
+                    "ERROR", "comparison_scale_retention_missing",
+                    f"Character Comparison / Scale {label} requires a relationship retention entry in retention_analysis.",
+                ))
+            elif re.search(rf"(?im)^<Picture\s+{picture}>\s*\(\s*appears\s+in\s+\[", _mask_literal_text(retention)):
+                findings.append(_finding(
+                    "ERROR", "comparison_scale_picture_appears_in_shot",
+                    f"Character Comparison / Scale {label} retains a relationship; it should not use Subject-style appears in [Shot ...] retention syntax.",
+                ))
+        if retention:
+            findings.extend(_retention_visibility_findings(retention, shot_blocks))
         summary_match = re.search(r"(?ms)^summary:\s*(.*?)(?=^retention_analysis:)", text)
         summary = summary_match.group(1).lower() if summary_match else ""
         roles = {asset.role for asset in assets}
@@ -190,4 +414,30 @@ def validate_prompt(
 
 
 def validate_workspace_prompt(prompt: str, workspace: Workspace) -> ValidationResult:
-    return validate_prompt(prompt, workspace.mode, workspace.duration_seconds, workspace.assets, workspace.dialogue, workspace.shots)
+    result = validate_prompt(prompt, workspace.mode, workspace.duration_seconds, workspace.assets, workspace.dialogue, workspace.shots)
+    if workspace.mode != H3Mode.REF2VA:
+        return result
+    definitions_match = re.search(r"(?ms)^subject_definitions:\s*(.*?)(?=^summary:)", prompt)
+    definitions = _mask_literal_text(definitions_match.group(1)) if definitions_match else ""
+    subject_numbers = {subject.id: subject.number for subject in workspace.subjects}
+    pictures = sorted((asset for asset in workspace.assets if asset.kind == AssetKind.IMAGE), key=lambda asset: (asset.order, asset.id))
+    for picture_number, asset in enumerate(pictures, 1):
+        if asset.role != "subject_identity":
+            continue
+        subject_number = subject_numbers.get(asset.subject_identity.subject_id)
+        if subject_number is None:
+            continue
+        subject_match = re.search(
+            rf"(?ms)^<Subject\s+{subject_number}>\s+is\b(.*?)(?=^<Subject\s+\d+>\s+is\b|^<Picture\s+\d+>|\Z)",
+            definitions,
+        )
+        label = f"<Picture {picture_number}>"
+        if subject_match is None or label not in subject_match.group(0):
+            result.findings.append(_finding(
+                "ERROR", "identity_reference_missing",
+                f"<Subject {subject_number}> is missing identity provenance {label} in subject_definitions.",
+            ))
+    if any(item.severity == "ERROR" for item in result.findings):
+        result.valid = False
+        result.findings[:] = [item for item in result.findings if item.code != "structure_ok"]
+    return result

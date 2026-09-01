@@ -24,13 +24,22 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="MiniConstruct",
     description="Local MiniMax H3 structured-prompt workbench",
-    version="0.2.0",
+    version="0.3.0",
     docs_url="/api/docs",
     redoc_url=None,
     lifespan=lifespan,
 )
 app.include_router(router)
 app.mount("/static", StaticFiles(directory=WEB_ROOT), name="static")
+
+
+@app.middleware("http")
+async def revalidate_frontend_assets(request, call_next):
+    """Keep unhashed browser modules from different application versions mixing."""
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @app.get("/", include_in_schema=False)

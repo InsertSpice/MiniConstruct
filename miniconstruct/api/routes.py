@@ -13,11 +13,12 @@ from fastapi.responses import StreamingResponse
 from miniconstruct.h3.builder import assemble_prompt, build_reference_manifest
 from miniconstruct.h3.repair import assemble_repair_prompt
 from miniconstruct.h3.revision import assemble_revision_prompt, splice_revision, validate_replacement
-from miniconstruct.h3.validator import validate_prompt, validate_workspace_prompt
+from miniconstruct.h3.validator import canonicalize_bare_reference_labels, normalize_comparison_scale_references, validate_prompt, validate_workspace_prompt
 from miniconstruct.llm.client import LLMBackendError, LLMStreamEvent, OpenAICompatibleClient
 from miniconstruct.llm.compatibility import build_generation_payload
 from miniconstruct.llm.diagnostics import cache_input_fingerprint
 from miniconstruct.llm.discovery import LocalEndpointDiscoveryService
+from miniconstruct.llm.model_eject import ModelEjectError, eject_model
 from miniconstruct.models.api import (
     DiscoveredModel,
     EndpointDiscoveryRequest,
@@ -57,7 +58,7 @@ def _resolved_generation_seeds(request: GenerationRequest) -> list[int | None]:
 
 @router.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "application": "MiniConstruct", "version": "0.2.0"}
+    return {"status": "ok", "application": "MiniConstruct", "version": "0.3.0"}
 
 
 async def enumerate_endpoint_models(settings: LLMSettings) -> dict:
@@ -87,6 +88,14 @@ async def test_connection(settings: LLMSettings) -> dict:
         return await enumerate_endpoint_models(settings)
     except LLMBackendError as exc:
         raise _http_error(exc) from exc
+
+
+@router.post("/model-management/eject")
+async def eject(settings: LLMSettings) -> dict:
+    try:
+        return (await eject_model(settings)).as_dict()
+    except ModelEjectError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.post("/discover-endpoints")
@@ -355,7 +364,21 @@ async def repair(request: RepairRequest) -> GeneratedVariation:
     ]
     if not structural_failures:
         return GeneratedVariation(prompt=request.prompt, validation=current_validation)
-    assembled = assemble_repair_prompt(request, structural_failures)
+    normalized_prompt = normalize_comparison_scale_references(
+        canonicalize_bare_reference_labels(request.prompt), request.workspace,
+    )
+    normalized_validation = validate_workspace_prompt(normalized_prompt, request.workspace)
+    remaining_failures = [
+        finding
+        for finding in normalized_validation.findings
+        if finding.severity == "ERROR" and finding.category == "structural"
+    ]
+    if not remaining_failures:
+        return GeneratedVariation(
+            prompt=normalized_prompt,
+            validation=normalized_validation,
+        )
+    assembled = assemble_repair_prompt(request.model_copy(update={"prompt": normalized_prompt}), remaining_failures)
     try:
         # Repair is deliberately syntax-focused: it neither resolves nor sends a creative seed.
         repair_settings = request.llm.model_copy(update={"seed": None})
@@ -363,4 +386,7 @@ async def repair(request: RepairRequest) -> GeneratedVariation:
             prompt = await client.generate(assembled.messages)
     except LLMBackendError as exc:
         raise _http_error(exc) from exc
+    prompt = normalize_comparison_scale_references(
+        canonicalize_bare_reference_labels(prompt), request.workspace, normalized_prompt,
+    )
     return GeneratedVariation(prompt=prompt, validation=validate_workspace_prompt(prompt, request.workspace))

@@ -93,8 +93,16 @@ class SubjectIdentityView(StrEnum):
     REAR = "rear"
 
 
+class ReferenceLayout(StrEnum):
+    """How an identity Picture is arranged, independently of its focus."""
+
+    AUTO = "auto"
+    SINGLE_VIEW = "single_view"
+    REFERENCE_SHEET = "reference_sheet"
+
+
 IMAGE_ROLES = {
-    "subject_identity", "environment", "style_appearance", "continuity_state",
+    "subject_identity", "character_comparison_scale", "environment", "style_appearance", "continuity_state",
     "first_frame_anchor", "keyframe_anchor", "last_frame_anchor",
     "storyboard_composition", "general_visual",
 }
@@ -131,10 +139,21 @@ class ImagePayload(BaseModel):
 class SubjectIdentityReference(BaseModel):
     """Typed Picture metadata that is active only with the subject_identity role."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
+    subject_id: str = Field(default="subject-1", alias="subjectId", min_length=1, max_length=128)
     focus: SubjectIdentityFocus = SubjectIdentityFocus.GENERAL
     view: SubjectIdentityView = SubjectIdentityView.UNSPECIFIED
+    layout: ReferenceLayout = ReferenceLayout.AUTO
+
+
+class SubjectRecord(BaseModel):
+    """A stable visible subject, deliberately independent of asset numbering."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=128)
+    number: int = Field(ge=1)
 
 
 class ReferenceAsset(BaseModel):
@@ -149,6 +168,7 @@ class ReferenceAsset(BaseModel):
     notes: str = Field(default="", max_length=8000)
     options: dict[str, Any] = Field(default_factory=dict)
     subject_identity: SubjectIdentityReference = Field(default_factory=SubjectIdentityReference, alias="subjectIdentity")
+    comparison_subject_ids: list[str] = Field(default_factory=list, alias="comparisonSubjects")
     order: int = Field(default=0, ge=0)
     image: ImagePayload | None = None
     attached: bool = True
@@ -246,6 +266,8 @@ class Workspace(BaseModel):
     dialogue: str = Field(default="", max_length=30000)
     reference_labels: str = Field(default="", alias="referenceLabels", max_length=30000)
     assets: list[ReferenceAsset] = Field(default_factory=list)
+    subjects: list[SubjectRecord] = Field(default_factory=list)
+    next_subject_number: int = Field(default=1, alias="nextSubjectNumber", ge=1)
     creative_controls: CreativeControls = Field(default_factory=CreativeControls, alias="creativeControls")
 
     @field_validator("creative_request")
@@ -257,6 +279,41 @@ class Workspace(BaseModel):
 
     @model_validator(mode="after")
     def validate_mode_assets(self) -> "Workspace":
+        # Old projects had one implicit identity.  Materialize only the smallest
+        # stable registry needed to retain that exact meaning on later saves.
+        identity_ids = {
+            asset.subject_identity.subject_id
+            for asset in self.assets
+            if asset.kind == AssetKind.IMAGE and asset.role == "subject_identity"
+        }
+        known_ids = {subject.id for subject in self.subjects}
+        next_number = max([self.next_subject_number - 1, *(subject.number for subject in self.subjects)], default=0) + 1
+        for subject_id in sorted(identity_ids - known_ids):
+            number = 1 if subject_id == "subject-1" and not self.subjects else next_number
+            self.subjects.append(SubjectRecord(id=subject_id, number=number))
+            next_number = max(next_number, number + 1)
+        self.subjects.sort(key=lambda subject: (subject.number, subject.id))
+        numbers = [subject.number for subject in self.subjects]
+        if len(set(known_ids | identity_ids)) != len(self.subjects):
+            raise ValueError("subject IDs must be unique")
+        if len(set(numbers)) != len(numbers):
+            raise ValueError("subject numbers must be unique")
+        self.next_subject_number = max(self.next_subject_number, *(number + 1 for number in numbers), 1)
+        known_ids = {subject.id for subject in self.subjects}
+        for asset in self.assets:
+            if asset.kind != AssetKind.IMAGE:
+                continue
+            if asset.role == "subject_identity" and asset.subject_identity.subject_id not in known_ids:
+                raise ValueError(f"subject identity reference {asset.id!r} points to an unknown subject")
+            if asset.role == "character_comparison_scale":
+                selected = asset.comparison_subject_ids
+                if len(selected) < 2:
+                    raise ValueError("Character Comparison / Scale requires at least two Subjects")
+                if len(set(selected)) != len(selected):
+                    raise ValueError("Character Comparison / Scale Subjects must be unique")
+                unknown = set(selected) - known_ids
+                if unknown:
+                    raise ValueError(f"Character Comparison / Scale points to unknown Subjects: {sorted(unknown)}")
         images = [asset for asset in self.assets if asset.kind == AssetKind.IMAGE]
         roles = [asset.role for asset in images]
         if self.mode == H3Mode.I2VA and roles.count("first_frame_anchor") != 1:

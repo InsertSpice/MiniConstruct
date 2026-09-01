@@ -54,7 +54,7 @@ def test_facial_only_reference_does_not_invent_wardrobe_policy(workspace_factory
     face.subject_identity.focus = SubjectIdentityFocus.FACE
     text = compile_creative_controls(strict_workspace(workspace_factory, [face]), True)
 
-    assert "facial identity anchor" in text
+    assert "Facial Identity fidelity" in text
     assert "Reference-derived wardrobe policy" not in text
     assert "current wardrobe" not in text
 

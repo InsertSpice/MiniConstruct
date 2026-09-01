@@ -3,7 +3,13 @@ from __future__ import annotations
 from copy import deepcopy
 import re
 
-from miniconstruct.h3.builder import AssembledPrompt, assemble_prompt
+from miniconstruct.h3.builder import (
+    AssembledPrompt,
+    assemble_prompt,
+    inspector_text,
+    instruction_layers,
+    system_message_content,
+)
 from miniconstruct.models.api import RevisionRequest, RevisionSelection
 
 
@@ -11,6 +17,7 @@ REVISION_POLICY = """You are performing one selective edit inside an existing Mi
 Return ONLY replacement text for the selected excerpt. Do not return the full prompt, explanations, a response heading such as "Replacement:", or Markdown fences.
 Text outside <MINICONSTRUCT_SELECTION> is immutable and is supplied only for continuity context. The selection markers exist only in this request: do not return them.
 Preserve existing Subject, Picture, Video, Audio, speaker, shot, and timeline identities unless the selected text itself requires a local correction.
+Keep each stable Subject's grouped identity references intact: a multi-view reference sheet is evidence for one Subject, never several generated people, a panel layout, or a target composition. Preserve Character Comparison / Scale relationships as relative scale and body-proportion constraints, never as a requirement to copy its side-by-side staging or camera.
 The Exact Dialogue field is authoritative: preserve its wording and punctuation verbatim, including every selected <d>...</d> passage.
 The explicit Revision Request is authoritative within the selected excerpt and may intentionally override workspace Creative Controls there.
 Fit the replacement naturally between the immutable surrounding text. Do not create unrelated top-level sections or renumber unrelated shots."""
@@ -36,13 +43,12 @@ def validate_replacement(selection: RevisionSelection, replacement: str) -> str 
 
 def assemble_revision_prompt(request: RevisionRequest) -> AssembledPrompt:
     base = assemble_prompt(request.workspace, request.llm.supports_vision)
-    messages = [
-        deepcopy(message)
-        for message in base.messages
-        if message.get("role") == "system"
-        and not str(message.get("content", "")).startswith("## Generation policy")
+    layers = [
+        layer for layer in instruction_layers(request.workspace, request.llm.supports_vision)
+        if layer[0] != "Generation policy"
     ]
-    messages.append({"role": "system", "content": f"## Selective revision policy\n\n{REVISION_POLICY}"})
+    layers.append(("Selective revision policy", REVISION_POLICY))
+    messages = [{"role": "system", "content": system_message_content(layers)}]
 
     original_user = base.messages[-1].get("content")
     if isinstance(original_user, list):
@@ -69,6 +75,6 @@ def assemble_revision_prompt(request: RevisionRequest) -> AssembledPrompt:
         messages.append({"role": "user", "content": user_text})
     return AssembledPrompt(
         messages=messages,
-        inspector_text="\n\n".join(str(message.get("content", "")) for message in messages),
+        inspector_text=inspector_text(layers, user_text),
         warnings=base.warnings,
     )

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from miniconstruct.h3.guide_acquisition import GuideAcquisitionError, guide_setup_message
-from miniconstruct.models.workspace import AssetKind, H3Mode, ReferenceAsset, Workspace
+from miniconstruct.models.workspace import AssetKind, H3Mode, ReferenceAsset, ReferenceLayout, Workspace
 from miniconstruct.h3.creative_controls import compile_creative_controls
 
 
@@ -64,6 +64,8 @@ def _timecode(seconds: float) -> str:
 
 def build_reference_manifest(workspace: Workspace) -> dict[str, Any]:
     assets: list[dict[str, Any]] = []
+    subject_labels = {subject.id: f"Subject {subject.number}" for subject in workspace.subjects}
+    subject_pictures: dict[str, list[str]] = {subject.id: [] for subject in workspace.subjects}
     for asset, label in numbered_assets(workspace):
         entry: dict[str, Any] = {
             "kind": asset.kind.value,
@@ -85,13 +87,100 @@ def build_reference_manifest(workspace: Workspace) -> dict[str, Any]:
             entry["visionInputAttached"] = False
         if asset.kind == AssetKind.IMAGE and asset.role == "subject_identity":
             identity = asset.subject_identity
-            if identity.focus.value != "general" or identity.view.value != "unspecified":
-                entry["subjectIdentity"] = {
-                    "focus": identity.focus.value,
-                    "view": identity.view.value,
-                }
+            subject_pictures.setdefault(identity.subject_id, []).append(label)
+            entry["subjectIdentity"] = {
+                "subjectId": identity.subject_id,
+                "subjectLabel": subject_labels[identity.subject_id],
+                "focus": identity.focus.value,
+                "layout": identity.layout.value,
+                "view": identity.view.value,
+                "viewActive": identity.layout != ReferenceLayout.REFERENCE_SHEET,
+            }
+        elif asset.kind == AssetKind.IMAGE and asset.role == "character_comparison_scale":
+            entry["comparisonSubjects"] = [
+                {"id": subject_id, "label": subject_labels[subject_id]}
+                for subject_id in asset.comparison_subject_ids
+            ]
         assets.append(entry)
-    return {"assets": assets, "referenceLabels": workspace.reference_labels}
+    return {
+        "subjects": [
+            {
+                "id": subject.id,
+                "label": f"Subject {subject.number}",
+                "identityPictures": subject_pictures.get(subject.id, []),
+            }
+            for subject in workspace.subjects
+        ],
+        "assets": assets,
+        "referenceLabels": workspace.reference_labels,
+    }
+
+
+def _reference_semantics(workspace: Workspace, supports_vision: bool | None) -> str:
+    """Explain stable grouping and role semantics without claiming unseen pixels."""
+    labels = {subject.id: f"Subject {subject.number}" for subject in workspace.subjects}
+    identity_groups: dict[str, list[str]] = {subject.id: [] for subject in workspace.subjects}
+    identity_assets = [
+        (asset, label) for asset, label in numbered_assets(workspace)
+        if asset.kind == AssetKind.IMAGE and asset.role == "subject_identity"
+    ]
+    sheet_assets = [pair for pair in identity_assets if pair[0].subject_identity.layout == ReferenceLayout.REFERENCE_SHEET]
+    facial_assets = [pair for pair in identity_assets if pair[0].subject_identity.focus.value == "face"]
+    lines = [
+        "Subject identity is semantic and stable: Subject numbers are not Picture numbers and must never be reassigned because Pictures are reordered or absent.",
+        "Dedicated Subject / Identity Pictures define stable identity; Comparison / Scale Pictures only support relative height, body size, and broad proportions.",
+        "Expression, emotion, gaze, pose, mouth state, expression-induced eye/brow state, blush, and other transient performance belong to the target video, never identity anchors; authoritative Notes may establish genuinely permanent morphology.",
+        "Cite identity-only Picture provenance inside its <Subject N> definition; do not create standalone Picture retention entries or mark an identity-only Picture fully_preserved. Separately configured concrete Picture roles remain independent.",
+        "retention_analysis lists only shots where the Subject is visibly in-frame; off-screen mentions do not count. Use canonical <Subject N> labels for visibly present referenced Subjects in each shot.",
+    ]
+    for asset, label in identity_assets:
+        identity_groups.setdefault(asset.subject_identity.subject_id, []).append(label)
+    for subject_id, pictures in identity_groups.items():
+        if pictures:
+            lines.append(f"<{labels[subject_id]}> is defined by {', '.join(f'<{picture}>' for picture in pictures)}.")
+
+    if facial_assets:
+        lines.append(
+            "Facial Identity semantics: extract stable facial morphology and discriminative traits, not a reference's smile, frown, scowl, emotion, gaze, mouth openness, expression-induced eye/brow pose, head pose, or blush. Notes may establish permanent morphology (for example naturally upturned mouth corners), not that the Subject is smiling in this reference."
+        )
+
+    if sheet_assets:
+        lines.append(
+            "Reference Sheet semantics: repeated consistent depictions are complementary evidence for one assigned Subject, not separate people or an expression sequence. Use sheets as identity evidence only; never reproduce panels, grids, sheet backgrounds, annotations, labels, repeated copies, or side-by-side layout as target composition. Expression examples show deformation only, never retained traits."
+        )
+        if supports_vision is True:
+            lines.extend([
+                "Visually synthesize clearly visible complementary depictions into one coherent Subject identity; use only visible traits and do not enumerate panels.",
+                "For requested profile/side, rear/back, or three-quarter views, selectively use matching visible sheet evidence in that shot; do not invent traits or reproduce the sheet.",
+                "Focus is primary, not exclusive: General supports broad multi-view evidence and a large facial panel may help; Full-body prioritizes proportions, silhouette, cross-view hair, clothing, footwear, and accessories while a large facial panel may help; Facial prioritizes facial/head evidence.",
+            ])
+        else:
+            lines.append("Vision is unavailable for manually designated sheets. Use only their sheet designation and explicit Notes; do not invent their views, expressions, labels, panels, props, or details.")
+
+    for asset, label in numbered_assets(workspace):
+        if asset.kind != AssetKind.IMAGE:
+            continue
+        if asset.role == "subject_identity":
+            identity = asset.subject_identity
+            subject = labels[identity.subject_id]
+            if identity.layout == ReferenceLayout.REFERENCE_SHEET:
+                lines.append(f"<{label}>: manually designated Reference Sheet identity provenance for <{subject}>; primary focus is {identity.focus.value.replace('_', ' ')}.")
+            elif identity.layout == ReferenceLayout.AUTO:
+                if supports_vision is True:
+                    lines.append(f"<{label}> is Auto-layout identity evidence for <{subject}>. If it is clearly a multi-view reference sheet, treat repeated consistent depictions as complementary evidence for that one Subject and do not reproduce sheet layout or panels in the target video.")
+                else:
+                    lines.append(f"<{label}> has Auto layout with vision unavailable. Do not infer a reference sheet, particular viewpoints, expressions, labels, or other uninspected visual contents; use its explicit metadata and Notes only.")
+            else:
+                view = identity.view.value.replace("_", " ")
+                lines.append(f"<{label}>: single-view identity provenance for <{subject}>; {identity.focus.value.replace('_', ' ')} focus and {view} view metadata. The view documents evidence; it does not require that target camera view.")
+        elif asset.role == "character_comparison_scale":
+            subjects = " and ".join(f"<{labels[subject_id]}>" for subject_id in asset.comparison_subject_ids)
+            lines.append(
+                f"<{label}> is a Character Comparison / Scale reference for {subjects}. REQUIRED: include one <{label}> relationship statement in subject_definitions; do not absorb it into Subject identity. In retention_analysis, retain its scale relationship (normally fully_preserved when maintained), never using Subject-style appears in [Shot ...] wording for <{label}>. Preserve its visible relative height, body-size contrast, and broad body-proportion relationship when those Subjects share a spatial plane. It is not target-shot composition authority: do not copy its neutral poses, side-by-side arrangement, staging, blocking, camera, or background. Do not invent numeric heights or ratios."
+            )
+            if supports_vision is not True:
+                lines.append(f"Vision is unavailable for <{label}>; use only its role and explicit Notes for scale relationships, never uninspected visual ratios.")
+    return "\n".join(lines)
 
 
 def _mode_guidance(workspace: Workspace) -> str:
@@ -141,14 +230,15 @@ def _mode_guidance(workspace: Workspace) -> str:
     return "\n".join(lines)
 
 
-def assemble_prompt(workspace: Workspace, supports_vision: bool | None) -> AssembledPrompt:
+def instruction_layers(workspace: Workspace, supports_vision: bool | None) -> list[tuple[str, str]]:
     official_path = GUIDES / ("ref-en.txt" if workspace.mode == H3Mode.REF2VA else "base-en.txt")
     if not official_path.is_file():
         raise GuideAcquisitionError(guide_setup_message([official_path]))
-    layers: list[tuple[str, str]] = [
+    return [
         ("MiniConstruct core operating instructions", _read_text(str(OPERATING))),
         ("Official MiniMax H3 guide (normative)", _read_text(str(official_path))),
         ("Mode and reference guidance", _mode_guidance(workspace)),
+        ("Subject and reference semantics", _reference_semantics(workspace, supports_vision)),
         (
             "Canonical workspace/reference manifest",
             json.dumps(
@@ -169,6 +259,21 @@ def assemble_prompt(workspace: Workspace, supports_vision: bool | None) -> Assem
             f"Generate one clean H3 prompt in this response. The application will make {workspace.variations} independent request(s); variations are alternate prompt rewrites, never H3 shot count.",
         ),
     ]
+
+
+def system_message_content(layers: list[tuple[str, str]]) -> str:
+    return "\n\n".join(f"## {title}\n\n{body}" for title, body in layers)
+
+
+def inspector_text(layers: list[tuple[str, str]], user_text: str) -> str:
+    return "\n\n".join(
+        [f"===== {title} =====\n{body}" for title, body in layers]
+        + [f"===== User material =====\n{user_text}"]
+    )
+
+
+def assemble_prompt(workspace: Workspace, supports_vision: bool | None) -> AssembledPrompt:
+    layers = instruction_layers(workspace, supports_vision)
     user_parts = [f"MAIN CREATIVE REQUEST (authoritative):\n{workspace.creative_request}"]
     if workspace.dialogue.strip():
         user_parts.append(
@@ -183,9 +288,7 @@ def assemble_prompt(workspace: Workspace, supports_vision: bool | None) -> Assem
     user_parts.append("Return only the clean H3 prompt as plain text. Do not use Markdown fences or commentary.")
     user_text = "\n\n".join(user_parts)
 
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": f"## {title}\n\n{body}"} for title, body in layers
-    ]
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system_message_content(layers)}]
     image_assets = [pair for pair in numbered_assets(workspace) if pair[0].kind == AssetKind.IMAGE]
     warnings: list[str] = []
     if image_assets and supports_vision is True:
@@ -202,8 +305,5 @@ def assemble_prompt(workspace: Workspace, supports_vision: bool | None) -> Assem
                 f"Vision support is {state}; {len(image_assets)} image reference(s) were not sent as visual inputs. Their metadata, roles, and notes remain in the manifest."
             )
 
-    inspector = "\n\n".join(
-        [f"===== {title} =====\n{body}" for title, body in layers]
-        + [f"===== User material =====\n{user_text}"]
-    )
+    inspector = inspector_text(layers, user_text)
     return AssembledPrompt(messages=messages, inspector_text=inspector, warnings=warnings)

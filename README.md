@@ -16,14 +16,16 @@ MiniConstruct can:
 
 - Build prompts for **T2VA, I2VA, FL2VA, L2VA, and Ref2VA**
 - Organize **Picture, Video, and Audio references**
-- Associate references with semantic **Subjects**
+- Associate references with stable semantic **Subjects**
 - Use image references directly with a vision-capable prompt-writing model
+- Use **Reference Sheets** as multi-view identity evidence
+- Use **Character Comparison / Scale** references for relative height and body proportions
 - Preserve **exact dialogue**
 - Build **video continuation** and **seamless overlap continuation** prompts
 - Control camera preferences, tone, performance, music, visual style, identity fidelity, and prompt-generation seed
 - Generate multiple prompt variations
 - Validate generated H3 structure and reference usage
-- Repair formatting problems without rewriting the creative intent
+- Repair structural formatting problems
 - Highlight part of a generated prompt and **revise only that selection**
 - Save editable Projects and keep recent generated prompts in local History
 
@@ -37,6 +39,26 @@ Attach one or more images of a character, mark them as Subject / Identity refere
 
 MiniConstruct turns the workspace into a Ref2VA prompt that explains how H3 should use the supplied references.
 
+### Reference Sheets
+
+A Subject / Identity Picture can use **Auto**, **Single view**, or **Reference sheet** layout handling.
+
+Reference Sheets are treated as complementary identity evidence for one Subject rather than as multiple copies of that character. Multi-view sheets can provide evidence for front, three-quarter, profile, rear, full-body, and facial appearance where those views are visibly present.
+
+Expression examples are treated as evidence of how the same face deforms rather than instructions to reproduce an expression sequence. MiniConstruct also tells the prompt-writing model not to recreate the sheet's grid, panels, annotations, or repeated character copies as target-video composition.
+
+### Character Comparison / Scale
+
+A Picture can be assigned the **Character Comparison / Scale** role and linked to multiple Subjects.
+
+This allows a shared reference to establish relative relationships such as:
+
+- height difference
+- body-size contrast
+- broad body proportions
+
+The comparison reference is relationship guidance rather than target-shot composition authority. Its poses, staging, camera angle, background, and side-by-side layout do not need to be copied into the target video.
+
 ### Image-to-video
 
 Choose **I2VA**, attach the required first-frame Picture, describe what should happen after that frame, and generate the finished H3 prompt.
@@ -47,7 +69,7 @@ For first-and-last-frame generation, use **FL2VA**. For last-frame-only generati
 
 Attach a previous video as the continuation source and describe what should happen next.
 
-For transitions between separately generated clips, **Seamless overlap continuation** can use the ending portion of the previous clip as an overlap reference so the new generation continues through the boundary instead of resetting the action, pose, camera, or momentum.
+For transitions between separately generated clips, **Seamless overlap continuation** can use the ending portion of the previous clip as overlap material so the new generation continues through the boundary instead of resetting the action, pose, camera, or momentum.
 
 ### Exact dialogue
 
@@ -114,6 +136,8 @@ Identity Fidelity controls how strongly MiniConstruct tells the prompt writer to
 
 Identity references can also be described by focus, such as facial identity, full-body appearance, outfit/clothing, or detail.
 
+Identity preservation targets stable appearance and morphology rather than transient expression, gaze, pose, or other momentary performance state.
+
 ### Seed
 
 MiniConstruct supports backend-default, random, and fixed seed behavior for compatible prompt-writing backends.
@@ -133,7 +157,7 @@ You can:
 
 Revision works from the current generated prompt rather than regenerating the entire output.
 
-**Repair Format** is deliberately narrower: it receives the current prompt, the relevant H3 guide, and structural findings, and is instructed to repair formatting rather than reinterpret the scene.
+**Repair Format** is deliberately narrower. MiniConstruct can make deterministic structural corrections where possible and otherwise uses a focused repair request rather than reinterpreting the whole scene.
 
 ## Reference-driven prompting
 
@@ -141,18 +165,9 @@ Pictures, Videos, and Audio are numbered independently.
 
 A reference can be assigned a role, Notes, and semantic relationships describing how it should be used.
 
-For example, a Picture may define:
+A `<Subject N>` represents a visible semantic entity in the target video rather than being another name for `<Picture N>` or `<Video N>`.
 
-- Subject identity
-- environment
-- composition
-- outfit
-- a visual detail
-- another reference-specific purpose
-
-A `<Subject N>` represents a visible entity in the target video rather than being another name for `<Picture N>` or `<Video N>`.
-
-Several assets may contribute to the same Subject, and reference relationships can explain how those assets relate to one another.
+Several assets may contribute to the same Subject, while one reference may also describe a relationship between multiple Subjects.
 
 ### Image vision
 
@@ -180,7 +195,7 @@ MiniConstruct supports the main MiniMax H3 audiovisual generation modes:
 
 Duration is limited to H3's supported **4–15 second** range.
 
-Shot count may be automatic or explicitly chosen. MiniConstruct validates shot timestamps, required sections, reference resolution, dialogue, mode-specific alignment, and other structural rules.
+Shot count may be automatic or explicitly chosen. MiniConstruct validates shot timestamps, required sections, reference resolution, dialogue, mode-specific alignment, retention relationships, and other structural rules.
 
 ## Dialogue and continuation
 
@@ -202,6 +217,20 @@ Typical local options include LM Studio, Ollama, Unsloth Studio, and other compa
 
 No Node.js frontend toolchain, database server, account, or cloud service is required.
 
+### Official H3 guide setup
+
+MiniConstruct uses the official MiniMax H3 prompting material, but the complete official guide files are **not redistributed in this repository**.
+
+After installing MiniConstruct, run the guide-acquisition command once:
+
+```text
+python -m miniconstruct.h3.guide_acquisition
+```
+
+This explicitly downloads the pinned official MiniMax H3 guide snapshot and verifies the expected files.
+
+Guide acquisition does not happen silently during generation. If the required guides are missing, MiniConstruct stops during startup and prints the acquisition command and expected paths.
+
 ### Windows
 
 From the repository directory in PowerShell:
@@ -210,6 +239,7 @@ From the repository directory in PowerShell:
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
+python -m miniconstruct.h3.guide_acquisition
 .\run.ps1
 ```
 
@@ -227,12 +257,13 @@ To deliberately allow LAN access:
 
 The default loopback binding is safer. Binding to all interfaces can expose MiniConstruct and its configured API credentials to other devices on the network.
 
-### Unix-like systems
+### Linux and macOS
 
 ```sh
 python3.12 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e '.[dev]'
+python -m miniconstruct.h3.guide_acquisition
 chmod +x run.sh
 ./run.sh
 ```
@@ -273,13 +304,13 @@ Reasoning defaults to **Off** because MiniConstruct primarily wants direct struc
 
 **Projects** are complete editable workspaces stored locally in IndexedDB.
 
-They can be saved, loaded, deleted, exported, and imported.
+They can be saved, loaded, renamed, deleted, exported, and imported.
 
 Exported `.miniconstruct-project.json` files can contain processed Pictures but never API keys or raw Video/Audio.
 
 Because raw Video and Audio are not stored inside a Project, imported or reloaded projects may show **media not attached** until the original local file is reattached. Its semantic settings are preserved.
 
-**History** stores the 50 most recent completed generated prompts and their validation metadata.
+**History** stores recent completed generated prompts and their validation metadata.
 
 Projects and History are separate.
 
@@ -292,11 +323,10 @@ MiniConstruct validates structural H3 requirements including:
 - shot syntax and timestamps
 - reference resolution
 - Ref2VA retention structures
+- Subject/reference provenance where applicable
 - dialogue consistency and verbatim dialogue where practical
 
 Findings are reported as **ERROR**, **WARNING**, or **INFO**.
-
-The output diagnostics also expose useful timing and request information such as first upstream event, first final-content token, total output duration, reported token usage where available, and a cache-input fingerprint.
 
 **Show LLM Instructions** displays the textual context MiniConstruct assembled for the prompt writer, excluding API keys and binary image data.
 
@@ -306,15 +336,25 @@ MiniConstruct is built around the official MiniMax H3 prompting material from:
 
 [MiniMax-AI/MiniMax-H3](https://github.com/MiniMax-AI/MiniMax-H3)
 
-The development snapshot currently corresponds to upstream commit:
+The public release currently uses the pinned upstream commit:
 
 ```text
 d21241f0a4b3acbb34c97dae47fa417b7065e438
 ```
 
-Exact upstream paths and SHA-256 hashes are recorded in `provenance.json`.
+The complete official H3 guide files are not redistributed in this repository. Instead, `python -m miniconstruct.h3.guide_acquisition` explicitly retrieves the pinned files from upstream during setup.
+
+Exact upstream paths, provenance information, and SHA-256 hashes are recorded under `miniconstruct/h3/guides/`.
 
 MiniConstruct's own operating instructions are kept separately from the official guide material so application-specific behavior does not silently modify the underlying H3 specification.
+
+## Licensing and third-party materials
+
+MiniConstruct's original source code is licensed under **GPL-3.0-or-later**. The full license is in [LICENSE](LICENSE).
+
+MiniMax H3, MiniMax model weights, and official MiniMax documentation are separate third-party materials. Acquiring the official H3 guides does not place those files under MiniConstruct's GPL license.
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the relevant MiniMax sources and licensing information.
 
 ## Troubleshooting
 
@@ -326,13 +366,23 @@ Check that the Base URL includes the server's required API prefix, commonly `/v1
 
 Make sure the prompt-writing server is running and the configured host/port are correct.
 
+**Required H3 guides are missing**
+
+Activate the virtual environment and run:
+
+```text
+python -m miniconstruct.h3.guide_acquisition
+```
+
+Then start MiniConstruct again.
+
 **Images are ignored or rejected**
 
 Enable **Model accepts images** only when the selected model and backend support multimodal OpenAI Chat Completions.
 
 **The generated prompt has validation errors**
 
-Inspect the findings first. If the creative content is correct and only the H3 formatting is wrong, use **Repair Format**.
+Inspect the findings first. If the creative content is correct and only the H3 structure is wrong, use **Repair Format**.
 
 **Imported Video or Audio says `media not attached`**
 
@@ -346,8 +396,6 @@ Run the Python tests with:
 .\.venv\Scripts\Activate.ps1
 pytest -q
 ```
-
-Tests use mocked HTTP transports and do not require a live prompt-writing model.
 
 The frontend is plain HTML, CSS, and browser ES modules with no Node.js build step.
 
