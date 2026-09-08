@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Reference sheet continuity",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "",
+  "assets": [
+    {
+      "id": "protagonist-sheet",
+      "kind": "image",
+      "filename": "Anime_Girl_ReferenceSheet.png",
+      "mimeType": "image/png",
+      "role": "subject_identity",
+      "notes": "Established protagonist identity and wardrobe reference sheet.",
+      "subjectIdentity": {
+        "subjectId": "subject-1",
+        "layout": "reference_sheet"
+      }
+    }
+  ]
+}

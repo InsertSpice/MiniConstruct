@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "ref2va-offscreen-retention",
+  "version": "1",
+  "title": "Ref2VA off-screen Subject retention",
+  "description": "A focused single-subject Ref2VA vision fixture for off-screen retention, exact dialogue, and stable speaker identity.",
+  "tags": ["baseline", "Ref2VA", "vision", "single-subject", "reference-sheet", "off-screen", "retention", "dialogue", "exact-dialogue", "speaker-continuity"],
+  "requirements": {
+    "vision": true
+  },
+  "expectations": {
+    "contains": ["Wait here. I'll only be a minute."]
+  },
+  "humanReview": [
+    "Is Subject 1 visibly present only before she exits the classroom doorway?",
+    "After exiting, does Subject 1 remain fully off-screen rather than being brought visually back into frame?",
+    "Does the camera remain in the hallway instead of following her inside?",
+    "Is the exact dialogue spoken by the same Subject only after she is fully off-screen?",
+    "Does retention_analysis count only visible appearances of Subject 1 rather than treating off-screen speech as visual retention?",
+    "If speaker IDs are used, is the speaker identity stable for Subject 1?",
+    "Is the Reference Sheet used as identity evidence rather than reproduced as a target grid or panel composition?",
+    "Is the requested hallway, doorway, exit, and empty-hallway sequence preserved without unrelated story invention?"
+  ],
+  "fixtureAssets": [
+    {
+      "assetId": "a46fa829-2b96-43f3-8e70-9e1b08d0b824",
+      "path": "assets/subject-1-reference-sheet.jpg"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "planner-match-ending-frame",
+  "version": "1",
+  "title": "Planner matches a previous ending frame",
+  "description": "A real external endpoint Picture supplies the previous Generation's ending composition for a match-ending-frame proposal.",
+  "tags": ["planner", "infer", "relationship"],
+  "requirements": {"vision": true},
+  "operation": "infer_plan",
+  "planner": {
+    "operation": "infer_plan",
+    "sequenceContext": "Alice remains at the same rainy railway station throughout the sequence.",
+    "previousGeneration": {"workspacePath": "previous-workspace.json", "incomingState": "Alice approaches the stopped train in the rain.", "intendedOutgoingState": "Alice arrives directly beside the train doors as they begin to open.", "planning": {"relationshipToPrevious": "continue_previous_shot", "cameraIntent": "Medium platform composition."}},
+    "currentGeneration": {"incomingState": "", "intendedOutgoingState": "", "planning": {"relationshipToPrevious": "match_previous_ending_frame", "cameraIntent": ""}}
+  },
+  "expectations": {"checks": [
+    {"kind": "relationship_equals", "value": "match_previous_ending_frame"},
+    {"kind": "field_not_empty", "field": "incomingState"},
+    {"kind": "field_not_empty", "field": "cameraIntent"}
+  ]},
+  "fixtureAssets": [{"assetId": "picture-alice-endpoint", "path": "assets/alice_station_endpoint.png", "source": "external"}],
+  "humanReview": ["Does the proposed current shot respect the supplied endpoint composition?", "Does it recognize that an actual Picture is available in this case?", "Does it begin coherently from Alice beside the open train door?", "Does it avoid inventing visual facts unsupported by the Picture or text?"]
+}

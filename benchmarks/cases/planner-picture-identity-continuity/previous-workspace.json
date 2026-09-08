@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Planner Picture predecessor",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "Alice waits on a rainy railway platform as a train approaches.",
+  "assets": [{"id": "picture-alice", "kind": "image", "filename": "alice_station_identity.png", "mimeType": "image/png", "role": "subject_identity", "notes": "Alice's established identity and wardrobe reference.", "subjectIdentity": {"subjectId": "alice", "focus": "general", "view": "three_quarter", "layout": "single_view"}}],
+  "subjects": [{"id": "alice", "number": 1}],
+  "nextSubjectNumber": 2
+}

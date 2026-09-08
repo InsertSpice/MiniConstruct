@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "planner-reference-source-disambiguation",
+  "version": "1",
+  "title": "Planner source-qualified recommendation identity",
+  "description": "The same asset ID exists in both generations with different media metadata.",
+  "tags": ["planner", "infer", "recommendations", "source-identity"],
+  "operation": "infer_plan",
+  "planner": {
+    "operation": "infer_plan",
+    "sequenceContext": "Preserve the character's voice while using the current camera reference.",
+    "previousGeneration": {"workspacePath": "previous-workspace.json", "incomingState": "Alice speaks beside the station wall.", "intendedOutgoingState": "Alice turns toward the train.", "planning": {"relationshipToPrevious": "continue_previous_shot", "cameraIntent": "Medium front view."}},
+    "currentGeneration": {"incomingState": "", "intendedOutgoingState": "", "planning": {"relationshipToPrevious": "new_shot_preserve_continuity", "cameraIntent": ""}}
+  },
+  "expectations": {"checks": [
+    {"kind": "recommendation_pair_valid"},
+    {"kind": "no_duplicate_recommendation_pairs"}
+  ]},
+  "humanReview": ["Does every recommendation preserve its Generation-qualified source?", "Are same-ID previous and current assets kept distinct rather than conflated?"]
+}

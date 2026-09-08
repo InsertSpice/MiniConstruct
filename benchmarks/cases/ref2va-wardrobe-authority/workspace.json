@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "projectId": "0ca4cb36-2363-4e70-85d7-458998fbdad9",
+  "projectName": "WardrobeAuthorityTest",
+  "mode": "Ref2VA",
+  "durationSeconds": 7,
+  "shots": null,
+  "aspectRatio": "auto",
+  "variations": 1,
+  "creativeRequest": "Subject 1 exercises alone in a bright school gymnasium. For the entire target video, she wears a plain white short-sleeve athletic T-shirt, navy gym shorts, white ankle socks, and simple indoor training shoes. Begin with a full-body view as she performs a controlled side stretch, then she takes several light jogging steps across the gym floor and stops near the wall. End with a relaxed full-body three-quarter view of Subject 1. Keep Subject 1's facial identity, hairstyle, body proportions, and recognizable appearance consistent throughout while using the explicitly requested athletic outfit for the entire video.",
+  "dialogue": "",
+  "referenceLabels": "",
+  "assets": [{
+    "id": "3e9816f2-db1f-42a0-9223-89ac5721f877",
+    "kind": "image",
+    "filename": "Codex Image Sep 1, 2026, 05_50_06 AM.png",
+    "mimeType": "image/jpeg",
+    "durationSeconds": null,
+    "role": "subject_identity",
+    "notes": "",
+    "options": {},
+    "subjectIdentity": {"subjectId": "subject-1", "focus": "general", "view": "unspecified", "layout": "reference_sheet"},
+    "order": 0,
+    "attached": true,
+    "image": {"data_url": "data:image/jpeg,fixture-placeholder", "width": 1600, "height": 900}
+  }],
+  "subjects": [{"id": "subject-1", "number": 1}],
+  "nextSubjectNumber": 2,
+  "creativeControls": {
+    "music": {"mode": "off", "description": ""},
+    "camera": {"zoom": "auto", "pushPull": "auto", "pan": "auto", "truck": "auto", "tilt": "auto", "pedestal": "auto", "arc": "auto", "tracking": "auto", "static": "auto", "shake": "auto", "pov": "auto", "roll": "auto"},
+    "visualStyle": {"preset": "auto", "custom": ""},
+    "subjectIdentityFidelity": {"level": "strict"},
+    "tonePerformance": {"sensuality": "auto", "drama": "auto", "horror": "auto", "tension": "auto", "romance": "auto", "whimsy": "auto", "performanceStyle": "auto", "performanceEnergy": "auto"}
+  }
+}

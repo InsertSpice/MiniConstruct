@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "planner-independent-scene",
+  "version": "1",
+  "title": "Planner independent scene",
+  "description": "A new scene shares only an explicit sequence fact and must not inherit a predecessor detail.",
+  "tags": ["planner", "infer", "relationship"],
+  "operation": "infer_plan",
+  "planner": {
+    "operation": "infer_plan",
+    "sequenceContext": "Each scene uses the same six-second format.",
+    "previousGeneration": {"workspacePath": "previous-workspace.json", "incomingState": "A violet observatory dome is open.", "intendedOutgoingState": "The astronomer raises a brass telescope.", "planning": {"relationshipToPrevious": "continue_previous_shot", "cameraIntent": "Crane over the dome."}},
+    "currentGeneration": {"incomingState": "", "intendedOutgoingState": "", "planning": {"relationshipToPrevious": "independent", "cameraIntent": ""}}
+  },
+  "expectations": {"checks": [
+    {"kind": "relationship_equals", "value": "independent"},
+    {"kind": "field_not_empty", "field": "incomingState"},
+    {"kind": "field_not_empty", "field": "cameraIntent"},
+    {"kind": "forbidden_text_absent", "patterns": ["violet observatory", "brass telescope"]}
+  ]},
+  "humanReview": ["Is direct predecessor continuity avoided?", "Is the explicit Sequence Context fact respected?"]
+}

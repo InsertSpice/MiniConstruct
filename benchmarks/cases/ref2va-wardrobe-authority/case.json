@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "ref2va-wardrobe-authority",
+  "version": "1",
+  "title": "Ref2VA explicit wardrobe authority",
+  "description": "Source-derived Ref2VA fixture recording whether an explicit athletic wardrobe overrides incidental school-uniform evidence while strict identity fidelity remains enabled.",
+  "tags": ["baseline", "Ref2VA", "vision", "single-subject", "reference-sheet", "identity", "wardrobe", "authority", "precedence", "strict-fidelity"],
+  "requirements": {"vision": true},
+  "expectations": {},
+  "humanReview": [
+    "Is Subject 1's stable facial identity, hairstyle, proportions, and recognizable appearance preserved?",
+    "Does the explicit athletic wardrobe override the sailor-style clothing visible in the Reference Sheet?",
+    "Is the requested athletic wardrobe maintained for the entire generated prompt?",
+    "Does the prompt avoid hybridizing the reference wardrobe and requested wardrobe, such as a sailor collar or skirt mixed with gym clothing?",
+    "Does Strict identity fidelity operate on identity rather than incorrectly freezing the incidental reference outfit?",
+    "Is the Reference Sheet used as identity evidence rather than a target grid or panel composition?",
+    "Is the requested gym stretch, jog, and final-pose action preserved?"
+  ],
+  "fixtureAssets": [{"assetId": "3e9816f2-db1f-42a0-9223-89ac5721f877", "path": "assets/subject-1-reference-sheet.jpg"}]
+}

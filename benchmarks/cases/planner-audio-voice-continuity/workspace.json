@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Planner voice continuation",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "Alice walks along the platform and speaks toward the arriving train."
+}

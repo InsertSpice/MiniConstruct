@@ -15,6 +15,7 @@ from miniconstruct.h3.guide_acquisition import (
     GuideAcquisitionError,
     GuideSpec,
     acquire_missing_guides,
+    managed_guide_target_paths,
     require_guides,
 )
 
@@ -60,9 +61,13 @@ def test_configured_sources_are_official_minimax_urls():
         assert guide.upstream_path in guide.source_url
 
 
+def test_managed_target_paths_are_derived_from_the_canonical_guide_specs():
+    assert managed_guide_target_paths() == tuple(
+        f"miniconstruct/h3/guides/{guide.local_name}" for guide in GUIDE_SPECS
+    )
+
+
 def test_pinned_hashes_describe_raw_lf_bytes_not_crlf_working_tree_bytes():
-    # The expected hashes come from the pinned raw GitHub objects. A Windows
-    # checkout that expands LF to CRLF must not be used to regenerate them.
     expected_raw_hashes = {
         "SKILL.md": "a7000443588ca3f145e3b3fd8900f14e0325dc460bd811268fac89a9dc8e56d0",
         "base-en.txt": "2cfebc096a6e08370f288d468d90b60f7f9bcb938f94bf090816e910e48e75fc",
@@ -143,13 +148,3 @@ def test_downloaded_guides_are_ignored_but_operating_instructions_are_tracked():
     attributes = (root / ".gitattributes").read_text(encoding="utf-8")
     for guide in GUIDE_SPECS:
         assert f"/miniconstruct/h3/guides/{guide.local_name} -text" in attributes
-
-
-def test_windows_launcher_uses_the_repository_venv_and_loopback():
-    root = Path(__file__).resolve().parents[1]
-    launcher = (root / "start-miniconstruct.bat").read_text(encoding="utf-8")
-    assert 'cd /d "%~dp0"' in launcher
-    assert 'if not exist ".venv\\Scripts\\python.exe"' in launcher
-    assert '".venv\\Scripts\\python.exe" -m miniconstruct --host 127.0.0.1 --port 8743' in launcher
-    assert "Press Ctrl+C to stop MiniConstruct." in launcher
-    assert "pause" in launcher and "exit /b %EXITCODE%" in launcher

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "creative-interpretation",
+  "title": "Creative Interpretation behavioral comparison",
+  "cases": [
+    "ref2va-creative-inference-conservative",
+    "ref2va-creative-inference-baseline",
+    "ref2va-creative-inference-expansive"
+  ]
+}

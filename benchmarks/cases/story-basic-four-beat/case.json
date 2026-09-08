@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "id": "story-basic-four-beat",
+  "version": "1",
+  "title": "Basic four beat",
+  "description": "A cyclist finds a lost dog in a rainy city, earns its trust, leads it home, and reunites it with its owner.",
+  "tags": [
+    "story",
+    "build"
+  ],
+  "operation": "build_story_plan",
+  "story": {
+    "sequenceContext": "",
+    "generations": [
+      {
+        "workspacePath": "workspace.json",
+        "incomingState": "",
+        "intendedOutgoingState": "",
+        "planning": {
+          "cameraIntent": "",
+          "relationshipToPrevious": null
+        }
+      }
+    ],
+    "build": {
+      "idea": "A cyclist finds a lost dog in a rainy city, earns its trust, leads it home, and reunites it with its owner.",
+      "desiredGenerationCount": 4
+    }
+  },
+  "expectations": {
+    "checks": [
+      {
+        "kind": "story_item_count_equals",
+        "value": 4
+      },
+      {
+        "kind": "story_existing_generation_count_equals",
+        "value": 1
+      },
+      {
+        "kind": "story_existing_generation_ids_preserved"
+      },
+      {
+        "kind": "story_new_items_have_no_existing_generation_id"
+      },
+      {
+        "kind": "story_first_relationship_null"
+      },
+      {
+        "kind": "story_relationship_valid"
+      },
+      {
+        "kind": "story_recommendation_pairs_valid"
+      },
+      {
+        "kind": "story_no_duplicate_recommendation_pairs"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "creativeRequest"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "incomingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "intendedOutgoingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "cameraIntent"
+      },
+      {
+        "kind": "story_sequence_context_not_empty"
+      }
+    ]
+  },
+  "humanReview": [
+    "Does the four-item plan form a coherent beginning, development and resolution?",
+    "Are the four Generations meaningfully distinct rather than paraphrasing the same beat?",
+    "Does each item represent one feasible six-second H3 segment instead of the whole story?",
+    "Is camera planning reasonably varied and are relationships sensible?",
+    "Does it avoid unnecessary fixed details such as a dog breed unless useful and justified?"
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "planner-picture-environment-continuity",
+  "version": "1",
+  "title": "Planner Picture environment continuity",
+  "description": "A real external environment Picture tests location continuity in a deliberate new shot.",
+  "tags": ["planner", "infer", "picture", "environment", "continuity"],
+  "requirements": {"vision": true},
+  "operation": "infer_plan",
+  "planner": {
+    "operation": "infer_plan",
+    "sequenceContext": "The sequence remains at the same railway station on the same rainy night.",
+    "previousGeneration": {"workspacePath": "previous-workspace.json", "incomingState": "Alice waits on the platform as the train stops.", "intendedOutgoingState": "The train settles beside Alice at the platform.", "planning": {"relationshipToPrevious": "continue_previous_shot", "cameraIntent": "Wide station view."}},
+    "currentGeneration": {"incomingState": "", "intendedOutgoingState": "", "planning": {"relationshipToPrevious": "new_shot_preserve_continuity", "cameraIntent": ""}}
+  },
+  "expectations": {"checks": [
+    {"kind": "relationship_equals", "value": "new_shot_preserve_continuity"},
+    {"kind": "field_not_empty", "field": "incomingState"},
+    {"kind": "field_not_empty", "field": "cameraIntent"},
+    {"kind": "recommendation_pair_valid"},
+    {"kind": "no_duplicate_recommendation_pairs"}
+  ]},
+  "fixtureAssets": [{"assetId": "picture-station-environment", "path": "assets/station_environment.png", "source": "external"}],
+  "humanReview": ["Is the rainy railway-station environment preserved?", "Does the proposal remain consistent with the supplied location?", "Does it establish a deliberate new shot without treating the environment Picture as a mandatory exact first frame?", "Are unsupported visual details avoided?"]
+}

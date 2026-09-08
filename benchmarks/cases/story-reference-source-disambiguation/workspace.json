@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Reference source disambiguation",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "The performer enters the studio.",
+  "assets": [
+    {
+      "id": "shared-reference",
+      "kind": "audio",
+      "filename": "voice-reference.wav",
+      "mimeType": "audio/wav",
+      "role": "voice_timbre",
+      "notes": "Protagonist voice identity reference metadata."
+    }
+  ]
+}

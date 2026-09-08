@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 
-from miniconstruct.h3.builder import assemble_prompt, build_reference_manifest, numbered_assets
+from miniconstruct.h3.builder import assemble_prompt, build_h3_input_map, build_reference_manifest, numbered_assets
+from miniconstruct.models.workspace import ReferenceLayout, SubjectIdentityFocus
 
 
 def test_t2va_uses_base_guide_only(workspace_factory):
@@ -36,6 +37,55 @@ def test_independent_numbering_and_reordering(workspace_factory, image_asset_fac
     assert labels == {"p-first": "Picture 1", "p-late": "Picture 2", "v1": "Video 1", "v2": "Video 2", "a1": "Audio 1"}
 
 
+def test_h3_input_map_uses_canonical_labels_and_subject_metadata(workspace_factory, image_asset_factory):
+    face = image_asset_factory("face", order=2, filename="alice-face.png")
+    face.subject_identity.subject_id = "subject-1"
+    face.subject_identity.focus = SubjectIdentityFocus.FACE
+    sheet = image_asset_factory("sheet", order=0, filename="alice-sheet.png")
+    sheet.subject_identity.subject_id = "subject-1"
+    sheet.subject_identity.layout = ReferenceLayout.REFERENCE_SHEET
+    comparison = image_asset_factory("scale", role="character_comparison_scale", order=3, filename="height-scale.png")
+    comparison.comparison_subject_ids = ["subject-1", "subject-2"]
+    assets = [
+        sheet,
+        {"id": "video", "kind": "video", "filename": "movement.mp4", "mimeType": "video/mp4", "role": "motion_action", "order": 1},
+        face,
+        comparison,
+        {"id": "audio", "kind": "audio", "filename": "dialogue.wav", "mimeType": "audio/wav", "role": "dialogue_spoken_content", "order": 0},
+    ]
+    workspace = workspace_factory(
+        mode="Ref2VA",
+        assets=assets,
+        subjects=[{"id": "subject-1", "number": 1}, {"id": "subject-2", "number": 2}],
+    )
+
+    entries = build_h3_input_map(workspace)
+    by_id = {entry["id"]: entry for entry in entries}
+    assert {entry["id"]: entry["h3Label"] for entry in entries} == {
+        asset.id: label for asset, label in numbered_assets(workspace)
+    }
+    assert by_id["sheet"]["h3Label"] == "Picture 1"
+    assert by_id["sheet"]["metadata"] == ["Subject 1", "Identity", "General", "Reference sheet"]
+    assert by_id["face"]["h3Label"] == "Picture 2"
+    assert by_id["face"]["metadata"] == ["Subject 1", "Identity", "Facial"]
+    assert by_id["scale"]["h3Label"] == "Picture 3"
+    assert by_id["scale"]["metadata"] == ["Subjects 1, 2", "Character Comparison / Scale"]
+    assert by_id["video"]["h3Label"] == "Video 1"
+    assert by_id["audio"]["h3Label"] == "Audio 1"
+
+
+def test_h3_input_map_recomputes_after_removal_and_round_trip(workspace_factory, image_asset_factory):
+    first = image_asset_factory("first", order=0, filename="first.png")
+    second = image_asset_factory("second", order=1, filename="second.png")
+    workspace = workspace_factory(mode="Ref2VA", assets=[first, second])
+    workspace.assets.pop(0)
+    rebuilt = type(workspace).model_validate(workspace.model_dump(by_alias=True))
+
+    entries = build_h3_input_map(rebuilt)
+    assert [(entry["id"], entry["h3Label"]) for entry in entries] == [("second", "Picture 1")]
+    assert "inputMap" not in rebuilt.model_dump(by_alias=True)
+
+
 def test_subject_relationships_stay_user_semantics(workspace_factory, image_asset_factory):
     workspace = workspace_factory(
         mode="Ref2VA", assets=[image_asset_factory()],
@@ -66,6 +116,7 @@ def test_generation_uses_one_leading_system_message_without_losing_layers_or_ima
     headings = [
         "MiniConstruct core operating instructions", "Official MiniMax H3 guide (normative)",
         "Mode and reference guidance", "Subject and reference semantics",
+        "Creative Interpretation policy",
         "Canonical workspace/reference manifest", "Generation policy",
     ]
     assert all(heading in system for heading in headings)
@@ -114,6 +165,9 @@ def test_audio_roles_and_no_implicit_audio_from_video(workspace_factory):
     manifest = build_reference_manifest(workspace_factory(mode="Ref2VA", assets=assets))
     assert [item["h3Label"] for item in manifest["assets"] if item["kind"] == "audio"] == ["Audio 1", "Audio 2", "Audio 3", "Audio 4"]
     assert len([item for item in manifest["assets"] if item["kind"] == "video"]) == 1
+    instructions = assemble_prompt(workspace_factory(mode="Ref2VA", assets=assets), False).inspector_text
+    assert "Video audio does not create an Audio label" not in instructions
+    assert "a reference video's embedded audio creates an <Audio N> only when its embedded-audio execution route is enabled" in instructions
 
 
 def test_dialogue_verbatim_and_speaker_mapping_instruction(workspace_factory):

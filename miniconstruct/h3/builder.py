@@ -9,6 +9,7 @@ from typing import Any
 from miniconstruct.h3.guide_acquisition import GuideAcquisitionError, guide_setup_message
 from miniconstruct.models.workspace import AssetKind, H3Mode, ReferenceAsset, ReferenceLayout, Workspace
 from miniconstruct.h3.creative_controls import compile_creative_controls
+from miniconstruct.h3.creative_interpretation import creative_interpretation_policy
 
 
 ROOT = Path(__file__).resolve().parent
@@ -21,6 +22,14 @@ class AssembledPrompt:
     messages: list[dict[str, Any]]
     inspector_text: str
     warnings: list[str]
+
+
+USER_TERMINOLOGY_AUTHORITY = (
+    "When the user explicitly supplies a term for an action, role, relationship, dynamic, style, or other named "
+    "concept, retain that user-supplied term verbatim at least once in the H3 prompt. Do not replace the term entirely "
+    "with a synonym, euphemism, generic category, or only its observable description. Supporting visual description may "
+    "expand or clarify the term but must not substitute for it."
+)
 
 
 @lru_cache(maxsize=3)
@@ -54,6 +63,80 @@ def numbered_assets(workspace: Workspace) -> list[tuple[ReferenceAsset, str]]:
             items = sorted(items, key=lambda asset: ({"first_frame_anchor": 0, "last_frame_anchor": 1}[asset.role], asset.order, asset.id))
         result.extend((asset, f"{names[kind]} {index}") for index, asset in enumerate(items, 1))
     return result
+
+
+_IDENTITY_FOCUS_LABELS = {
+    "general": "General",
+    "face": "Facial",
+    "full_body": "Full-body",
+    "outfit": "Outfit",
+    "detail": "Detail",
+}
+_IDENTITY_VIEW_LABELS = {
+    "front": "Front",
+    "three_quarter": "Three-quarter",
+    "profile": "Profile",
+    "rear": "Rear",
+}
+_ROLE_LABELS = {
+    "environment": "Environment",
+    "style_appearance": "Style / appearance",
+    "continuity_state": "Continuity state",
+    "first_frame_anchor": "First-frame anchor",
+    "keyframe_anchor": "Keyframe anchor",
+    "last_frame_anchor": "Last-frame anchor",
+    "storyboard_composition": "Storyboard / composition",
+    "general_visual": "General",
+    "continuation_source": "Continuation source",
+    "seamless_overlap_continuation": "Seamless overlap continuation",
+    "editing_source": "Editing source",
+    "motion_action": "Motion / action",
+    "camera_movement": "Camera movement",
+    "cut_pacing_rhythm": "Cut / pacing / rhythm",
+    "general_video": "General",
+    "full_reuse": "Full audio reuse / copy 1:1",
+    "partial_reuse": "Partial audio reuse",
+    "music_beat_rhythm": "Music / beat / rhythm",
+    "voice_timbre": "Voice timbre",
+    "dialogue_spoken_content": "Dialogue / spoken-content",
+    "sound_audio_style": "Sound / audio-style",
+    "general_audio": "General",
+}
+
+
+def build_h3_input_map(workspace: Workspace) -> list[dict[str, Any]]:
+    """Build the read-only physical H3 input projection from canonical labels."""
+    subject_labels = {subject.id: f"Subject {subject.number}" for subject in workspace.subjects}
+    entries: list[dict[str, Any]] = []
+    for asset, label in numbered_assets(workspace):
+        metadata: list[str] = []
+        if asset.kind == AssetKind.IMAGE and asset.role == "subject_identity":
+            identity = asset.subject_identity
+            metadata = [subject_labels.get(identity.subject_id, "Subject"), "Identity"]
+            metadata.append(_IDENTITY_FOCUS_LABELS.get(identity.focus.value, identity.focus.value))
+            if identity.layout == ReferenceLayout.REFERENCE_SHEET:
+                metadata.append("Reference sheet")
+            elif identity.layout == ReferenceLayout.SINGLE_VIEW:
+                metadata.append("Single view")
+            if identity.view.value != "unspecified":
+                metadata.append(_IDENTITY_VIEW_LABELS.get(identity.view.value, identity.view.value))
+        elif asset.kind == AssetKind.IMAGE and asset.role == "character_comparison_scale":
+            metadata = [
+                f"Subjects {', '.join(str(next((subject.number for subject in workspace.subjects if subject.id == subject_id), 'Subject')) for subject_id in asset.comparison_subject_ids)}",
+                "Character Comparison / Scale",
+            ]
+        else:
+            metadata = [_ROLE_LABELS.get(asset.role, asset.role.replace("_", " ").title())]
+        if getattr(asset, "options", {}).get("executionEmbeddedSoundtrack"):
+            metadata = ["Embedded video soundtrack"]
+        entries.append({
+            "id": asset.id,
+            "kind": asset.kind.value,
+            "h3Label": label,
+            "filename": asset.filename,
+            "metadata": metadata,
+        })
+    return entries
 
 
 def _timecode(seconds: float) -> str:
@@ -176,7 +259,7 @@ def _reference_semantics(workspace: Workspace, supports_vision: bool | None) -> 
         elif asset.role == "character_comparison_scale":
             subjects = " and ".join(f"<{labels[subject_id]}>" for subject_id in asset.comparison_subject_ids)
             lines.append(
-                f"<{label}> is a Character Comparison / Scale reference for {subjects}. REQUIRED: include one <{label}> relationship statement in subject_definitions; do not absorb it into Subject identity. In retention_analysis, retain its scale relationship (normally fully_preserved when maintained), never using Subject-style appears in [Shot ...] wording for <{label}>. Preserve its visible relative height, body-size contrast, and broad body-proportion relationship when those Subjects share a spatial plane. It is not target-shot composition authority: do not copy its neutral poses, side-by-side arrangement, staging, blocking, camera, or background. Do not invent numeric heights or ratios."
+                f"<{label}> is a Character Comparison / Scale reference for {subjects}. REQUIRED: include one <{label}> relationship statement in subject_definitions; do not absorb it into Subject identity. In retention_analysis, retain its scale relationship (normally fully_preserved when maintained), never using Subject-style appears in [Shot ...] wording for <{label}>. Preserve its visible relative height, body-size contrast, and broad body-proportion relationship when those Subjects share a spatial plane. It is not target-shot composition authority: do not copy its neutral poses, side-by-side arrangement, staging, blocking, camera, or background. Comparison imagery is not authority for exact heights, exact height differences, centimetres/inches, numeric ratios or percentages, inferred physical dimensions, OCR-read measurement labels, or visually estimated measurements. Text or numbers printed inside the image remain image-derived, even when readable by OCR or vision; they are not user-authored textual input. The REQUIRED <{label}> relationship statement in subject_definitions must remain qualitative unless the exact numeric measurement is explicitly present in an actual user-authored textual workspace field, such as the Creative Request, this reference's Notes, or Reference Labels / explicit relationship text. If an exact number exists only in image pixels, printed labels, OCR, or visual inference, omit it and describe the relative relationship qualitatively instead."
             )
             if supports_vision is not True:
                 lines.append(f"Vision is unavailable for <{label}>; use only its role and explicit Notes for scale relationships, never uninspected visual ratios.")
@@ -239,6 +322,7 @@ def instruction_layers(workspace: Workspace, supports_vision: bool | None) -> li
         ("Official MiniMax H3 guide (normative)", _read_text(str(official_path))),
         ("Mode and reference guidance", _mode_guidance(workspace)),
         ("Subject and reference semantics", _reference_semantics(workspace, supports_vision)),
+        ("Creative Interpretation policy", creative_interpretation_policy(workspace)),
         (
             "Canonical workspace/reference manifest",
             json.dumps(
@@ -274,7 +358,10 @@ def inspector_text(layers: list[tuple[str, str]], user_text: str) -> str:
 
 def assemble_prompt(workspace: Workspace, supports_vision: bool | None) -> AssembledPrompt:
     layers = instruction_layers(workspace, supports_vision)
-    user_parts = [f"MAIN CREATIVE REQUEST (authoritative):\n{workspace.creative_request}"]
+    user_parts = [
+        f"MAIN CREATIVE REQUEST (authoritative):\n{workspace.creative_request}",
+        "USER TERMINOLOGY AUTHORITY:\n" + USER_TERMINOLOGY_AUTHORITY,
+    ]
     if workspace.dialogue.strip():
         user_parts.append(
             "EXACT DIALOGUE (preserve wording and punctuation verbatim; map Subjects to speaker IDs by actual speech order):\n"

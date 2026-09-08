@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "t2va-laterality-preservation",
+  "version": "1",
+  "title": "T2VA laterality preservation baseline",
+  "description": "A narrowly controlled no-vision baseline for preserving subject-relative laterality and its explicit image-frame mapping.",
+  "tags": ["baseline", "T2VA", "no-vision", "user-authority", "laterality", "coordinate-frame"],
+  "requirements": {"vision": false},
+  "expectations": {
+    "contains": ["blue wristband"]
+  },
+  "humanReview": [
+    "Is the requested side preserved: the blue wristband and raised hand remain on the subject's right, with the subject's left wrist bare and down?",
+    "Does the subject-relative coordinate frame remain unambiguous, with the subject's right mapped to image-left rather than viewer-right or image-right?",
+    "Is there no mirroring, silent side substitution, or replacement of the explicit subject-relative wording with an ambiguous bare right or left?"
+  ]
+}

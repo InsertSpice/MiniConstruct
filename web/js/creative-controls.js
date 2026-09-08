@@ -95,7 +95,7 @@ export function resetTonePerformance(controls) {
 export function renderCreativeControls(root, controls, hasSubjectIdentityPicture) {
   const normalized = normalizeCreativeControls(controls);
   const buttonGroup = (values, selected, field, disabled = false) => values.map(([value, label]) =>
-    `<button type="button" class="control-choice ${selected === value ? "active" : ""}" data-creative-field="${field}" data-creative-value="${value}"${disabled ? " disabled" : ""}>${label}</button>`
+    `<button type="button" class="control-choice ${selected === value ? "active" : ""}" data-creative-field="${field}" data-creative-value="${value}" aria-pressed="${selected === value}"${disabled ? " disabled" : ""}>${label}</button>`
   ).join("");
   root.querySelector("#music-mode-controls").innerHTML = buttonGroup([["auto", "Auto"], ["off", "Off"], ["on", "On"]], normalized.music.mode, "music.mode");
   root.querySelector("#music-description").value = normalized.music.description;

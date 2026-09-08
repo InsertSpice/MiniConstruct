@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "id": "story-revision-camera-multiselect",
+  "version": "1",
+  "title": "Revision camera multiselect",
+  "description": "Revise only Camera Intent on draft items 2 and 3.",
+  "tags": [
+    "story",
+    "revision"
+  ],
+  "operation": "revise_story_plan",
+  "story": {
+    "sequenceContext": "A cyclist helps the same lost dog through the same rainy city and reunites it with its owner.",
+    "generations": [
+      {
+        "workspacePath": "workspace.json",
+        "incomingState": "",
+        "intendedOutgoingState": "",
+        "planning": {
+          "cameraIntent": "",
+          "relationshipToPrevious": null
+        }
+      }
+    ],
+    "revision": {
+      "draft": {
+        "sequenceContext": "A cyclist helps the same lost dog through the same rainy city and reunites it with its owner.",
+        "items": [
+          {
+            "existingGeneration": 1,
+            "creativeRequest": "The cyclist stops beside a lost dog on the rainy street.",
+            "incomingState": "The cyclist rides along a rainy street.",
+            "intendedOutgoingState": "The cyclist and dog face one another.",
+            "relationshipToPrevious": null,
+            "cameraIntent": "Wide static view of the street.",
+            "referenceRecommendations": []
+          },
+          {
+            "existingGeneration": null,
+            "creativeRequest": "The cyclist removes one wet glove and offers a hand for the dog to sniff.",
+            "incomingState": "The cyclist and dog face one another.",
+            "intendedOutgoingState": "The dog cautiously sniffs the cyclist's hand and wags its tail.",
+            "relationshipToPrevious": "new_shot_preserve_continuity",
+            "cameraIntent": "Static medium shot at dog height.",
+            "referenceRecommendations": []
+          },
+          {
+            "existingGeneration": null,
+            "creativeRequest": "The cyclist leads the trusting dog toward its home.",
+            "incomingState": "The dog stands willingly beside the cyclist.",
+            "intendedOutgoingState": "The cyclist and dog arrive outside the owner's home.",
+            "relationshipToPrevious": "new_shot_preserve_continuity",
+            "cameraIntent": "Wide static view along the pavement.",
+            "referenceRecommendations": []
+          },
+          {
+            "existingGeneration": null,
+            "creativeRequest": "The owner opens the door and reunites with the dog.",
+            "incomingState": "The cyclist and dog wait outside the home.",
+            "intendedOutgoingState": "The dog is reunited with its owner while the cyclist smiles.",
+            "relationshipToPrevious": "new_shot_preserve_continuity",
+            "cameraIntent": "Static medium view of the doorway.",
+            "referenceRecommendations": []
+          }
+        ]
+      },
+      "selectedItems": [
+        2,
+        3
+      ],
+      "scopes": [
+        "camera_intent"
+      ],
+      "instruction": "Make these two shots substantially more dynamic and clearly distinct from one another while preserving every event, character, setting, continuity fact, and unselected field exactly."
+    }
+  },
+  "expectations": {
+    "checks": [
+      {
+        "kind": "story_item_count_equals",
+        "value": 4
+      },
+      {
+        "kind": "story_existing_generation_count_equals",
+        "value": 1
+      },
+      {
+        "kind": "story_existing_generation_ids_preserved"
+      },
+      {
+        "kind": "story_new_items_have_no_existing_generation_id"
+      },
+      {
+        "kind": "story_first_relationship_null"
+      },
+      {
+        "kind": "story_relationship_valid"
+      },
+      {
+        "kind": "story_recommendation_pairs_valid"
+      },
+      {
+        "kind": "story_no_duplicate_recommendation_pairs"
+      },
+      {
+        "kind": "story_selected_fields_only_changed"
+      },
+      {
+        "kind": "story_sequence_context_equals",
+        "value": "A cyclist helps the same lost dog through the same rainy city and reunites it with its owner."
+      },
+      {
+        "kind": "story_field_changed",
+        "item": 2,
+        "field": "cameraIntent"
+      },
+      {
+        "kind": "story_field_changed",
+        "item": 3,
+        "field": "cameraIntent"
+      },
+      {
+        "kind": "story_field_equals",
+        "item": 2,
+        "field": "creativeRequest",
+        "value": "The cyclist removes one wet glove and offers a hand for the dog to sniff."
+      }
+    ]
+  },
+  "humanReview": [
+    "Are the two new Camera Intents more dynamic and meaningfully distinct?",
+    "Did the model understand this as cinematographic revision rather than story rewrite?",
+    "Inspect rawModelOutput separately: did the model itself obey scope? Discarded out-of-scope paraphrases do not fail the effective production result."
+  ]
+}

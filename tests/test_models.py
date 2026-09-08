@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from miniconstruct.models.api import ProjectEnvelope
-from miniconstruct.models.workspace import ReferenceAsset, Workspace
+from miniconstruct.models.api import EndpointProfile, GenerationRequest, LLMSettings, ProjectEnvelope
+from miniconstruct.models.workspace import ReferenceAsset, Workspace, validate_authoring_workspace
 
 
 @pytest.mark.parametrize("shots", [None, 1, 5, 17])
@@ -39,6 +39,35 @@ def test_ref2va_requires_reference(workspace_factory):
         workspace_factory(mode="Ref2VA")
 
 
+@pytest.mark.parametrize("mode", ["T2VA", "I2VA", "FL2VA", "L2VA", "Ref2VA"])
+def test_authoring_validation_allows_incomplete_mode_drafts_but_strict_workspace_does_not(
+    workspace_factory, mode,
+):
+    data = workspace_factory(mode="T2VA").model_dump(mode="json", by_alias=True)
+    data.update(mode=mode, creativeRequest="", assets=[])
+    draft = validate_authoring_workspace(data)
+    assert draft.mode.value == mode
+    assert draft.creative_request == ""
+    with pytest.raises(ValidationError):
+        Workspace.model_validate(data)
+
+
+def test_authoring_validation_still_rejects_structural_errors(workspace_factory):
+    data = workspace_factory().model_dump(mode="json", by_alias=True)
+    data.update(creativeRequest="", durationSeconds=99)
+    with pytest.raises(ValidationError):
+        validate_authoring_workspace(data)
+
+
+def test_generation_request_remains_strict_for_blank_authoring_request(workspace_factory):
+    blank = workspace_factory().model_copy(update={"creative_request": ""})
+    settings = LLMSettings(endpoint=EndpointProfile(
+        id="test", displayName="Test", baseUrl="http://127.0.0.1:1234/v1",
+    ))
+    with pytest.raises(ValidationError):
+        GenerationRequest.model_validate({"workspace": blank.model_dump(mode="json", by_alias=True), "llm": settings.model_dump(mode="json", by_alias=True)})
+
+
 def test_asset_role_is_kind_specific():
     with pytest.raises(ValidationError):
         ReferenceAsset.model_validate({
@@ -66,6 +95,7 @@ def test_project_schema_round_trip_persists_image(workspace_factory, image_asset
     assert dumped["workspace"]["creativeControls"]["camera"]["arc"] == "avoid"
     assert dumped["workspace"]["creativeControls"]["visualStyle"]["custom"] == "painted animation"
     assert dumped["workspace"]["creativeControls"]["subjectIdentityFidelity"]["level"] == "strict"
+    assert dumped["workspace"]["creativeInterpretation"] == "balanced"
 
 
 def test_project_backwards_compatible_optional_defaults(image_asset_factory):
@@ -79,6 +109,7 @@ def test_project_backwards_compatible_optional_defaults(image_asset_factory):
     })
     assert project.workspace.dialogue == ""
     assert project.workspace.variations == 1
+    assert project.workspace.creative_interpretation.value == "balanced"
     assert project.workspace.creative_controls.subject_identity_fidelity.level.value == "auto"
 
 

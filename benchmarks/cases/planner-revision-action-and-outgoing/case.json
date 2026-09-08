@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "planner-revision-action-and-outgoing",
+  "version": "1",
+  "title": "Planner multi-scope action revision",
+  "description": "Main Prompt and Intended Outgoing State are editable; all other fields are protected.",
+  "tags": ["planner", "revise", "scoped-revision"],
+  "operation": "revise_plan",
+  "planner": {
+    "operation": "revise_plan",
+    "sequenceContext": "The room and character identity remain fixed.",
+    "currentGeneration": {"incomingState": "Alice stands beside the door.", "intendedOutgoingState": "Alice remains calm at the doorway.", "planning": {"relationshipToPrevious": "new_shot_preserve_continuity", "cameraIntent": "Wide static room composition."}},
+    "revision": {"instruction": "Change the event so Alice bursts through the doorway and ends outside in the rain.", "editableScopes": ["main_prompt", "intended_outgoing_state"]}
+  },
+  "expectations": {"checks": [
+    {"kind": "field_changed", "field": "creativeRequest"},
+    {"kind": "field_changed", "field": "intendedOutgoingState"},
+    {"kind": "field_unchanged", "field": "incomingState"},
+    {"kind": "field_unchanged", "field": "relationshipToPrevious"},
+    {"kind": "field_unchanged", "field": "cameraIntent"},
+    {"kind": "selected_fields_only_changed", "fields": ["creativeRequest", "intendedOutgoingState"]}
+  ]},
+  "humanReview": ["Do the changed Main Prompt and Outgoing State remain mutually coherent?", "Are Incoming State, Relationship, and Camera unchanged?"]
+}

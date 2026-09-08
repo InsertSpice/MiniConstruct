@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   CAMERA_FIELDS, defaultCreativeControls, normalizeCreativeControls,
   PERFORMANCE_ENERGY_LEVELS, PERFORMANCE_STYLE_LEVELS, TONE_LEVELS,
-  rangeForSemantic, resetCameraControls, resetCreativeControls, resetTonePerformance, semanticFromRange,
+  rangeForSemantic, renderCreativeControls, resetCameraControls, resetCreativeControls, resetTonePerformance, semanticFromRange,
 } from "../../web/js/creative-controls.js";
 
 
@@ -75,4 +75,34 @@ test("semantic slider mappings preserve Auto centers and restore values", () => 
   assert.equal(semanticFromRange(PERFORMANCE_STYLE_LEVELS, 2), "auto");
   assert.equal(rangeForSemantic(PERFORMANCE_ENERGY_LEVELS, "auto"), 2);
   assert.equal(semanticFromRange(PERFORMANCE_ENERGY_LEVELS, 0), "calm");
+});
+
+
+test("segmented Creative Controls expose the same selected state visually and accessibly", () => {
+  const elements = new Map();
+  const element = () => ({
+    innerHTML: "", value: "", textContent: "",
+    classList: { toggle() {} },
+  });
+  const root = {
+    querySelector(selector) {
+      if (!elements.has(selector)) elements.set(selector, element());
+      return elements.get(selector);
+    },
+  };
+  renderCreativeControls(root, normalizeCreativeControls({
+    music: { mode: "off" },
+    camera: { arc: "prefer" },
+    subjectIdentityFidelity: { level: "strict" },
+  }), true);
+
+  const groups = ["#music-mode-controls", "#camera-control-rows", "#subject-identity-fidelity-controls"];
+  for (const selector of groups) {
+    const html = elements.get(selector).innerHTML;
+    assert.equal((html.match(/class="control-choice active"/g) || []).length, selector === "#camera-control-rows" ? CAMERA_FIELDS.length : 1);
+    assert.equal((html.match(/aria-pressed="true"/g) || []).length, selector === "#camera-control-rows" ? CAMERA_FIELDS.length : 1);
+  }
+  assert.match(elements.get("#music-mode-controls").innerHTML, /data-creative-value="off" aria-pressed="true"/);
+  assert.match(elements.get("#camera-control-rows").innerHTML, /data-creative-field="camera\.arc" data-creative-value="prefer" aria-pressed="true"/);
+  assert.match(elements.get("#subject-identity-fidelity-controls").innerHTML, /data-creative-value="strict" aria-pressed="true"/);
 });

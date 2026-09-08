@@ -1,16 +1,21 @@
+import { readMediaReference, mediaPayloadStatus, metadataOnlyWorkspace, adoptSavedMedia } from "./media-assets.js";
 import { api } from "./api.js";
 import {
-  addHistory, clearHistory as clearHistoryDb, deleteProject, getProject,
-  listHistory, listProjects, putProject,
+  addHistory, clearHistory as clearHistoryDb, deleteProject as deleteLegacyProject, getProject as getLegacyProject,
+  listHistory, listProjects as listLegacyProjects,
 } from "./db.js";
 import { snapshotGenerationRequest } from "./streaming.js";
 import { fullHistoryPrompt, historyPreview } from "./history-preview.js";
 import { highlightPrompt } from "./highlighter.js";
 import {
-  defaultCreativeControls, normalizeCreativeControls, renderCreativeControls,
+  defaultCreativeControls, renderCreativeControls,
   resetCameraControls, resetCreativeControls, resetTonePerformance,
   PERFORMANCE_ENERGY_LEVELS, PERFORMANCE_STYLE_LEVELS, TONE_LEVELS, semanticFromRange, semanticLabel,
 } from "./creative-controls.js";
+import {
+  DEFAULT_CREATIVE_INTERPRETATION, normalizeCreativeInterpretation, renderCreativeInterpretation,
+} from "./creative-interpretation.js";
+import { captureWorkspaceCreativeState, restoreWorkspaceCreativeState } from "./workspace-creative-state.js";
 import {
   applyRevisionCandidate, assessRevisionFindings, createRevisionSnapshot, findingSignature, revisionIsStale,
   selectionFromHighlighted, selectionFromTextarea,
@@ -22,9 +27,24 @@ import {
 } from "./subject-identity.js";
 import { normalizeSeedSettings, resolveSeed } from "./seed.js";
 import { canEjectModel } from "./eject.js";
-import { resolveProjectSave } from "./project-save.js";
+import { resolveProjectSave, resolveProjectSaveRoute } from "./project-save.js";
+import { ephemeralSequence, generationLabel, movedGenerationIds, sequenceFromProject, shouldMarkWorkspaceDirty, structuralOperationAllowed } from "./sequence-workflow.js";
+import { createStoryPlanner } from "./story-planning.js";
+import { applyScopedPlan, fillMissingPlan, mergeRecommendations, PLAN_SCOPES, planningFromProject, RELATIONSHIP_OPTIONS, safeRecommendations, freshPlanning, recommendationAssetLabel } from "./planning-workflow.js";
+import { migrateLegacyProject } from "./project-migration.js";
+import {
+  continuityFromProject, freshUnsavedContinuity, freshUnsavedWorkspace, openFilesystemProjectSafely, openLegacyProjectSafely, persistFilesystemProject,
+  deleteFilesystemProjectAndReset, deleteLegacyProjectAndReset, loadProjectSources, prepareImportedWorkspace,
+  resetUnsavedProjectState, projectIdFromLocation, projectLocation,
+} from "./project-workflow.js";
 import { canStartRepair, repairUiState } from "./repair-state.js";
 import { migrateStoredSettings, parseStoredSettings, serializeEndpointProfile } from "./settings-persistence.js";
+import { createWorkflowPreparation } from "./workflow-preparation.js";
+import { createExecutionConfig } from "./execution-config.js";
+import { groupInputMapEntries, inputMapEmptyMessage, inputMapLabelForAsset, inputMapRefreshStatus } from "./input-map.js";
+
+let storyPlanner = null;
+let workflowPreparation = null;
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -66,6 +86,18 @@ const state = {
   outputIndex: 0,
   currentProjectId: null,
   currentProjectSavedName: null,
+  activeProjectType: "none",
+  currentLegacyProjectId: null,
+  sequenceGenerations: [],
+  activeGenerationId: null,
+  sequenceContext: "",
+  incomingState: "",
+  intendedOutgoingState: "",
+  relationshipToPrevious: null,
+  cameraIntent: "",
+  planningRecommendations: [],
+  filesystemProjects: [],
+  legacyProjects: [],
   dirty: true,
   pendingAssetKind: null,
   reattachId: null,
@@ -85,8 +117,13 @@ const state = {
   ejecting: false,
   repairRunning: false,
   rawEdit: false,
+  creativeInterpretation: DEFAULT_CREATIVE_INTERPRETATION,
   creativeControls: defaultCreativeControls(),
+  referenceManifest: null,
+  referenceManifestStatus: "pending",
 };
+
+let referenceManifestRequest = 0;
 
 function uid() {
   return crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -102,9 +139,88 @@ function toast(message) {
 
 function setDirty(value = true) {
   state.dirty = value;
+  workflowPreparation?.sync();
   const indicator = $("#dirty-indicator");
   indicator.textContent = value ? "Unsaved" : "Saved";
   indicator.classList.toggle("saved", !value);
+  if (typeof renderSequenceControls === "function") renderSequenceControls();
+  storyPlanner?.refresh();
+}
+
+function captureContinuity() {
+  return {
+    sequenceContext: state.sequenceContext,
+    incomingState: state.incomingState,
+    intendedOutgoingState: state.intendedOutgoingState,
+  };
+}
+
+function capturePlanning() {
+  return {
+    relationshipToPrevious: state.sequenceGenerations[0]?.generationId === state.activeGenerationId ? null : state.relationshipToPrevious,
+    cameraIntent: state.cameraIntent,
+  };
+}
+
+function restorePlanning(planning = freshPlanning()) {
+  const normalized = planningFromProject({ planning });
+  state.relationshipToPrevious = normalized.relationshipToPrevious;
+  state.cameraIntent = normalized.cameraIntent;
+  renderContinuityUi();
+}
+
+function restoreContinuity(continuity = freshUnsavedContinuity()) {
+  const normalized = continuityFromProject({ continuity });
+  state.sequenceContext = normalized.sequenceContext;
+  state.incomingState = normalized.incomingState;
+  state.intendedOutgoingState = normalized.intendedOutgoingState;
+  renderContinuityUi();
+}
+
+function renderContinuityUi() {
+  const context = $("#sequence-context");
+  if (!context) return;
+  context.value = state.sequenceContext;
+  $("#incoming-state").value = state.incomingState;
+  $("#intended-outgoing-state").value = state.intendedOutgoingState;
+  const label = generationLabel({ activeGenerationId: state.activeGenerationId, generations: state.sequenceGenerations }, state.activeGenerationId);
+  $("#incoming-state-generation").textContent = label;
+  $("#outgoing-state-generation").textContent = label;
+  const planningSelect = $("#relationship-to-previous");
+  const activeIndex = state.sequenceGenerations.findIndex(item => item.generationId === state.activeGenerationId);
+  if (planningSelect) {
+    planningSelect.replaceChildren(
+      ...(activeIndex === 0
+        ? [new Option("Sequence start", "")]
+        : [new Option("Unspecified", ""), ...RELATIONSHIP_OPTIONS.map(([value, text]) => new Option(text, value))]),
+    );
+    planningSelect.value = activeIndex === 0 ? "" : (state.relationshipToPrevious || "");
+    planningSelect.disabled = activeIndex === 0 || state.activeProjectType === "none" && !state.dirty;
+  }
+  const camera = $("#camera-intent");
+  if (camera) camera.value = state.cameraIntent;
+  const infer = $("#infer-from-previous");
+  if (infer) infer.disabled = state.activeProjectType !== "filesystem" || activeIndex <= 0 || Boolean(state.generation) || Boolean(state.revision?.running);
+  const revise = $("#revise-plan");
+  if (revise) revise.disabled = state.activeProjectType !== "filesystem" || Boolean(state.generation) || Boolean(state.revision?.running);
+  renderPlanningRecommendations();
+}
+
+function renderPlanningRecommendations() {
+  const target = $("#planning-recommendations");
+  if (!target) return;
+  target.replaceChildren();
+  if (!state.planningRecommendations.length) {
+    target.classList.add("hidden");
+    return;
+  }
+  target.classList.remove("hidden");
+  const heading = document.createElement("div"); heading.className = "eyebrow"; heading.textContent = "Reference recommendations"; target.append(heading);
+  for (const item of state.planningRecommendations) {
+    const source = item.source === "previous_generation" ? "Previous Generation" : "Current Generation";
+    const asset = item.source === "current_generation" ? state.assets.find(asset => asset.id === item.assetId) : null;
+    const line = document.createElement("p"); line.className = "helper"; line.textContent = `${source} — ${recommendationAssetLabel(asset, item.assetId)}: ${item.recommendation}`; target.append(line);
+  }
 }
 
 function safeFilename(name) {
@@ -304,7 +420,7 @@ export function captureWorkspace() {
     assets: structuredClone(state.assets),
     subjects: structuredClone(state.subjects),
     nextSubjectNumber: state.nextSubjectNumber,
-    creativeControls: structuredClone(state.creativeControls),
+    ...captureWorkspaceCreativeState(state),
   };
 }
 
@@ -316,8 +432,15 @@ function renderCreativeControlsUi() {
   );
 }
 
+function renderCreativeInterpretationUi() {
+  renderCreativeInterpretation($(".author-panel"), state.creativeInterpretation);
+}
+
 export function restoreWorkspace(workspace) {
   markRevisionStale("A different workspace was loaded.");
+  restoreContinuity();
+  restorePlanning();
+  state.planningRecommendations = [];
   state.currentProjectId = workspace.projectId || null;
   state.currentProjectSavedName = state.currentProjectId ? (workspace.projectName || "Untitled Project") : null;
   state.assets = structuredClone(workspace.assets || []).map(asset => ({
@@ -340,9 +463,11 @@ export function restoreWorkspace(workspace) {
   $("#creative-request").value = workspace.creativeRequest || "";
   $("#dialogue").value = workspace.dialogue || "";
   $("#reference-labels").value = workspace.referenceLabels || "";
-  state.creativeControls = normalizeCreativeControls(workspace.creativeControls);
+  Object.assign(state, restoreWorkspaceCreativeState(workspace));
+  state.referenceManifest = null;
   setMode(workspace.mode || "T2VA", false);
   renderAssets();
+  renderCreativeInterpretationUi();
   renderCreativeControlsUi();
   updateCharCount();
   state.outputs = [];
@@ -351,26 +476,8 @@ export function restoreWorkspace(workspace) {
 }
 
 export function buildGenerateRequest() {
-  return { workspace: captureWorkspace(), llm: settings() };
-}
-
-function activeNumbering() {
-  const map = new Map();
-  let active = state.assets;
-  if (state.mode === "T2VA") active = [];
-  else if (state.mode === "I2VA") active = state.assets.filter(a => a.kind === "image" && a.role === "first_frame_anchor");
-  else if (state.mode === "FL2VA") active = state.assets.filter(a => a.kind === "image" && ["first_frame_anchor", "last_frame_anchor"].includes(a.role));
-  else if (state.mode === "L2VA") active = state.assets.filter(a => a.kind === "image" && a.role === "last_frame_anchor");
-  for (const kind of ["image", "video", "audio"]) {
-    const prefix = { image: "Picture", video: "Video", audio: "Audio" }[kind];
-    let items = active.filter(item => item.kind === kind);
-    if (state.mode === "FL2VA" && kind === "image") {
-      items = items.sort((a, b) => ({ first_frame_anchor: 0, last_frame_anchor: 1 }[a.role] - { first_frame_anchor: 0, last_frame_anchor: 1 }[b.role]) || a.order - b.order);
-    } else items = items.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
-    items
-      .forEach((asset, index) => map.set(asset.id, `${prefix} ${index + 1}`));
-  }
-  return map;
+  if (workflowPreparation && !workflowPreparation.routingReady) throw new Error("Wait for this Generation's reference routing to load, then try again.");
+  return { workspace: captureWorkspace(), llm: settings(), executionRouting: workflowPreparation?.routing || { assets: {} } };
 }
 
 function setMode(mode, dirty = true) {
@@ -412,10 +519,105 @@ function visibleAssets() {
   return [];
 }
 
-function renderAssets() {
+function manifestRequestBody() {
+  return {
+    executionRouting: workflowPreparation?.routing || { assets: {} },
+    mode: state.mode,
+    assets: state.assets.map(asset => ({
+      id: asset.id,
+      kind: asset.kind,
+      filename: asset.filename,
+      role: asset.role,
+      order: asset.order,
+      subjectIdentity: asset.subjectIdentity,
+      comparisonSubjects: asset.comparisonSubjects,
+    })),
+    subjects: state.subjects,
+  };
+}
+
+function assetManifestEntry(asset) {
+  return state.referenceManifest?.entries?.find(entry => entry.id === asset.id);
+}
+
+function applyCanonicalAssetLabels(entries = state.referenceManifest?.entries) {
+  for (const card of $$(".asset-card[data-asset-id]")) {
+    const label = card.querySelector("[data-h3-label]");
+    const h3Label = inputMapLabelForAsset(entries, card.dataset.assetId);
+    label.textContent = h3Label;
+    label.classList.toggle("hidden", !h3Label);
+  }
+}
+
+function renderInputMap() {
+  const container = $("#input-map-list");
+  container.replaceChildren();
+  const groups = groupInputMapEntries(state.referenceManifest?.entries);
+  if (state.referenceManifestStatus !== "loaded" || !groups.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = inputMapEmptyMessage({
+      assetCount: state.assets.length,
+      status: state.referenceManifestStatus,
+    });
+    container.append(empty);
+    return;
+  }
+  for (const group of groups) {
+    const section = document.createElement("section");
+    section.className = "input-map-group";
+    const heading = document.createElement("h4");
+    heading.textContent = group.label;
+    section.append(heading);
+    for (const entry of group.entries) {
+      const row = document.createElement("div");
+      row.className = "input-map-row";
+      const label = document.createElement("strong");
+      label.className = "input-map-label";
+      label.textContent = `<${entry.h3Label}>`;
+      const detail = document.createElement("div");
+      detail.className = "input-map-detail";
+      const filename = document.createElement("span");
+      filename.className = "input-map-filename";
+      filename.textContent = entry.filename;
+      detail.append(filename);
+      row.append(label, detail);
+      section.append(row);
+    }
+    container.append(section);
+  }
+}
+
+async function refreshReferenceManifest() {
+  const requestId = ++referenceManifestRequest;
+  try {
+    const result = await api.referenceManifest(manifestRequestBody());
+    if (requestId !== referenceManifestRequest) return;
+    state.referenceManifest = result;
+    state.referenceManifestStatus = "loaded";
+    applyCanonicalAssetLabels(result.entries);
+    renderInputMap();
+  } catch {
+    if (requestId !== referenceManifestRequest) return;
+    if (state.referenceManifest) {
+      state.referenceManifestStatus = "loaded";
+      return;
+    }
+    state.referenceManifestStatus = "failed";
+    applyCanonicalAssetLabels([]);
+    renderInputMap();
+  }
+}
+
+function requestReferenceManifestRefresh() {
+  state.referenceManifestStatus = inputMapRefreshStatus(Boolean(state.referenceManifest));
+  if (state.referenceManifestStatus === "pending") renderInputMap();
+  void refreshReferenceManifest();
+}
+
+function renderAssets({ refreshManifest = true } = {}) {
   const container = $("#asset-list");
   container.replaceChildren();
-  const numbering = activeNumbering();
   const assets = visibleAssets().sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
   if (!assets.length) {
     const empty = document.createElement("p");
@@ -423,16 +625,35 @@ function renderAssets() {
     empty.textContent = state.mode === "FL2VA" ? "Add first- and last-frame images." : "No references added for this mode.";
     container.append(empty);
     renderCreativeControlsUi();
+    if (refreshManifest) requestReferenceManifestRefresh();
     return;
   }
-  for (const asset of assets) container.append(assetCard(asset, numbering.get(asset.id)));
+  for (const asset of assets) container.append(assetCard(asset, assetManifestEntry(asset)?.h3Label || ""));
   renderCreativeControlsUi();
+  applyCanonicalAssetLabels();
+  if (refreshManifest) requestReferenceManifestRefresh();
 }
 
 function normalizeSubjectsInState() {
   const registry = normalizeSubjectRegistry(state.subjects, state.assets, state.nextSubjectNumber);
   state.subjects = registry.subjects;
   state.nextSubjectNumber = registry.nextSubjectNumber;
+}
+
+function rerenderAssetCard(assetId) {
+  const asset = state.assets.find(item => item.id === assetId);
+  const current = $$(".asset-card[data-asset-id]").find(card => card.dataset.assetId === assetId);
+  if (!asset || !current) return;
+  current.replaceWith(assetCard(asset, assetManifestEntry(asset)?.h3Label || ""));
+}
+
+function updateEditedAsset(assetId, { refreshComparisonCards = false } = {}) {
+  rerenderAssetCard(assetId);
+  if (refreshComparisonCards) {
+    state.assets.filter(asset => isComparisonAsset(asset) && asset.id !== assetId).forEach(asset => rerenderAssetCard(asset.id));
+  }
+  renderCreativeControlsUi();
+  requestReferenceManifestRefresh();
 }
 
 function assignNewSubject(asset) {
@@ -445,6 +666,7 @@ function assignNewSubject(asset) {
 function assetCard(asset, label) {
   const card = document.createElement("article");
   card.className = "asset-card";
+  card.dataset.assetId = asset.id;
   const preview = document.createElement("div");
   preview.className = "asset-preview";
   if (asset.kind === "image") {
@@ -458,13 +680,17 @@ function assetCard(asset, label) {
   const title = document.createElement("div");
   title.className = "asset-title";
   const strong = document.createElement("strong"); strong.textContent = asset.filename;
-  const labelEl = document.createElement("span"); labelEl.className = "asset-label"; labelEl.textContent = label;
+  const labelEl = document.createElement("span"); labelEl.className = "asset-label"; labelEl.dataset.h3Label = ""; labelEl.textContent = label;
+  labelEl.classList.toggle("hidden", !label);
   title.append(strong, labelEl);
   const meta = document.createElement("p"); meta.className = "asset-meta";
   const duration = asset.durationSeconds == null ? "" : ` · ${asset.durationSeconds.toFixed(3)}s`;
   meta.textContent = `${asset.mimeType}${duration}`;
-  if (asset.kind !== "image" && !asset.attached) {
-    const missing = document.createElement("span"); missing.className = "media-missing"; missing.textContent = " · media not attached"; meta.append(missing);
+  if (asset.kind !== "image") {
+    const payloadStatus = document.createElement("span");
+    payloadStatus.className = asset.mediaPayload ? "" : "media-missing";
+    payloadStatus.textContent = ` - ${mediaPayloadStatus(asset)}`;
+    meta.append(payloadStatus);
   }
 
   const fields = document.createElement("div"); fields.className = "asset-fields";
@@ -478,7 +704,7 @@ function assetCard(asset, label) {
     asset.role = role.value;
     if (isSubjectIdentityAsset(asset)) normalizeSubjectsInState();
     if (isComparisonAsset(asset)) asset.comparisonSubjects = normalizedComparisonSubjects(asset, state.subjects);
-    renderAssets(); setDirty();
+    updateEditedAsset(asset.id, { refreshComparisonCards: true }); setDirty();
   });
   roleLabel.append(role);
   const notesLabel = document.createElement("label"); notesLabel.textContent = "Notes";
@@ -507,7 +733,7 @@ function assetCard(asset, label) {
     subjectSet.addEventListener("change", () => {
       if (subjectSet.value === "__new_subject__") assignNewSubject(asset);
       else asset.subjectIdentity.subjectId = subjectSet.value;
-      renderAssets(); setDirty();
+      updateEditedAsset(asset.id, { refreshComparisonCards: true }); setDirty();
     });
     subjectSetLabel.append(subjectSet);
     const focusLabel = document.createElement("label"); focusLabel.textContent = "Identity focus";
@@ -517,7 +743,7 @@ function assetCard(asset, label) {
       const option = new Option(text, value, false, value === identity.focus); option.title = guidance; focus.append(option);
     }
     focus.disabled = state.mode !== "Ref2VA";
-    focus.addEventListener("change", () => { asset.subjectIdentity.focus = focus.value; renderAssets(); setDirty(); });
+    focus.addEventListener("change", () => { asset.subjectIdentity.focus = focus.value; updateEditedAsset(asset.id); setDirty(); });
     focusLabel.append(focus);
     const viewLabel = document.createElement("label"); viewLabel.textContent = "View";
     const view = document.createElement("select");
@@ -526,7 +752,7 @@ function assetCard(asset, label) {
       const option = new Option(text, value, false, value === identity.view); option.title = guidance; view.append(option);
     }
     view.disabled = state.mode !== "Ref2VA";
-    view.addEventListener("change", () => { asset.subjectIdentity.view = view.value; renderAssets(); setDirty(); });
+    view.addEventListener("change", () => { asset.subjectIdentity.view = view.value; updateEditedAsset(asset.id); setDirty(); });
     viewLabel.append(view);
     const layoutLabel = document.createElement("label"); layoutLabel.textContent = "Reference layout";
     const layout = document.createElement("select"); layout.title = "How this reference is arranged, separate from the identity information it provides.";
@@ -534,7 +760,7 @@ function assetCard(asset, label) {
       const option = new Option(text, value, false, value === identity.layout); option.title = guidance; layout.append(option);
     }
     layout.disabled = state.mode !== "Ref2VA";
-    layout.addEventListener("change", () => { asset.subjectIdentity.layout = layout.value; renderAssets(); setDirty(); });
+    layout.addEventListener("change", () => { asset.subjectIdentity.layout = layout.value; updateEditedAsset(asset.id); setDirty(); });
     layoutLabel.append(layout);
     if (identity.layout === "reference_sheet") {
       view.disabled = true;
@@ -554,7 +780,7 @@ function assetCard(asset, label) {
       checkbox.addEventListener("change", () => {
         const selected = new Set(asset.comparisonSubjects);
         checkbox.checked ? selected.add(subject.id) : selected.delete(subject.id);
-        asset.comparisonSubjects = [...selected]; renderAssets(); setDirty();
+        asset.comparisonSubjects = [...selected]; updateEditedAsset(asset.id); setDirty();
       });
       option.append(checkbox, ` ${subjectLabel(state.subjects, subject.id)}`); comparisonLabel.append(option);
     }
@@ -677,7 +903,8 @@ async function createAssetFromFile(file, kind, reattachId = null) {
   if (reattachId) {
     const asset = state.assets.find(item => item.id === reattachId);
     if (!asset) return null;
-    asset.filename = file.name; asset.mimeType = file.type || `${kind}/unknown`; asset.durationSeconds = await readDuration(file, kind); asset.attached = true;
+    Object.assign(asset, await readMediaReference(file, kind, readDuration));
+    asset.attached = true;
     return `${asset.filename} reattached`;
   }
   const asset = {
@@ -686,7 +913,9 @@ async function createAssetFromFile(file, kind, reattachId = null) {
     notes: "", options: {}, subjectIdentity: defaultSubjectIdentity(), order: state.assets.filter(item => item.kind === kind).length, attached: true, image: null,
   };
   if (kind === "image") asset.image = await processImage(file);
-  else asset.durationSeconds = await readDuration(file, kind);
+  else {
+    Object.assign(asset, await readMediaReference(file, kind, readDuration));
+  }
   if (kind === "image" && state.mode !== "Ref2VA") {
     state.assets.filter(item => item.kind === "image" && item.role === asset.role)
       .forEach(item => { item.role = "general_visual"; });
@@ -935,7 +1164,9 @@ async function generate() {
           updateStreamedOutput(data.variation);
         } else if (event === "complete") {
           session.outputs[data.variation] = {
-            prompt: data.prompt, validation: data.validation, generationStatus: "complete", seed: data.seed ?? null,
+            prompt: data.prompt, validation: data.validation, sourceFingerprint: data.sourceFingerprint,
+            referenceMap: data.referenceMap, executionRouting: requestSnapshot.executionRouting,
+            generationStatus: "complete", seed: data.seed ?? null,
           };
           renderPerformance(session, data.metrics);
           session.completed.add(data.variation);
@@ -978,6 +1209,7 @@ async function generate() {
     if (state.generation === session) {
       state.generation = null;
       setGenerationControls(false);
+      workflowPreparation?.sync();
       updateEjectButton();
     }
   }
@@ -989,6 +1221,7 @@ function renderWarnings(warnings = []) {
 }
 
 function renderOutput() {
+  workflowPreparation?.sync();
   const current = state.outputs[state.outputIndex];
   const generating = Boolean(state.generation);
   $("#empty-output").classList.toggle("hidden", Boolean(current));
@@ -1152,6 +1385,7 @@ async function generateRevision() {
   setRevisionRunning(true);
   const request = {
     workspace: revision.workspace,
+    executionRouting: state.outputs[revision.originIndex]?.executionRouting || { assets: {} },
     llm: { ...revision.llm, seed: resolveSeed(revision.llm) },
     outputIndex: revision.originIndex,
     selection: {
@@ -1175,7 +1409,8 @@ async function generateRevision() {
           if (!revisionStale()) $("#revision-status").textContent = "Streaming revision preview…";
         } else if (event === "complete") {
           revision.preview = data.replacement; revision.candidatePrompt = data.candidatePrompt;
-          revision.validation = data.validation; revision.complete = true;
+          revision.validation = data.validation; revision.sourceFingerprint = data.sourceFingerprint;
+          revision.referenceMap = data.referenceMap; revision.complete = true;
           $("#revision-preview").textContent = data.replacement;
           revision.assessment = renderRevisionValidation(data.validation, data.originalValidation);
           const stale = revisionStale();
@@ -1260,6 +1495,7 @@ async function validateCurrent() {
       prompt: current.prompt, mode: state.mode, durationSeconds: Number($("#duration").value),
       shots: $("#shots").value.trim() === "" ? null : Number($("#shots").value),
       assets: state.assets, dialogue: $("#dialogue").value,
+      executionRouting: current.executionRouting || { assets: {} },
     });
     renderValidation(current.validation);
   } catch (error) { toast(error.message); }
@@ -1271,7 +1507,8 @@ async function repairCurrent() {
   state.repairRunning = true; renderOutput(); updateEjectButton();
   try {
     markRevisionStale("The source prompt was replaced by format repair.");
-    const result = await api.repair({ ...buildGenerateRequest(), prompt: $("#output").value, findings: current.validation?.findings || [] });
+    const result = await api.repair({ ...buildGenerateRequest(), executionRouting: current.executionRouting || { assets: {} }, prompt: $("#output").value, findings: current.validation?.findings || [] });
+    result.executionRouting = current.executionRouting;
     state.outputs[state.outputIndex] = result; renderOutput(); toast("One repair pass completed");
     await addHistory({ createdAt: new Date().toISOString(), mode: state.mode, projectId: state.currentProjectId, projectName: $("#project-name").value, prompt: result.prompt, validation: result.validation, repaired: true });
     await renderHistory();
@@ -1293,18 +1530,284 @@ function persistenceWorkspace() {
   return workspace;
 }
 
-async function refreshProjects() {
-  const projects = await listProjects();
+function setEphemeralSequence() {
+  const sequence = ephemeralSequence();
+  state.sequenceGenerations = sequence.generations;
+  state.activeGenerationId = sequence.activeGenerationId;
+  renderSequenceControls();
+  renderContinuityUi();
+}
+
+function rememberProjectLocation(projectId) {
+  window.history.replaceState(null, "", projectLocation(window.location.href, projectId));
+}
+
+function adoptProjectResponse(project, { dirty = false } = {}) {
+  rememberProjectLocation(project.id);
+  restoreWorkspace(project.workspace);
+  state.currentProjectId = project.id;
+  state.currentProjectSavedName = project.name;
+  state.currentLegacyProjectId = null;
+  state.activeProjectType = "filesystem";
+  const sequence = sequenceFromProject(project);
+  state.sequenceGenerations = sequence.generations;
+  state.activeGenerationId = sequence.activeGenerationId;
+  restoreContinuity(project.continuity);
+  restorePlanning(project.planning);
+  storyPlanner?.restoreStoryIdea(project.storyIdea);
+  setDirty(dirty);
+  workflowPreparation?.refreshSelection();
+  renderProjectOptions(state.filesystemProjects, state.legacyProjects);
+  renderSequenceControls();
+  renderContinuityUi();
+}
+
+function renderSequenceControls() {
+  const select = $("#generation-select");
+  if (!select) return;
+  const saved = state.activeProjectType === "filesystem" && Boolean(state.currentProjectId) && state.sequenceGenerations.length > 0;
+  const generations = saved ? state.sequenceGenerations : ephemeralSequence().generations;
+  select.replaceChildren(...generations.map((generation, index) => new Option(`Generation ${index + 1}`, generation.generationId || "ephemeral")));
+  select.value = saved ? (state.activeGenerationId || "") : "ephemeral";
+  select.disabled = !saved;
+  const activeIndex = saved ? generations.findIndex(item => item.generationId === state.activeGenerationId) : 0;
+  const dirty = state.dirty;
+  const canEdit = structuralOperationAllowed({ saved, dirty });
+  const setDisabled = (id, disabled) => { const button = $(`#${id}`); if (button) button.disabled = disabled; };
+  setDisabled("generation-add", !canEdit);
+  setDisabled("generation-before", !canEdit);
+  setDisabled("generation-after", !canEdit);
+  setDisabled("generation-duplicate", !canEdit);
+  setDisabled("generation-earlier", !canEdit || activeIndex <= 0);
+  setDisabled("generation-later", !canEdit || activeIndex < 0 || activeIndex >= generations.length - 1);
+  setDisabled("generation-delete", !canEdit || generations.length <= 1);
+  $("#sequence-count").textContent = saved ? `${generations.length} ${generations.length === 1 ? "Generation" : "Generations"}` : "Draft";
+  $("#sequence-helper").textContent = saved
+    ? (dirty ? "Save or discard changes before editing the Sequence." : "Generation numbers follow the current order.")
+    : "Save the Project to add more Generations.";
+}
+
+function currentPlanningDraft() {
+  return {
+    creativeRequest: $("#creative-request").value,
+    incomingState: state.incomingState,
+    intendedOutgoingState: state.intendedOutgoingState,
+    planning: capturePlanning(),
+  };
+}
+
+function applyPlanningDraft(next) {
+  $("#creative-request").value = next.creativeRequest;
+  state.incomingState = next.incomingState;
+  state.intendedOutgoingState = next.intendedOutgoingState;
+  state.relationshipToPrevious = next.planning.relationshipToPrevious;
+  state.cameraIntent = next.planning.cameraIntent;
+  renderContinuityUi();
+  updateCharCount();
+}
+
+function planningRequestBody() {
+  return {
+    workspace: captureWorkspace(),
+    continuity: captureContinuity(),
+    planning: capturePlanning(),
+    llm: { ...settings(), seed: resolveSeed(settings()) },
+  };
+}
+
+async function inferFromPrevious() {
+  const activeIndex = state.sequenceGenerations.findIndex(item => item.generationId === state.activeGenerationId);
+  if (state.activeProjectType !== "filesystem" || !state.currentProjectId || activeIndex <= 0) return;
+  const status = $("#planning-status");
+  status.textContent = "Preparing a proposal from the committed predecessor…";
+  $("#infer-from-previous").disabled = true;
+  try {
+    const proposal = await api.inferPlan(state.currentProjectId, state.activeGenerationId, planningRequestBody());
+    const next = fillMissingPlan(currentPlanningDraft(), proposal);
+    applyPlanningDraft(next);
+    state.planningRecommendations = safeRecommendations(proposal.referenceRecommendations);
+    setDirty();
+    status.textContent = "Proposal applied to missing fields. Review it and Save when ready.";
+  } catch (error) {
+    status.textContent = `Inference failed: ${error.message}`;
+    toast(`Inference failed: ${error.message}`);
+  } finally {
+    renderContinuityUi();
+  }
+}
+
+function renderPlanRevisionScopes() {
+  const fieldset = $("#plan-revision-scopes");
+  if (!fieldset || fieldset.querySelector("input")) return;
+  for (const [value, label] of PLAN_SCOPES) {
+    const wrapper = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox"; checkbox.value = value; checkbox.checked = true;
+    wrapper.append(checkbox, document.createTextNode(` ${label}`)); fieldset.append(wrapper);
+  }
+}
+
+function openPlanRevision() {
+  if ($("#revise-plan").disabled) return;
+  renderPlanRevisionScopes();
+  $("#plan-revision-instruction").value = "";
+  $("#plan-revision-status").textContent = "Choose fields, enter an instruction, and generate one scoped proposal.";
+  $("#plan-revision-panel").classList.remove("hidden");
+  $("#plan-revision-instruction").focus();
+}
+
+function closePlanRevision() {
+  $("#plan-revision-panel").classList.add("hidden");
+}
+
+async function revisePlan() {
+  const instruction = $("#plan-revision-instruction").value;
+  const scopes = $$("#plan-revision-scopes input:checked").map(input => input.value);
+  const status = $("#plan-revision-status");
+  if (!instruction.trim()) { status.textContent = "Enter a revision request first."; return; }
+  if (!scopes.length) { status.textContent = "Select at least one editable field."; return; }
+  status.textContent = "Generating a scoped planning proposal…";
+  $("#generate-plan-revision").disabled = true;
+  try {
+    const proposal = await api.revisePlan(state.currentProjectId, state.activeGenerationId, {
+      ...planningRequestBody(), instruction, scopes,
+    });
+    applyPlanningDraft(applyScopedPlan(currentPlanningDraft(), proposal, scopes));
+    state.planningRecommendations = mergeRecommendations(state.planningRecommendations, proposal.referenceRecommendations);
+    setDirty();
+    status.textContent = "Selected fields updated in the draft. Review it and Save when ready.";
+  } catch (error) {
+    status.textContent = `Plan revision failed: ${error.message}`;
+    toast(`Plan revision failed: ${error.message}`);
+  } finally {
+    $("#generate-plan-revision").disabled = false;
+    renderContinuityUi();
+  }
+}
+
+async function switchGeneration(generationId) {
+  if (state.activeProjectType !== "filesystem" || !state.currentProjectId) return;
+  if (generationId === state.activeGenerationId) return;
+  if (!storyPlanner.confirmContextChange({ dirty: state.dirty, message: "Switch Generation?" })) {
+    renderSequenceControls();
+    return;
+  }
+  try {
+    const project = await api.activateGeneration(state.currentProjectId, generationId);
+    storyPlanner.clearDraft();
+    adoptProjectResponse(project);
+  } catch (error) {
+    renderSequenceControls();
+    toast(`Could not switch Generation: ${error.message}`);
+  }
+}
+
+function structuralSequenceReady() {
+  if (!state.currentProjectId || state.activeProjectType !== "filesystem") {
+    toast("Save the Project to edit its Sequence.");
+    return false;
+  }
+  if (state.dirty) {
+    toast("Save or discard the current Generation changes before editing the Sequence.");
+    return false;
+  }
+  return true;
+}
+
+async function runSequenceOperation(operation, successMessage) {
+  if (!structuralSequenceReady()) return;
+  if (!storyPlanner.confirmContextChange({ message: "Change the canonical Sequence?" })) return;
+  try {
+    const project = await operation();
+    storyPlanner.clearDraft();
+    adoptProjectResponse(project);
+    toast(successMessage);
+  } catch (error) { toast(`Sequence operation failed: ${error.message}`); }
+}
+
+function addGeneration() {
+  runSequenceOperation(() => api.createGeneration(state.currentProjectId), "Generation added");
+}
+
+function insertGeneration(offset) {
+  if (!structuralSequenceReady()) return;
+  const activeIndex = state.sequenceGenerations.findIndex(item => item.generationId === state.activeGenerationId);
+  runSequenceOperation(
+    () => api.createGeneration(state.currentProjectId, activeIndex + offset),
+    offset === 0 ? "Generation inserted before" : "Generation inserted after",
+  );
+}
+
+function duplicateGeneration() {
+  runSequenceOperation(
+    () => api.duplicateGeneration(state.currentProjectId, state.activeGenerationId),
+    "Generation duplicated",
+  );
+}
+
+function moveGeneration(direction) {
+  runSequenceOperation(
+    () => api.reorderGenerations(state.currentProjectId, movedGenerationIds({
+      activeGenerationId: state.activeGenerationId,
+      generations: state.sequenceGenerations,
+    }, direction)),
+    "Generation moved",
+  );
+}
+
+function deleteGeneration() {
+  if (!structuralSequenceReady()) return;
+  const ordinal = generationLabel({ activeGenerationId: state.activeGenerationId, generations: state.sequenceGenerations }, state.activeGenerationId);
+  if (!confirm(`Delete ${ordinal}?`)) return;
+  runSequenceOperation(
+    () => api.deleteGeneration(state.currentProjectId, state.activeGenerationId),
+    "Generation deleted",
+  );
+}
+
+function projectSelectionValue() {
+  if (state.activeProjectType === "filesystem") return state.currentProjectId || "";
+  if (state.activeProjectType === "legacy") return `legacy:${state.currentLegacyProjectId}`;
+  return "";
+}
+
+function renderProjectOptions(filesystemProjects, legacyProjects) {
   const select = $("#project-select");
-  select.replaceChildren(new Option("Unsaved workspace", ""), ...projects.map(project => new Option(project.name, project.id)));
-  select.value = state.currentProjectId || "";
+  const filesystem = document.createElement("optgroup"); filesystem.label = "Projects";
+  filesystemProjects.forEach(project => filesystem.append(new Option(project.name, project.id)));
+  const legacy = document.createElement("optgroup"); legacy.label = "Legacy browser Projects";
+  legacyProjects.forEach(project => legacy.append(new Option(`${project.name} (Legacy)`, `legacy:${project.id}`)));
+  select.replaceChildren(new Option("Unsaved workspace", ""), filesystem, legacy);
+  select.value = projectSelectionValue();
+  $("#project-migrate").disabled = state.activeProjectType !== "legacy";
+  $("#project-delete").disabled = state.activeProjectType === "none";
+  $("#project-delete").title = state.activeProjectType === "filesystem" ? "Delete filesystem Project permanently" : "Delete legacy browser Project";
+}
+
+async function refreshProjects() {
+  const result = await loadProjectSources({
+    listFilesystem: async () => api.listProjects(), listLegacy: listLegacyProjects,
+    cachedFilesystem: state.filesystemProjects, cachedLegacy: state.legacyProjects,
+  });
+  if (result.filesystemOk) state.filesystemProjects = result.filesystemProjects;
+  if (result.legacyOk) state.legacyProjects = result.legacyProjects;
+  renderProjectOptions(result.filesystemProjects, result.legacyProjects);
+  if (result.filesystemError) toast(`Could not load filesystem Projects: ${result.filesystemError.message}`);
+  if (result.legacyError) toast(`Could not discover legacy Projects: ${result.legacyError.message}`);
+  return result;
 }
 
 async function saveProject(asNew = false, renameInPlace = false) {
+  if (state.activeProjectType === "legacy" && !asNew && !renameInPlace) {
+    toast("Import this legacy Project before saving it as a filesystem Project.");
+    return { saved: false, created: false };
+  }
   const workspace = persistenceWorkspace();
-  const projects = await listProjects();
+  const continuity = captureContinuity();
+  const planning = capturePlanning();
+  const projects = state.filesystemProjects;
   const decision = resolveProjectSave({
-    currentProjectId: state.currentProjectId,
+    currentProjectId: state.activeProjectType === "filesystem" ? state.currentProjectId : null,
     currentProjectSavedName: state.currentProjectSavedName,
     currentProjectName: workspace.projectName,
     projects,
@@ -1315,42 +1818,164 @@ async function saveProject(asNew = false, renameInPlace = false) {
     toast("A different saved project already uses that name. Choose another name.");
     return { saved: false, created: false };
   }
-  const id = decision.create ? uid() : state.currentProjectId;
-  workspace.projectId = id;
-  const record = { id, name: workspace.projectName, schemaVersion: 1, updatedAt: new Date().toISOString(), workspace };
-  await putProject(record);
-  state.currentProjectId = id;
-  state.currentProjectSavedName = workspace.projectName;
-  setDirty(false); await refreshProjects(); toast("Project saved locally");
-  return { saved: true, created: decision.create };
-}
-
-async function newProject() {
-  if (state.dirty && !confirm("Replace the unsaved workspace?")) return;
-  restoreWorkspace({ schemaVersion: 1, projectName: "Untitled Project", mode: "T2VA", durationSeconds: 6, shots: null, aspectRatio: "auto", variations: 1, creativeRequest: "", dialogue: "", referenceLabels: "", assets: [] });
-  state.currentProjectId = null; state.currentProjectSavedName = null; setDirty(true); await refreshProjects();
-}
-
-async function loadSelectedProject() {
-  const id = $("#project-select").value;
-  if (!id) return;
-  if (state.dirty && !confirm("Replace the unsaved workspace?")) { $("#project-select").value = state.currentProjectId || ""; return; }
-  const project = await getProject(id);
-  if (project) {
-    restoreWorkspace({ ...project.workspace, projectId: project.id, projectName: project.name });
-    state.currentProjectSavedName = project.name;
+  const saveRoute = resolveProjectSaveRoute({
+    activeProjectType: state.activeProjectType,
+    currentProjectId: state.currentProjectId,
+    create: decision.create,
+    asNew,
+  });
+  const create = saveRoute !== "save";
+  if (!storyPlanner.confirmContextChange({ message: "Save the Project and invalidate its Story Planner snapshot?" })) {
+    return { saved: false, created: false };
+  }
+  workspace.projectId = saveRoute === "save" ? state.currentProjectId : null;
+  try {
+    if (saveRoute === "fork") {
+      const response = await api.saveProjectAs(state.currentProjectId, workspace.projectName, workspace, continuity, planning, storyPlanner.storyIdea);
+      storyPlanner.resetProjectContext();
+      adoptProjectResponse(response);
+      try { await refreshProjects(); } catch (error) { toast(error.message); }
+      toast("Project saved as a new filesystem Project");
+      return { saved: true, created: true };
+    }
+    const saved = await persistFilesystemProject({
+      projectId: create ? null : state.currentProjectId,
+      workspace,
+      continuity,
+      planning,
+      storyIdea: storyPlanner.storyIdea,
+      createProject: api.createProject,
+      saveProject: api.saveProject,
+    });
+    if (create) storyPlanner.resetProjectContext();
+    adoptSavedMedia(state.assets, saved.response.workspace);
+    renderAssets();
+    storyPlanner.restoreStoryIdea(saved.response.storyIdea);
+    rememberProjectLocation(saved.projectId);
+    state.currentProjectId = saved.projectId;
+    state.currentProjectSavedName = saved.name;
+    state.activeProjectType = "filesystem";
+    state.currentLegacyProjectId = null;
+    $("#project-name").value = saved.name;
+    if (saved.sequence) {
+      const sequence = sequenceFromProject(saved.response);
+      state.sequenceGenerations = sequence.generations;
+      state.activeGenerationId = sequence.activeGenerationId;
+    } else {
+      setEphemeralSequence();
+    }
+    setDirty(false);
+    try { await refreshProjects(); } catch (error) { toast(error.message); }
+    toast(create ? "Filesystem Project saved" : "Filesystem Project updated");
+    return { saved: true, created: create };
+  } catch (error) {
+    toast(`Project save failed: ${error.message}`);
+    return { saved: false, created: false };
   }
 }
 
+function applyFreshUnsavedWorkspace() {
+  rememberProjectLocation(null);
+  storyPlanner?.resetProjectContext();
+  restoreWorkspace(freshUnsavedWorkspace());
+  resetUnsavedProjectState(state);
+  setEphemeralSequence();
+  setDirty(true);
+  renderProjectOptions(state.filesystemProjects, state.legacyProjects);
+}
+
+async function newProject() {
+  if (!storyPlanner.confirmContextChange({ dirty: state.dirty, message: "Create a new Project?" })) return;
+  applyFreshUnsavedWorkspace();
+}
+
+async function loadSelectedProject() {
+  const selection = $("#project-select").value;
+  if (!selection) return;
+  if (!storyPlanner.confirmContextChange({ dirty: state.dirty, message: "Open this Project?" })) { $("#project-select").value = projectSelectionValue(); return; }
+  if (selection.startsWith("legacy:")) {
+    const legacyId = selection.slice("legacy:".length);
+    const result = await openLegacyProjectSafely({ id: legacyId, currentWorkspace: captureWorkspace(), loadProject: getLegacyProject });
+    if (!result.ok) {
+      $("#project-select").value = projectSelectionValue();
+      toast(`Could not load legacy Project: ${result.error.message}`);
+      return;
+    }
+    const project = result.project;
+    storyPlanner.resetProjectContext();
+    restoreWorkspace({ ...project.workspace, projectId: null, projectName: project.name || project.workspace.projectName });
+    state.currentProjectId = null; state.currentProjectSavedName = null;
+    state.currentLegacyProjectId = legacyId; state.activeProjectType = "legacy";
+    rememberProjectLocation(null);
+    setEphemeralSequence();
+    setDirty(false); renderProjectOptions(state.filesystemProjects, state.legacyProjects);
+    return;
+  }
+  const result = await openFilesystemProjectSafely({
+    id: selection,
+    currentWorkspace: captureWorkspace(),
+    loadProject: api.loadProject,
+  });
+  if (!result.ok) { toast(`Could not load Project: ${result.error.message}`); $("#project-select").value = projectSelectionValue(); return; }
+  const project = result.project;
+  storyPlanner.resetProjectContext();
+  adoptProjectResponse(project);
+}
+
 async function removeCurrentProject() {
-  if (!state.currentProjectId || !confirm(`Delete “${$("#project-name").value}”?`)) return;
-  await deleteProject(state.currentProjectId); await newProject(); toast("Project deleted");
+  if (state.activeProjectType === "filesystem") {
+    const projectId = state.currentProjectId;
+    if (!projectId || !confirm(`Delete “${$("#project-name").value}” permanently?`)) return;
+    if (!storyPlanner.confirmContextChange({ message: "Delete this Project?" })) return;
+    try {
+      await deleteFilesystemProjectAndReset({
+        id: projectId,
+        deleteProject: api.deleteProject,
+        filesystemProjects: state.filesystemProjects,
+        reset: applyFreshUnsavedWorkspace,
+      });
+      toast("Filesystem Project deleted");
+    } catch (error) { toast(`Could not delete Project: ${error.message}`); }
+    return;
+  }
+  if (state.activeProjectType !== "legacy" || !confirm(`Delete legacy Project “${$("#project-name").value}”?`)) return;
+  try {
+    await deleteLegacyProjectAndReset({
+      id: state.currentLegacyProjectId,
+      deleteProject: deleteLegacyProject,
+      legacyProjects: state.legacyProjects,
+      reset: applyFreshUnsavedWorkspace,
+    });
+    toast("Legacy browser Project deleted");
+  } catch (error) { toast(`Could not delete legacy Project: ${error.message}`); }
 }
 
 async function renameCurrentProject() {
   if (!$("#project-name").value.trim()) { toast("Enter a project name first"); return; }
+  if (state.activeProjectType === "legacy") { toast("Import this legacy Project before renaming it."); return; }
   const result = await saveProject(false, true);
   if (result.saved) toast("Project renamed");
+}
+
+async function migrateCurrentLegacyProject() {
+  if (state.activeProjectType !== "legacy") return;
+  try {
+    const legacy = await getLegacyProject(state.currentLegacyProjectId);
+    if (!legacy) throw new Error("Legacy Project was not found in this browser.");
+    const migration = await migrateLegacyProject(legacy, api.createProject);
+    storyPlanner.resetProjectContext();
+    restoreWorkspace(migration.created.workspace);
+    rememberProjectLocation(migration.created.id);
+    state.currentProjectId = migration.created.id;
+    state.currentProjectSavedName = migration.created.name;
+    state.currentLegacyProjectId = null; state.activeProjectType = "filesystem";
+    const sequence = sequenceFromProject(migration.created);
+    state.sequenceGenerations = sequence.generations;
+    state.activeGenerationId = sequence.activeGenerationId;
+    setDirty(false);
+    try { await refreshProjects(); } catch (error) { toast(error.message); }
+    toast("Legacy Project imported as a filesystem Project");
+  } catch (error) { toast(`Legacy Project import failed: ${error.message}`); }
 }
 
 function download(content, filename, type) {
@@ -1360,8 +1985,9 @@ function download(content, filename, type) {
 }
 
 function exportProject() {
-  const workspace = persistenceWorkspace();
-  const envelope = { format: "MiniConstruct Project", schemaVersion: 1, exportedAt: new Date().toISOString(), workspace };
+  const workspace = metadataOnlyWorkspace(persistenceWorkspace());
+  toast("Workspace JSON includes Audio/Video metadata only. Use Save As or copy the Project folder to preserve files.");
+  const envelope = { format: "MiniConstruct Project", schemaVersion: 1, exportedAt: new Date().toISOString(), storyIdea: storyPlanner.storyIdea, workspace };
   download(JSON.stringify(envelope, null, 2), `${safeFilename(workspace.projectName)}.miniconstruct-project.json`, "application/json");
 }
 
@@ -1369,10 +1995,14 @@ async function importProject(file) {
   try {
     const payload = JSON.parse(await file.text());
     if (payload.workspace?.llm || payload.apiKey) throw new Error("Project contains unexpected connection secrets.");
+    if (payload.workspace) payload.workspace = metadataOnlyWorkspace(payload.workspace);
     const validated = await api.validateProject(payload);
-    const workspace = validated.workspace;
-    workspace.projectId = null; workspace.projectName = workspace.projectName || file.name.replace(/\.miniconstruct.*$/i, "");
-    restoreWorkspace(workspace); setDirty(true);
+    if (!storyPlanner.confirmContextChange({ dirty: state.dirty, message: "Import this Project?" })) return;
+    storyPlanner.resetProjectContext();
+    storyPlanner.restoreStoryIdea(validated.storyIdea);
+    const workspace = prepareImportedWorkspace(validated.workspace);
+    workspace.projectName = workspace.projectName || file.name.replace(/\.miniconstruct.*$/i, "");
+    restoreWorkspace(workspace); resetUnsavedProjectState(state); rememberProjectLocation(null); setEphemeralSequence(); setDirty(true);
     const saved = await saveProject(false);
     toast(saved.saved ? "Project imported" : "Project imported but not saved; choose a different name.");
   } catch (error) { toast(`Import failed: ${error.message}`); }
@@ -1455,6 +2085,12 @@ function bindEvents() {
     else if (field.startsWith("camera.")) state.creativeControls.camera[field.slice("camera.".length)] = value;
     renderCreativeControlsUi(); setDirty();
   });
+  $("#creative-interpretation-controls").addEventListener("click", event => {
+    const button = event.target.closest("[data-creative-interpretation]");
+    if (!button) return;
+    state.creativeInterpretation = normalizeCreativeInterpretation(button.dataset.creativeInterpretation);
+    renderCreativeInterpretationUi(); setDirty();
+  });
   $("#creative-controls").addEventListener("input", event => {
     const field = event.target.dataset.toneField;
     if (!field) return;
@@ -1503,7 +2139,7 @@ function bindEvents() {
   $("#download-output").addEventListener("click", () => download($("#output").value, `${safeFilename($("#project-name").value)}-${state.mode}.txt`, "text/plain"));
   $("#output").addEventListener("input", () => {
     const current = state.outputs[state.outputIndex];
-    if (current) { markRevisionStale("The source prompt was edited."); current.prompt = $("#output").value; current.validation = null; state.revisionSelection = null; renderValidation(null); updateReviseSelectionButton(); }
+    if (current) { markRevisionStale("The source prompt was edited."); current.prompt = $("#output").value; current.sourceFingerprint = null; current.validation = null; workflowPreparation?.sync(); state.revisionSelection = null; renderValidation(null); updateReviseSelectionButton(); }
   });
   $("#output").addEventListener("select", captureActiveSelection);
   $("#output").addEventListener("keyup", captureActiveSelection);
@@ -1515,22 +2151,70 @@ function bindEvents() {
   $("#creative-request").addEventListener("input", updateCharCount);
   $("#project-new").addEventListener("click", newProject); $("#project-save").addEventListener("click", () => saveProject(false));
   $("#project-save-as").addEventListener("click", () => saveProject(true)); $("#project-delete").addEventListener("click", removeCurrentProject);
+  $("#project-migrate").addEventListener("click", migrateCurrentLegacyProject);
   $("#project-rename").addEventListener("click", renameCurrentProject);
   $("#project-select").addEventListener("change", loadSelectedProject); $("#project-export").addEventListener("click", exportProject);
   $("#project-import").addEventListener("change", event => { if (event.target.files[0]) importProject(event.target.files[0]); event.target.value = ""; });
+  $("#generation-select").addEventListener("change", event => switchGeneration(event.target.value));
+  $("#generation-add").addEventListener("click", addGeneration);
+  $("#generation-before").addEventListener("click", () => insertGeneration(0));
+  $("#generation-after").addEventListener("click", () => insertGeneration(1));
+  $("#generation-duplicate").addEventListener("click", duplicateGeneration);
+  $("#generation-earlier").addEventListener("click", () => moveGeneration("earlier"));
+  $("#generation-later").addEventListener("click", () => moveGeneration("later"));
+  $("#generation-delete").addEventListener("click", deleteGeneration);
+  $("#sequence-context").addEventListener("input", event => { state.sequenceContext = event.target.value; setDirty(); });
+  $("#incoming-state").addEventListener("input", event => { state.incomingState = event.target.value; setDirty(); });
+  $("#intended-outgoing-state").addEventListener("input", event => { state.intendedOutgoingState = event.target.value; setDirty(); });
+  $("#relationship-to-previous").addEventListener("change", event => { state.relationshipToPrevious = event.target.value || null; setDirty(); });
+  $("#camera-intent").addEventListener("input", event => { state.cameraIntent = event.target.value; setDirty(); });
+  $("#infer-from-previous").addEventListener("click", inferFromPrevious);
+  $("#revise-plan").addEventListener("click", openPlanRevision);
+  $("#cancel-plan-revision").addEventListener("click", closePlanRevision);
+  $("#cancel-plan-revision-secondary").addEventListener("click", closePlanRevision);
+  $("#generate-plan-revision").addEventListener("click", revisePlan);
   $("#clear-history").addEventListener("click", async () => { if (confirm("Clear local generated-prompt history?")) { await clearHistoryDb(); renderHistory(); } });
-  document.addEventListener("input", event => {
-    if (event.target.closest(".left-rail")) setDirty();
-  });
+  $("#load-history").addEventListener("click", () => renderHistory().catch(error => toast(error.message)));
+  document.addEventListener("input", event => { if (shouldMarkWorkspaceDirty(event.target)) setDirty(); });
   document.addEventListener("keydown", event => {
+    if (event.target.closest?.("#story-planner")) return;
     if (event.key === "Escape" && !$("#revision-panel").classList.contains("hidden")) { cancelRevision(); return; }
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); if (!state.generation && !state.revision?.running) generate(); }
   });
-  window.addEventListener("beforeunload", event => { if (state.dirty) { event.preventDefault(); event.returnValue = ""; } });
+  window.addEventListener("beforeunload", event => { if (state.dirty || storyPlanner?.hasDraft) { event.preventDefault(); event.returnValue = ""; } });
 }
 
 async function init() {
-  restoreSettings(); renderPooledModels(); bindEvents(); setMode("T2VA", false); renderCreativeControlsUi(); updateCharCount(); await refreshProjects(); await renderHistory(); setDirty(false);
+  workflowPreparation = createWorkflowPreparation({ root: $("#workflow-preparation"), api,
+    onRoutingChanged: () => { void refreshReferenceManifest(); },
+    getContext: () => ({ saved: state.activeProjectType === "filesystem", projectId: state.currentProjectId,
+      generationId: state.activeGenerationId, mode: state.mode, dirty: state.dirty }),
+    getOutput: () => state.repairRunning || state.generation ? null : state.outputs[state.outputIndex] });
+  workflowPreparation.refresh();
+  const executionConfig = createExecutionConfig({ root: $("#execution-config"), api,
+    onConnectionsChanged: () => workflowPreparation.refreshConnections(),
+    onProfilesChanged: () => workflowPreparation.refreshProfiles() });
+  $("#open-execution").addEventListener("click", () => { $("#execution-dialog").showModal(); executionConfig.refresh(); });
+  $$('[data-close-execution]').forEach(button => button.addEventListener("click", () => $("#execution-dialog").close()));
+  $("#execution-dialog").addEventListener("keydown", event => event.stopPropagation());
+  window.addEventListener("beforeunload", event => { if (executionConfig.hasDraft) { event.preventDefault(); event.returnValue = ""; } });
+  storyPlanner = createStoryPlanner({
+    root: $("#story-planner"), api,
+    getContext: () => ({ saved: state.activeProjectType === "filesystem", projectId: state.currentProjectId,
+      dirty: state.dirty, generations: state.sequenceGenerations, activeGenerationId: state.activeGenerationId, assets: state.assets }),
+    onIdeaChange: () => setDirty(true),
+    getSettings: () => ({ ...settings(), seed: resolveSeed(settings()) }),
+    adoptProject: project => { adoptProjectResponse(project); refreshProjects().catch(error => toast(error.message)); },
+    onApplyBusy: value => { for (const element of document.querySelectorAll(".left-rail, .project-bar, .right-stage")) element.inert = value; },
+  });
+  restoreSettings(); renderPooledModels(); bindEvents(); setMode("T2VA", false); renderCreativeInterpretationUi(); renderCreativeControlsUi(); updateCharCount(); setEphemeralSequence();
+  try { await refreshProjects(); } catch (error) { toast(error.message); }
+  setDirty(false);
+  const projectId = projectIdFromLocation(window.location.href);
+  if (projectId) {
+    try { adoptProjectResponse(await api.loadProject(projectId)); }
+    catch (error) { rememberProjectLocation(null); toast(`Could not reopen Project: ${error.message}`); }
+  }
 }
 
 init().catch(error => toast(error.message));

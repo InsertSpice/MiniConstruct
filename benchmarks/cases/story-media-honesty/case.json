@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "id": "story-media-honesty",
+  "version": "1",
+  "title": "Media honesty",
+  "description": "A performer enters a quiet studio, prepares at the microphone, delivers a short performance, and leaves the studio calmly.",
+  "tags": [
+    "story",
+    "build"
+  ],
+  "operation": "build_story_plan",
+  "story": {
+    "sequenceContext": "The sequence takes place in a quiet studio.",
+    "generations": [
+      {
+        "workspacePath": "workspace.json",
+        "incomingState": "",
+        "intendedOutgoingState": "",
+        "planning": {
+          "cameraIntent": "",
+          "relationshipToPrevious": null
+        }
+      }
+    ],
+    "build": {
+      "idea": "A performer enters a quiet studio, prepares at the microphone, delivers a short performance, and leaves the studio calmly.",
+      "desiredGenerationCount": 4
+    }
+  },
+  "expectations": {
+    "checks": [
+      {
+        "kind": "story_item_count_equals",
+        "value": 4
+      },
+      {
+        "kind": "story_existing_generation_count_equals",
+        "value": 1
+      },
+      {
+        "kind": "story_existing_generation_ids_preserved"
+      },
+      {
+        "kind": "story_new_items_have_no_existing_generation_id"
+      },
+      {
+        "kind": "story_first_relationship_null"
+      },
+      {
+        "kind": "story_relationship_valid"
+      },
+      {
+        "kind": "story_recommendation_pairs_valid"
+      },
+      {
+        "kind": "story_no_duplicate_recommendation_pairs"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "creativeRequest"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "incomingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "intendedOutgoingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "cameraIntent"
+      },
+      {
+        "kind": "story_sequence_context_equals",
+        "value": "The sequence takes place in a quiet studio."
+      },
+      {
+        "kind": "image_input_count_equals",
+        "value": 0
+      },
+      {
+        "kind": "forbidden_text_absent",
+        "patterns": [
+          "\\bi heard\\b",
+          "\\bi watched\\b",
+          "\\bthe audio contains\\b",
+          "\\bthe speaker says\\b",
+          "\\bthe video shows\\b"
+        ]
+      }
+    ]
+  },
+  "humanReview": [
+    "Are metadata-only recommendations phrased as intended use?",
+    "Does the planner avoid claiming it heard dialogue, music or ambience?",
+    "Does it avoid claiming it watched motion or camera actions in the Video?",
+    "Does it make sensible use of authoritative roles and minimal notes?"
+  ]
+}

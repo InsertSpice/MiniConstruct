@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 
 class H3Mode(StrEnum):
@@ -30,6 +31,12 @@ class CameraPreference(StrEnum):
     AUTO = "auto"
     AVOID = "avoid"
     PREFER = "prefer"
+
+
+class CreativeInterpretation(StrEnum):
+    CONSERVATIVE = "conservative"
+    BALANCED = "balanced"
+    EXPANSIVE = "expansive"
 
 
 class ReferenceFidelityLevel(StrEnum):
@@ -156,6 +163,15 @@ class SubjectRecord(BaseModel):
     number: int = Field(ge=1)
 
 
+class MediaPayload(BaseModel):
+    """Opaque backend authority; never file bytes or filesystem paths."""
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    byte_length: int = Field(alias="byteLength", gt=0, le=512 * 1024 * 1024)
+    upload_id: str | None = Field(default=None, alias="uploadId", pattern=r"^[0-9a-f]{32}$")
+    project_id: str | None = Field(default=None, alias="projectId", pattern=r"^[0-9a-f-]{36}$")
+
+
 class ReferenceAsset(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -171,14 +187,19 @@ class ReferenceAsset(BaseModel):
     comparison_subject_ids: list[str] = Field(default_factory=list, alias="comparisonSubjects")
     order: int = Field(default=0, ge=0)
     image: ImagePayload | None = None
+    media_payload: MediaPayload | None = Field(default=None, alias="mediaPayload")
     attached: bool = True
 
     @model_validator(mode="after")
-    def validate_role_and_payload(self) -> "ReferenceAsset":
+    def validate_role_and_payload(self, info: ValidationInfo) -> "ReferenceAsset":
         if self.role not in ROLE_SETS[self.kind]:
             raise ValueError(f"role {self.role!r} is not valid for {self.kind.value}")
+        if self.media_payload is not None and (self.kind == AssetKind.IMAGE or not self.mime_type.startswith(f"{self.kind.value}/")):
+            raise ValueError("media payload requires matching Audio/Video MIME type")
         if self.kind == AssetKind.IMAGE:
             if self.image is None:
+                if (info.context or {}).get("authoring"):
+                    return self
                 raise ValueError("image assets require a processed image payload")
             if not self.mime_type.startswith("image/"):
                 raise ValueError("image asset MIME type must begin with image/")
@@ -268,17 +289,21 @@ class Workspace(BaseModel):
     assets: list[ReferenceAsset] = Field(default_factory=list)
     subjects: list[SubjectRecord] = Field(default_factory=list)
     next_subject_number: int = Field(default=1, alias="nextSubjectNumber", ge=1)
+    creative_interpretation: CreativeInterpretation = Field(
+        default=CreativeInterpretation.BALANCED,
+        alias="creativeInterpretation",
+    )
     creative_controls: CreativeControls = Field(default_factory=CreativeControls, alias="creativeControls")
 
     @field_validator("creative_request")
     @classmethod
-    def require_request(cls, value: str) -> str:
-        if not value.strip():
+    def require_request(cls, value: str, info: ValidationInfo) -> str:
+        if not value.strip() and not (info.context or {}).get("authoring"):
             raise ValueError("main prompt / idea is required")
         return value
 
     @model_validator(mode="after")
-    def validate_mode_assets(self) -> "Workspace":
+    def validate_mode_assets(self, info: ValidationInfo) -> "Workspace":
         # Old projects had one implicit identity.  Materialize only the smallest
         # stable registry needed to retain that exact meaning on later saves.
         identity_ids = {
@@ -314,6 +339,8 @@ class Workspace(BaseModel):
                 unknown = set(selected) - known_ids
                 if unknown:
                     raise ValueError(f"Character Comparison / Scale points to unknown Subjects: {sorted(unknown)}")
+        if (info.context or {}).get("authoring"):
+            return self
         images = [asset for asset in self.assets if asset.kind == AssetKind.IMAGE]
         roles = [asset.role for asset in images]
         if self.mode == H3Mode.I2VA and roles.count("first_frame_anchor") != 1:
@@ -330,3 +357,19 @@ class Workspace(BaseModel):
     def ordered_assets(self) -> list[ReferenceAsset]:
         kind_order = {AssetKind.IMAGE: 0, AssetKind.VIDEO: 1, AssetKind.AUDIO: 2}
         return sorted(self.assets, key=lambda item: (kind_order[item.kind], item.order, item.id))
+
+
+def validate_authoring_workspace(value: Any) -> Workspace:
+    """Validate an editable Workspace while allowing one empty-draft exception.
+
+    Generation/model requests continue to use ``Workspace.model_validate`` and
+    therefore still require a non-empty Creative Request. This helper is only
+    for persisted or editable authoring state, where a new blank Generation is
+    intentionally useful before the user has written its request.
+    """
+    if isinstance(value, Workspace):
+        value = value.model_dump(mode="json", by_alias=True)
+    if not isinstance(value, dict):
+        return Workspace.model_validate(value, context={"authoring": True})
+    data = deepcopy(value)
+    return Workspace.model_validate(data, context={"authoring": True})

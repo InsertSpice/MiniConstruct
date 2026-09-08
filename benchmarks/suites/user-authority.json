@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "user-authority",
+  "title": "User authority preservation behavioral baseline",
+  "cases": [
+    "t2va-laterality-preservation",
+    "t2va-user-terminology-preservation"
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "projectId": "8a78016d-f198-459e-b464-8ee541b969dc",
+  "projectName": "ExpressionIdentityTest",
+  "mode": "Ref2VA",
+  "durationSeconds": 7,
+  "shots": null,
+  "aspectRatio": "auto",
+  "variations": 1,
+  "creativeRequest": "Subject 1 stands alone beside a classroom window in a quiet school classroom. She begins calm with a relaxed neutral expression. A sudden loud crash from the hallway startles her; her eyes widen and she visibly flinches, then she looks toward the doorway with brief uncertainty. After realizing there is no danger, she gradually relaxes and ends with a relieved gentle smile. Keep Subject 1's identity, facial features, hairstyle, clothing, and body proportions consistent while her facial expression and immediate emotional reaction change naturally throughout the video.",
+  "dialogue": "",
+  "referenceLabels": "",
+  "assets": [
+    {
+      "notes": "",
+      "options": {},
+      "order": 0,
+      "attached": true,
+      "id": "8a39f3ad-3425-4f6c-b1c1-b8fbbc47fbb0",
+      "kind": "image",
+      "filename": "Codex Image Sep 1, 2026, 05_50_06 AM.png",
+      "mimeType": "image/jpeg",
+      "durationSeconds": null,
+      "role": "subject_identity",
+      "subjectIdentity": {
+        "subjectId": "subject-1",
+        "focus": "general",
+        "view": "unspecified",
+        "layout": "reference_sheet"
+      },
+      "image": {
+        "data_url": "data:image/jpeg,fixture-placeholder",
+        "width": 1600,
+        "height": 900
+      }
+    }
+  ],
+  "subjects": [
+    {
+      "id": "subject-1",
+      "number": 1
+    }
+  ],
+  "nextSubjectNumber": 2,
+  "creativeControls": {
+    "music": {
+      "mode": "off",
+      "description": ""
+    },
+    "camera": {
+      "zoom": "auto",
+      "pushPull": "auto",
+      "pan": "auto",
+      "truck": "auto",
+      "tilt": "auto",
+      "pedestal": "auto",
+      "arc": "auto",
+      "tracking": "auto",
+      "static": "auto",
+      "shake": "auto",
+      "pov": "auto",
+      "roll": "auto"
+    },
+    "visualStyle": {
+      "preset": "auto",
+      "custom": ""
+    },
+    "subjectIdentityFidelity": {
+      "level": "strict"
+    },
+    "tonePerformance": {
+      "sensuality": "auto",
+      "drama": "auto",
+      "horror": "auto",
+      "tension": "auto",
+      "romance": "auto",
+      "whimsy": "auto",
+      "performanceStyle": "auto",
+      "performanceEnergy": "auto"
+    }
+  }
+}

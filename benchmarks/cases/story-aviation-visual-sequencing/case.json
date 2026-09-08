@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "id": "story-aviation-visual-sequencing",
+  "version": "1",
+  "title": "Aviation visual sequencing",
+  "description": "A passenger jet unexpectedly loses thrust at altitude. The captain and first officer recognize the problem, diagnose the aircraft state, manipulate the controls, coordinate a response, stabilize the descent, and prepare the aircraft for an emergency landing. Treat the Pictures as visual references for a fictional sequence; do not identify real people or assert historical events.",
+  "tags": [
+    "story",
+    "build"
+  ],
+  "operation": "build_story_plan",
+  "story": {
+    "sequenceContext": "A twin-engine passenger jet is in flight with the same two flight crew members, cockpit environment, aircraft appearance, weather and daylight conditions throughout the emergency.",
+    "generations": [
+      {
+        "workspacePath": "workspace.json",
+        "incomingState": "",
+        "intendedOutgoingState": "",
+        "planning": {
+          "cameraIntent": "",
+          "relationshipToPrevious": null
+        },
+        "fixtureAssets": [
+          {
+            "assetId": "aviation-reference-1",
+            "path": "assets/glider1.png",
+            "source": "external"
+          },
+          {
+            "assetId": "aviation-reference-2",
+            "path": "assets/glider2.png",
+            "source": "external"
+          },
+          {
+            "assetId": "aviation-reference-3",
+            "path": "assets/glider3.png",
+            "source": "external"
+          },
+          {
+            "assetId": "aviation-reference-4",
+            "path": "assets/glider4.png",
+            "source": "external"
+          },
+          {
+            "assetId": "aviation-reference-5",
+            "path": "assets/glider5.png",
+            "source": "external"
+          },
+          {
+            "assetId": "aviation-reference-6",
+            "path": "assets/glider6.png",
+            "source": "external"
+          }
+        ]
+      }
+    ],
+    "build": {
+      "idea": "A passenger jet unexpectedly loses thrust at altitude. The captain and first officer recognize the problem, diagnose the aircraft state, manipulate the controls, coordinate a response, stabilize the descent, and prepare the aircraft for an emergency landing. Treat the Pictures as visual references for a fictional sequence; do not identify real people or assert historical events.",
+      "desiredGenerationCount": 6
+    }
+  },
+  "expectations": {
+    "checks": [
+      {
+        "kind": "story_item_count_equals",
+        "value": 6
+      },
+      {
+        "kind": "story_existing_generation_count_equals",
+        "value": 1
+      },
+      {
+        "kind": "story_existing_generation_ids_preserved"
+      },
+      {
+        "kind": "story_new_items_have_no_existing_generation_id"
+      },
+      {
+        "kind": "story_first_relationship_null"
+      },
+      {
+        "kind": "story_relationship_valid"
+      },
+      {
+        "kind": "story_recommendation_pairs_valid"
+      },
+      {
+        "kind": "story_no_duplicate_recommendation_pairs"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "creativeRequest"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "incomingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "intendedOutgoingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "cameraIntent"
+      },
+      {
+        "kind": "story_sequence_context_equals",
+        "value": "A twin-engine passenger jet is in flight with the same two flight crew members, cockpit environment, aircraft appearance, weather and daylight conditions throughout the emergency."
+      },
+      {
+        "kind": "image_input_count_equals",
+        "value": 6
+      }
+    ]
+  },
+  "humanReview": [
+    "Does the story progress coherently from recognition through diagnosis/action to controlled descent/preparation?",
+    "Does it distinguish cockpit, crew-reaction, control-detail and aircraft-exterior references?",
+    "Are references recommended for appropriate kinds of shots?",
+    "Is there useful shot variety instead of six similar cockpit shots?",
+    "Does it avoid identifying real people or inventing historical names, causes, locations, airline details or documentary facts?",
+    "Does it avoid treating every Picture as an exact first-frame requirement?",
+    "Does it preserve aircraft, cockpit and crew continuity?"
+  ],
+  "requirements": {
+    "vision": true
+  }
+}

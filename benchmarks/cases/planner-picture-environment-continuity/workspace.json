@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Planner station environment continuity",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "Alice walks along the same rainy railway platform as the stopped train waits beside her."
+}

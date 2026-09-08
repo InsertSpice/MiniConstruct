@@ -3,14 +3,17 @@ from __future__ import annotations
 from copy import deepcopy
 import asyncio
 import json
-import secrets
+import logging
+
+from miniconstruct.execution_authoring import execution_authoring_fingerprint
 import time
 from collections.abc import AsyncIterator, Callable
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response, Request
 from fastapi.responses import StreamingResponse
 
-from miniconstruct.h3.builder import assemble_prompt, build_reference_manifest
+from miniconstruct.h3.builder import assemble_prompt, build_h3_input_map, build_reference_manifest
+from miniconstruct.generation import generate_workspace_prompts, resolved_generation_seeds
 from miniconstruct.h3.repair import assemble_repair_prompt
 from miniconstruct.h3.revision import assemble_revision_prompt, splice_revision, validate_replacement
 from miniconstruct.h3.validator import canonicalize_bare_reference_labels, normalize_comparison_scale_references, validate_prompt, validate_workspace_prompt
@@ -19,23 +22,45 @@ from miniconstruct.llm.compatibility import build_generation_payload
 from miniconstruct.llm.diagnostics import cache_input_fingerprint
 from miniconstruct.llm.discovery import LocalEndpointDiscoveryService
 from miniconstruct.llm.model_eject import ModelEjectError, eject_model
+from miniconstruct.planning import infer_plan, revise_plan
+from miniconstruct.story_planning import build_story_plan, revise_story_plan
+from miniconstruct.models.story_planning import StoryApplyRequest, StoryBuildRequest, StoryPlanProposal, StoryRevisionRequest
+from miniconstruct.project_store import (
+    GenerationNotFoundError,
+    ProjectNotFoundError,
+    ProjectStore,
+    ProjectStoreError,
+    StaleProjectSnapshotError,
+    UnsupportedProjectSchemaError,
+)
 from miniconstruct.models.api import (
+    AssistedGenerationPlan,
     DiscoveredModel,
     EndpointDiscoveryRequest,
     GeneratedVariation,
     GenerationRequest,
     GenerationResponse,
+    FilesystemProjectListResponse,
+    FilesystemProjectResponse,
+    FilesystemProjectSummary,
+    FilesystemProjectWriteRequest,
+    GenerationCreateRequest,
+    GenerationOrderRequest,
     LLMSettings,
+    PlanningInferenceRequest,
+    PlanningRevisionRequest,
     ProjectEnvelope,
+    ProjectSaveAsRequest,
+    ReferenceManifestRequest,
     RepairRequest,
     RevisionRequest,
-    SEED_MAX,
-    SeedMode,
     ValidationRequest,
 )
+from miniconstruct.models.workspace import Workspace
 
 
 router = APIRouter(prefix="/api")
+logger = logging.getLogger(__name__)
 
 
 def _http_error(exc: LLMBackendError) -> HTTPException:
@@ -43,22 +68,278 @@ def _http_error(exc: LLMBackendError) -> HTTPException:
 
 
 def _resolved_generation_seeds(request: GenerationRequest) -> list[int | None]:
-    """Use the browser snapshot when available; retain sane API-call behavior."""
-    if request.resolved_seeds:
-        return request.resolved_seeds
-    if request.llm.seed_mode == SeedMode.FIXED:
-        return [request.llm.fixed_seed] * request.workspace.variations
-    if request.llm.seed_mode == SeedMode.RANDOM:
-        seeds: set[int] = set()
-        while len(seeds) < request.workspace.variations:
-            seeds.add(secrets.randbelow(SEED_MAX + 1))
-        return list(seeds)
-    return [None] * request.workspace.variations
+    """Compatibility alias for route tests and existing internal callers."""
+    return resolved_generation_seeds(request)
+
+
+@router.post("/media/{kind}")
+async def upload_reference_media(kind: str, request: Request):
+    store = ProjectStore()
+    if kind not in store.MEDIA_LIMITS:
+        raise HTTPException(400, "Only Audio and Video payloads are supported.")
+    length = request.headers.get("content-length")
+    if length is not None:
+        try:
+            size = int(length)
+        except ValueError:
+            raise HTTPException(400, "Invalid file length")
+        if size > store.MEDIA_LIMITS[kind]:
+            raise HTTPException(413, f"{kind.title()} file exceeds {store.MEDIA_LIMITS[kind] // (1024 * 1024)} MiB limit.")
+    try:
+        payload = await store.ingest_media(request.stream(), kind, request.headers.get("content-type", "").split(";", 1)[0].lower())
+        return payload.model_dump(mode="json", by_alias=True, exclude_none=True)
+    except ProjectStoreError as exc:
+        raise HTTPException(413 if "exceeds" in str(exc) else 400, str(exc)) from exc
 
 
 @router.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "application": "MiniConstruct", "version": "0.3.0"}
+    return {"status": "ok", "application": "MiniConstruct", "version": "0.4.0"}
+
+
+def _filesystem_project_response(project) -> FilesystemProjectResponse:
+    return FilesystemProjectResponse(
+        id=project.project_id,
+        name=project.name,
+        createdAt=project.created_at,
+        updatedAt=project.updated_at,
+        workspace=project.workspace,
+        storyIdea=project.story_idea,
+        sequence={
+            "activeGenerationId": project.sequence.active_generation_id,
+            "generations": [
+                {"generationId": item.generation_id, "createdAt": item.created_at, "updatedAt": item.updated_at,
+                 "referenceAssets": list(item.reference_assets)}
+                for item in project.sequence.generations
+            ],
+        },
+        continuity={
+            "sequenceContext": project.sequence_context,
+            "incomingState": project.incoming_state,
+            "intendedOutgoingState": project.intended_outgoing_state,
+        },
+        planning=project.planning,
+    )
+
+
+def _continuity_kwargs(continuity) -> dict:
+    return continuity.model_dump(exclude_unset=True) if continuity is not None else {}
+
+
+def _planning_kwargs(planning) -> dict:
+    return planning.model_dump(exclude_unset=True, by_alias=True) if planning is not None else None
+
+
+def _filesystem_project_error(exc: ProjectStoreError) -> HTTPException:
+    if isinstance(exc, StaleProjectSnapshotError):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, ProjectNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, UnsupportedProjectSchemaError):
+        return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, GenerationNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/projects", response_model=FilesystemProjectListResponse)
+async def list_filesystem_projects() -> FilesystemProjectListResponse:
+    try:
+        projects = ProjectStore().list_projects()
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+    return FilesystemProjectListResponse(projects=[
+        FilesystemProjectSummary(
+            id=project.project_id,
+            name=project.name,
+            createdAt=project.created_at,
+            updatedAt=project.updated_at,
+        )
+        for project in projects
+    ])
+
+
+@router.post("/projects", response_model=FilesystemProjectResponse, status_code=201)
+async def create_filesystem_project(request: FilesystemProjectWriteRequest) -> FilesystemProjectResponse:
+    try:
+        return _filesystem_project_response(
+            ProjectStore().create_project(
+                request.workspace,
+                **_continuity_kwargs(request.continuity),
+                planning=_planning_kwargs(request.planning),
+                **({"story_idea": request.story_idea} if request.story_idea is not None else {}),
+            )
+        )
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+
+
+@router.get("/projects/{project_id}", response_model=FilesystemProjectResponse)
+async def load_filesystem_project(project_id: str) -> FilesystemProjectResponse:
+    try:
+        return _filesystem_project_response(ProjectStore().load_project(project_id))
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+async def delete_filesystem_project(project_id: str) -> Response:
+    try:
+        ProjectStore().delete_project(project_id)
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+    return Response(status_code=204)
+
+
+@router.put("/projects/{project_id}", response_model=FilesystemProjectResponse)
+async def save_filesystem_project(project_id: str, request: FilesystemProjectWriteRequest) -> FilesystemProjectResponse:
+    try:
+        return _filesystem_project_response(
+            ProjectStore().save_project(
+                project_id, request.workspace, **_continuity_kwargs(request.continuity),
+                planning=_planning_kwargs(request.planning),
+                **({"story_idea": request.story_idea} if request.story_idea is not None else {}),
+            )
+        )
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/generations", response_model=FilesystemProjectResponse)
+async def create_generation(project_id: str, request: GenerationCreateRequest) -> FilesystemProjectResponse:
+    try:
+        project = ProjectStore().create_generation(
+            project_id, insert_index=request.insert_index, workspace=request.workspace,
+        )
+        return _filesystem_project_response(project)
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/generations/{generation_id}/duplicate", response_model=FilesystemProjectResponse)
+async def duplicate_generation(project_id: str, generation_id: str) -> FilesystemProjectResponse:
+    try:
+        return _filesystem_project_response(ProjectStore().duplicate_generation(project_id, generation_id))
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+
+
+@router.put("/projects/{project_id}/active-generation/{generation_id}", response_model=FilesystemProjectResponse)
+async def activate_generation(project_id: str, generation_id: str) -> FilesystemProjectResponse:
+    try:
+        return _filesystem_project_response(ProjectStore().activate_generation(project_id, generation_id))
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+
+
+@router.put("/projects/{project_id}/generation-order", response_model=FilesystemProjectResponse)
+async def reorder_generations(project_id: str, request: GenerationOrderRequest) -> FilesystemProjectResponse:
+    try:
+        return _filesystem_project_response(ProjectStore().reorder_generations(project_id, request.generation_ids))
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+
+
+@router.delete("/projects/{project_id}/generations/{generation_id}", response_model=FilesystemProjectResponse)
+async def delete_generation(project_id: str, generation_id: str) -> FilesystemProjectResponse:
+    try:
+        return _filesystem_project_response(ProjectStore().delete_generation(project_id, generation_id))
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/save-as", response_model=FilesystemProjectResponse, status_code=201)
+async def save_project_as(project_id: str, request: ProjectSaveAsRequest) -> FilesystemProjectResponse:
+    try:
+        values = _continuity_kwargs(request.continuity)
+        return _filesystem_project_response(
+            ProjectStore().duplicate_project(
+                project_id,
+                request.name,
+                active_workspace=request.workspace,
+                story_idea=request.story_idea,
+                **{
+                    "sequence_context": values.get("sequence_context"),
+                    "active_incoming_state": values.get("incoming_state"),
+                    "active_intended_outgoing_state": values.get("intended_outgoing_state"),
+                    "active_planning": _planning_kwargs(request.planning),
+                },
+            )
+        )
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+
+
+@router.post(
+    "/projects/{project_id}/generations/{generation_id}/infer-plan",
+    response_model=AssistedGenerationPlan,
+)
+async def infer_generation_plan(project_id: str, generation_id: str, request: PlanningInferenceRequest) -> AssistedGenerationPlan:
+    try:
+        previous = ProjectStore().read_predecessor_generation(project_id, generation_id)
+        if previous is None:
+            raise GenerationNotFoundError("Generation 1 has no predecessor to infer from")
+        return await infer_plan(previous, request)
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+    except LLMBackendError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/projects/{project_id}/generations/{generation_id}/revise-plan",
+    response_model=AssistedGenerationPlan,
+)
+async def revise_generation_plan(project_id: str, generation_id: str, request: PlanningRevisionRequest) -> AssistedGenerationPlan:
+    try:
+        # The path identifies the target and keeps the endpoint consistent with
+        # inference. The request is deliberately draft-based and never persisted.
+        ProjectStore().read_generation(project_id, generation_id)
+        return await revise_plan(request)
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+    except LLMBackendError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post("/projects/{project_id}/story-plan/build", response_model=StoryPlanProposal)
+async def build_project_story_plan(project_id: str, request: StoryBuildRequest):
+    try:
+        return await build_story_plan(ProjectStore(), project_id, request)
+    except ProjectStoreError as exc:
+        logger.warning("Story Build failed: category=%s status=%s",
+                       "stale_snapshot" if isinstance(exc, StaleProjectSnapshotError) else "project_store",
+                       _filesystem_project_error(exc).status_code)
+        raise _filesystem_project_error(exc) from exc
+    except LLMBackendError as exc:
+        logger.warning("Story Build failed: category=%s status=%s upstream_status=%s detail=%s",
+                       exc.category, exc.status_code, exc.upstream_status, exc.safe_message)
+        raise _http_error(exc) from exc
+    except ValueError as exc:
+        logger.warning("Story Build failed: category=request status=400")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/projects/{project_id}/story-plan/revise", response_model=StoryPlanProposal)
+async def revise_project_story_plan(project_id: str, request: StoryRevisionRequest):
+    try:
+        return await revise_story_plan(ProjectStore(), project_id, request)
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+    except LLMBackendError as exc:
+        raise _http_error(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/projects/{project_id}/story-plan/apply", response_model=FilesystemProjectResponse)
+async def apply_project_story_plan(project_id: str, request: StoryApplyRequest):
+    try:
+        return _filesystem_project_response(ProjectStore().apply_story_plan(project_id, request.draft))
+    except ProjectStoreError as exc:
+        raise _filesystem_project_error(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 async def enumerate_endpoint_models(settings: LLMSettings) -> dict:
@@ -106,12 +387,23 @@ async def discover_endpoints(request: EndpointDiscoveryRequest) -> dict:
 
 @router.post("/assemble")
 async def assemble(request: GenerationRequest) -> dict:
-    assembled = assemble_prompt(request.workspace, request.llm.supports_vision)
+    assembled = assemble_prompt(request.prompt_workspace, request.llm.supports_vision)
     return {
         "instructions": assembled.inspector_text,
         "warnings": assembled.warnings,
-        "manifest": build_reference_manifest(request.workspace),
+        "manifest": build_reference_manifest(request.prompt_workspace),
     }
+
+
+@router.post("/reference-manifest")
+async def reference_manifest(request: ReferenceManifestRequest) -> dict:
+    """Return canonical H3 labels for the live authoring state."""
+    projection = Workspace.model_construct(mode=request.mode, assets=request.assets, subjects=request.subjects)
+    from miniconstruct.execution_routing import prompt_projection
+    try:
+        return {"entries": build_h3_input_map(prompt_projection(projection, request.execution_routing))}
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/validate-project")
@@ -121,11 +413,16 @@ async def validate_project(project: ProjectEnvelope) -> dict:
 
 @router.post("/validate")
 async def validate(request: ValidationRequest) -> dict:
+    from miniconstruct.execution_routing import prompt_projection
+    try:
+        projection = prompt_projection(Workspace.model_construct(mode=request.mode, assets=request.assets), request.execution_routing)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     return validate_prompt(
         request.prompt,
         request.mode,
         request.duration_seconds,
-        request.assets,
+        projection.assets,
         request.dialogue,
         request.shots,
     ).model_dump()
@@ -133,25 +430,11 @@ async def validate(request: ValidationRequest) -> dict:
 
 @router.post("/generate", response_model=GenerationResponse)
 async def generate(request: GenerationRequest) -> GenerationResponse:
-    assembled = assemble_prompt(request.workspace, request.llm.supports_vision)
-    generated: list[GeneratedVariation] = []
-    warnings = list(assembled.warnings)
     try:
-        for seed in _resolved_generation_seeds(request):
-            settings = request.llm.model_copy(update={"seed": seed})
-            async with OpenAICompatibleClient(settings) as client:
-                prompt = await client.generate(deepcopy(assembled.messages))
-                generated.append(
-                    GeneratedVariation(
-                        prompt=prompt,
-                        validation=validate_workspace_prompt(prompt, request.workspace),
-                    )
-                )
-                if client.seed_unsupported:
-                    warnings.append("This endpoint does not support the seed parameter; MiniConstruct retried with backend defaults.")
+        result = await generate_workspace_prompts(request)
     except LLMBackendError as exc:
         raise _http_error(exc) from exc
-    return GenerationResponse(variations=generated, warnings=list(dict.fromkeys(warnings)))
+    return GenerationResponse(variations=[item.generated for item in result.variations], warnings=result.warnings)
 
 
 def _stream_event(event: str, data: dict) -> str:
@@ -164,7 +447,7 @@ async def stream_generation_events(
 ) -> AsyncIterator[str]:
     """Stream one immutable request snapshot; cancellation closes its client."""
     assembly_started = time.perf_counter()
-    assembled = assemble_prompt(request.workspace, request.llm.supports_vision)
+    assembled = assemble_prompt(request.prompt_workspace, request.llm.supports_vision)
     assembly_ms = (time.perf_counter() - assembly_started) * 1000
     preview_payload, _ = build_generation_payload(
         request.llm.model_copy(update={"seed": None}), assembled.messages, stream=True
@@ -277,12 +560,14 @@ async def stream_generation_events(
                     })
                     return
                 prompt = "".join(parts)
-                validation = validate_workspace_prompt(prompt, request.workspace)
+                validation = validate_workspace_prompt(prompt, request.prompt_workspace)
                 completed_at = time.perf_counter()
                 yield _stream_event("complete", {
                     "variation": variation_index,
                     "prompt": prompt,
                     "validation": validation.model_dump(mode="json"),
+                    "referenceMap": [ref.model_dump(by_alias=True) for ref in request.reference_map],
+                    "sourceFingerprint": execution_authoring_fingerprint(request.workspace),
                     "metrics": metrics(completed_at),
                     "seed": getattr(client, "effective_seed", seed),
                 })
@@ -332,12 +617,14 @@ async def stream_revision_events(
             yield _stream_event("error", {"message": invalid, "partial": bool(replacement)})
             return
         candidate = splice_revision(request.selection, replacement)
-        validation = validate_workspace_prompt(candidate, request.workspace)
-        original_validation = validate_workspace_prompt(request.selection.full_prompt, request.workspace)
+        validation = validate_workspace_prompt(candidate, request.prompt_workspace)
+        original_validation = validate_workspace_prompt(request.selection.full_prompt, request.prompt_workspace)
         yield _stream_event("complete", {
             "replacement": replacement,
             "candidatePrompt": candidate,
             "validation": validation.model_dump(mode="json"),
+            "referenceMap": [ref.model_dump(by_alias=True) for ref in request.reference_map],
+            "sourceFingerprint": execution_authoring_fingerprint(request.workspace),
             "originalValidation": original_validation.model_dump(mode="json"),
         })
         yield _stream_event("done", {})
@@ -356,18 +643,18 @@ async def revise_stream(request: RevisionRequest) -> StreamingResponse:
 
 @router.post("/repair", response_model=GeneratedVariation)
 async def repair(request: RepairRequest) -> GeneratedVariation:
-    current_validation = validate_workspace_prompt(request.prompt, request.workspace)
+    current_validation = validate_workspace_prompt(request.prompt, request.prompt_workspace)
     structural_failures = [
         finding
         for finding in current_validation.findings
         if finding.severity == "ERROR" and finding.category == "structural"
     ]
     if not structural_failures:
-        return GeneratedVariation(prompt=request.prompt, validation=current_validation)
+        return GeneratedVariation(referenceMap=request.reference_map, sourceFingerprint=execution_authoring_fingerprint(request.workspace), prompt=request.prompt, validation=current_validation)
     normalized_prompt = normalize_comparison_scale_references(
         canonicalize_bare_reference_labels(request.prompt), request.workspace,
     )
-    normalized_validation = validate_workspace_prompt(normalized_prompt, request.workspace)
+    normalized_validation = validate_workspace_prompt(normalized_prompt, request.prompt_workspace)
     remaining_failures = [
         finding
         for finding in normalized_validation.findings
@@ -375,6 +662,7 @@ async def repair(request: RepairRequest) -> GeneratedVariation:
     ]
     if not remaining_failures:
         return GeneratedVariation(
+            referenceMap=request.reference_map, sourceFingerprint=execution_authoring_fingerprint(request.workspace),
             prompt=normalized_prompt,
             validation=normalized_validation,
         )
@@ -389,4 +677,4 @@ async def repair(request: RepairRequest) -> GeneratedVariation:
     prompt = normalize_comparison_scale_references(
         canonicalize_bare_reference_labels(prompt), request.workspace, normalized_prompt,
     )
-    return GeneratedVariation(prompt=prompt, validation=validate_workspace_prompt(prompt, request.workspace))
+    return GeneratedVariation(referenceMap=request.reference_map, sourceFingerprint=execution_authoring_fingerprint(request.workspace), prompt=prompt, validation=validate_workspace_prompt(prompt, request.prompt_workspace))

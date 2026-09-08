@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "t2va-laterality-baseline",
+  "version": "1",
+  "title": "T2VA laterality baseline",
+  "description": "A no-vision baseline for preserving explicit user left/right and screen-direction terminology without laterality hardening.",
+  "tags": ["baseline", "T2VA", "no-vision", "laterality", "spatial", "terminology", "left-right", "screen-direction"],
+  "requirements": {"vision": false},
+  "expectations": {},
+  "humanReview": [
+    "Does the red glove remain on the left hand only?",
+    "Does the right hand remain bare?",
+    "Does the blue tool box remain screen-left and the yellow chair screen-right?",
+    "Does the reach use the left hand toward the screen-left tool box?",
+    "Does the head turn toward screen-right?",
+    "Is the final raised hand the bare right hand?",
+    "Is there no silent left/right inversion or ambiguous paraphrasing?",
+    "Does the requested terminology and staging remain intact?"
+  ]
+}

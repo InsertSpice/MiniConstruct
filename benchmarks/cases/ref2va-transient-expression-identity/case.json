@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "ref2va-transient-expression-identity",
+  "version": "1",
+  "title": "Ref2VA transient expression vs identity",
+  "description": "A focused single-subject Ref2VA vision fixture for separating stable identity from Reference Sheet expression examples.",
+  "tags": ["baseline", "Ref2VA", "vision", "single-subject", "reference-sheet", "identity", "expression", "transient-expression", "strict-fidelity"],
+  "requirements": {
+    "vision": true
+  },
+  "expectations": {},
+  "humanReview": [
+    "Is the Reference Sheet interpreted as one stable Subject rather than multiple people or duplicated versions of Subject 1?",
+    "Are the Reference Sheet's expression panels treated as examples of facial deformation rather than permanent identity traits?",
+    "Does the generated prompt follow the requested expression progression—neutral, startled/flinch, brief uncertainty, then relieved gentle smile—instead of mechanically reproducing the sheet's expression-panel sequence?",
+    "Are temporary expression details such as widened eyes, brow state, mouth shape, worry, anger, or smiling kept out of the Subject's permanent identity definition and retention characteristics?",
+    "Are stable facial morphology, hairstyle, wardrobe, body proportions, and recognizable identity preserved while the expression changes?",
+    "Is the Reference Sheet used as identity evidence without reproducing its grid, panels, labels, or sheet background?",
+    "Does the requested classroom-window, hallway-crash, reaction, and relaxation scenario remain intact without unrelated story invention?"
+  ],
+  "fixtureAssets": [
+    {
+      "assetId": "8a39f3ad-3425-4f6c-b1c1-b8fbbc47fbb0",
+      "path": "assets/subject-1-reference-sheet.jpg"
+    }
+  ]
+}

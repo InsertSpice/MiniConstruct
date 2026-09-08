@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "basic-t2va",
+  "version": "1",
+  "title": "Basic text-to-video structure",
+  "description": "A small no-vision case that checks normal H3 assembly and structural validation.",
+  "tags": ["smoke", "t2va", "no-vision"],
+  "expectations": {
+    "contains": ["[Shot 1]"],
+    "forbiddenFindingCodes": ["empty"]
+  },
+  "humanReview": ["Does the prompt describe the requested motion without adding an unrelated story?"]
+}

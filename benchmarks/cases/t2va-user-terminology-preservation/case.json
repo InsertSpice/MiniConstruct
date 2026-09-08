@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "t2va-user-terminology-preservation",
+  "version": "1",
+  "title": "T2VA user terminology preservation baseline",
+  "description": "A narrowly controlled no-vision baseline for retaining a distinctive user-authored professional role term while allowing supporting visual detail.",
+  "tags": ["baseline", "T2VA", "no-vision", "user-authority", "terminology", "role"],
+  "requirements": {"vision": false},
+  "expectations": {
+    "contains": ["field archivist"]
+  },
+  "humanReview": [
+    "Does the distinctive user-authored term \"field archivist\" remain present with its intended professional-role meaning?",
+    "Does any added visual explanation support the term rather than replace or generalize it away?"
+  ]
+}

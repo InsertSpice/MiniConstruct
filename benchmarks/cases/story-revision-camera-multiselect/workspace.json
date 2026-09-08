@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Revision camera multiselect",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "",
+  "assets": []
+}

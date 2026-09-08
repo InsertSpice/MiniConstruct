@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "id": "smoke",
+  "title": "Small production-path smoke suite",
+  "cases": ["basic-t2va", "exact-dialogue-basic"]
+}

@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Reference Sheet Identity",
+  "mode": "Ref2VA",
+  "durationSeconds": 7,
+  "shots": null,
+  "aspectRatio": "auto",
+  "variations": 1,
+  "creativeRequest": "Subject 1 walks alone through a quiet modern school hallway. Begin with a full-body three-quarter front view as she walks toward the camera, then the camera smoothly arcs around her while she continues walking so that her side profile and partial rear view become visible naturally during the movement. She stops beside a classroom doorway, turns back toward the camera, and ends in a relaxed full-body three-quarter pose. Keep Subject 1's identity, hairstyle, clothing, body proportions, and overall appearance consistent throughout.",
+  "dialogue": "",
+  "referenceLabels": "",
+  "assets": [
+    {
+      "notes": "",
+      "options": {},
+      "order": 0,
+      "attached": true,
+      "id": "a46fa829-2b96-43f3-8e70-9e1b08d0b824",
+      "kind": "image",
+      "filename": "Codex Image Sep 1, 2026, 05_50_06 AM.png",
+      "mimeType": "image/jpeg",
+      "durationSeconds": null,
+      "role": "subject_identity",
+      "subjectIdentity": {
+        "subjectId": "subject-1",
+        "focus": "general",
+        "view": "unspecified",
+        "layout": "reference_sheet"
+      },
+      "image": {
+        "data_url": "data:image/jpeg,fixture-placeholder",
+        "width": 1600,
+        "height": 900
+      }
+    }
+  ],
+  "subjects": [
+    {
+      "id": "subject-1",
+      "number": 1
+    }
+  ],
+  "nextSubjectNumber": 2,
+  "creativeControls": {
+    "music": {
+      "mode": "off",
+      "description": ""
+    },
+    "camera": {
+      "zoom": "auto",
+      "pushPull": "auto",
+      "pan": "auto",
+      "truck": "auto",
+      "tilt": "auto",
+      "pedestal": "auto",
+      "arc": "auto",
+      "tracking": "auto",
+      "static": "auto",
+      "shake": "auto",
+      "pov": "auto",
+      "roll": "auto"
+    },
+    "visualStyle": {
+      "preset": "auto",
+      "custom": ""
+    },
+    "subjectIdentityFidelity": {
+      "level": "strict"
+    },
+    "tonePerformance": {
+      "sensuality": "auto",
+      "drama": "auto",
+      "horror": "auto",
+      "tension": "auto",
+      "romance": "auto",
+      "whimsy": "auto",
+      "performanceStyle": "auto",
+      "performanceEnergy": "auto"
+    }
+  }
+}

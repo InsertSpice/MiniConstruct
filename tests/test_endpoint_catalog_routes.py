@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 
 from miniconstruct.api import routes
-from miniconstruct.models.api import LLMSettings
+from miniconstruct.h3.builder import numbered_assets
+from miniconstruct.models.api import LLMSettings, ReferenceManifestRequest
+from miniconstruct.models.workspace import Workspace
 
 
 def endpoint_settings() -> LLMSettings:
@@ -45,3 +47,27 @@ async def test_models_and_connection_share_safe_catalog_response(monkeypatch):
         {"endpointId": "unsloth-local", "modelId": "other/model", "displayName": "other/model — Unsloth"},
     ]
     assert "fake-secret" not in str(discovered)
+
+
+@pytest.mark.asyncio
+async def test_reference_manifest_returns_canonical_labels_for_identity_and_video():
+    request = ReferenceManifestRequest.model_validate({
+        "mode": "Ref2VA",
+        "subjects": [{"id": "subject-1", "number": 1}],
+        "assets": [
+            {
+                "id": "identity", "kind": "image", "filename": "alice.png",
+                "role": "subject_identity", "order": 0,
+                "subjectIdentity": {"subjectId": "subject-1", "focus": "face"},
+            },
+            {
+                "id": "motion", "kind": "video", "filename": "movement.mp4",
+                "role": "motion_action", "order": 1,
+            },
+        ],
+    })
+    response = await routes.reference_manifest(request)
+    projection = Workspace.model_construct(mode=request.mode, assets=request.assets, subjects=request.subjects)
+    expected = {asset.id: label for asset, label in numbered_assets(projection)}
+    assert {entry["id"]: entry["h3Label"] for entry in response["entries"]} == expected
+    assert response["entries"][0]["metadata"] == ["Subject 1", "Identity", "Facial"]

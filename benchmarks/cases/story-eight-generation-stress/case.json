@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "id": "story-eight-generation-stress",
+  "version": "1",
+  "title": "Eight generation stress",
+  "description": "A bicycle courier must deliver a medical package across a city during a severe storm. The route is blocked, the courier changes course, helps an injured pedestrian, loses time, finds an alternate crossing, reaches the clinic, hands over the package, and finally rests as the storm eases. Decompose this into eight distinct feasible Generations.",
+  "tags": [
+    "story",
+    "build"
+  ],
+  "operation": "build_story_plan",
+  "story": {
+    "sequenceContext": "",
+    "generations": [
+      {
+        "workspacePath": "workspace.json",
+        "incomingState": "",
+        "intendedOutgoingState": "",
+        "planning": {
+          "cameraIntent": "",
+          "relationshipToPrevious": null
+        }
+      }
+    ],
+    "build": {
+      "idea": "A bicycle courier must deliver a medical package across a city during a severe storm. The route is blocked, the courier changes course, helps an injured pedestrian, loses time, finds an alternate crossing, reaches the clinic, hands over the package, and finally rests as the storm eases. Decompose this into eight distinct feasible Generations.",
+      "desiredGenerationCount": 8
+    }
+  },
+  "expectations": {
+    "checks": [
+      {
+        "kind": "story_item_count_equals",
+        "value": 8
+      },
+      {
+        "kind": "story_existing_generation_count_equals",
+        "value": 1
+      },
+      {
+        "kind": "story_existing_generation_ids_preserved"
+      },
+      {
+        "kind": "story_new_items_have_no_existing_generation_id"
+      },
+      {
+        "kind": "story_first_relationship_null"
+      },
+      {
+        "kind": "story_relationship_valid"
+      },
+      {
+        "kind": "story_recommendation_pairs_valid"
+      },
+      {
+        "kind": "story_no_duplicate_recommendation_pairs"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "creativeRequest"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "incomingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "intendedOutgoingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "cameraIntent"
+      },
+      {
+        "kind": "story_sequence_context_not_empty"
+      }
+    ]
+  },
+  "humanReview": [
+    "Does narrative state remain coherent across all eight items?",
+    "Are beats distinct rather than repetitive?",
+    "Does it avoid collapsing several major events into one Generation?",
+    "Is there useful camera and shot variety?",
+    "Does continuity deteriorate toward the end?"
+  ]
+}

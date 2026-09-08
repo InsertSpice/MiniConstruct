@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from miniconstruct.api.routes import router
+from miniconstruct.api.execution_routes import router as execution_router
 from miniconstruct.h3.guide_acquisition import require_guides
 
 
@@ -24,12 +25,13 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="MiniConstruct",
     description="Local MiniMax H3 structured-prompt workbench",
-    version="0.3.0",
+    version="0.4.0",
     docs_url="/api/docs",
     redoc_url=None,
     lifespan=lifespan,
 )
 app.include_router(router)
+app.include_router(execution_router)
 app.mount("/static", StaticFiles(directory=WEB_ROOT), name="static")
 
 

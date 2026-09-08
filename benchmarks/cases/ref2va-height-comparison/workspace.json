@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "projectId": "591ca8cb-14d1-46ef-803b-296b1fee65a9",
+  "projectName": "HeightTest",
+  "mode": "Ref2VA",
+  "durationSeconds": 7,
+  "shots": null,
+  "aspectRatio": "auto",
+  "variations": 1,
+  "creativeRequest": "Subject 1 and Subject 2 are walking together through a quiet school courtyard. They begin side by side on the same ground plane, then stop and turn toward each other to have a brief serious conversation. Their relative height and body proportions should remain clearly consistent whenever they are standing near each other. The camera begins with a full-body two-shot showing both subjects clearly from head to toe, then slowly moves closer while keeping both visible. End with another full-body view of the two subjects standing next to each other.",
+  "dialogue": "",
+  "referenceLabels": "",
+  "assets": [
+    {
+      "notes": "",
+      "options": {},
+      "order": 0,
+      "attached": true,
+      "id": "a46fa829-2b96-43f3-8e70-9e1b08d0b824",
+      "kind": "image",
+      "filename": "Codex Image Sep 1, 2026, 05_50_06 AM.png",
+      "mimeType": "image/jpeg",
+      "durationSeconds": null,
+      "role": "subject_identity",
+      "subjectIdentity": {
+        "subjectId": "subject-1",
+        "focus": "general",
+        "view": "unspecified",
+        "layout": "reference_sheet"
+      },
+      "image": {
+        "data_url": "data:image/jpeg,fixture-placeholder",
+        "width": 1600,
+        "height": 900
+      }
+    },
+    {
+      "notes": "",
+      "options": {},
+      "order": 1,
+      "attached": true,
+      "id": "b9059e49-58b0-4d86-895e-17bc5c2f9552",
+      "kind": "image",
+      "filename": "Codex Image Sep 1, 2026, 05_50_19 AM.png",
+      "mimeType": "image/jpeg",
+      "durationSeconds": null,
+      "role": "subject_identity",
+      "subjectIdentity": {
+        "subjectId": "subject-2",
+        "focus": "general",
+        "view": "unspecified",
+        "layout": "reference_sheet"
+      },
+      "image": {
+        "data_url": "data:image/jpeg,fixture-placeholder",
+        "width": 1600,
+        "height": 900
+      }
+    },
+    {
+      "notes": "",
+      "options": {},
+      "order": 2,
+      "attached": true,
+      "id": "1293518a-f858-45e5-8e57-b075d83c7969",
+      "kind": "image",
+      "filename": "Codex Image Sep 1, 2026, 05_50_27 AM.png",
+      "mimeType": "image/jpeg",
+      "durationSeconds": null,
+      "role": "character_comparison_scale",
+      "subjectIdentity": {
+        "subjectId": "subject-1",
+        "focus": "general",
+        "view": "unspecified",
+        "layout": "auto"
+      },
+      "comparisonSubjects": ["subject-1", "subject-2"],
+      "image": {
+        "data_url": "data:image/jpeg,fixture-placeholder",
+        "width": 1600,
+        "height": 900
+      }
+    }
+  ],
+  "subjects": [
+    {
+      "id": "subject-1",
+      "number": 1
+    },
+    {
+      "id": "subject-2",
+      "number": 2
+    }
+  ],
+  "nextSubjectNumber": 3,
+  "creativeControls": {
+    "music": {
+      "mode": "off",
+      "description": ""
+    },
+    "camera": {
+      "zoom": "auto",
+      "pushPull": "auto",
+      "pan": "auto",
+      "truck": "auto",
+      "tilt": "auto",
+      "pedestal": "auto",
+      "arc": "auto",
+      "tracking": "auto",
+      "static": "auto",
+      "shake": "auto",
+      "pov": "auto",
+      "roll": "auto"
+    },
+    "visualStyle": {
+      "preset": "auto",
+      "custom": ""
+    },
+    "subjectIdentityFidelity": {
+      "level": "strict"
+    },
+    "tonePerformance": {
+      "sensuality": "auto",
+      "drama": "auto",
+      "horror": "auto",
+      "tension": "auto",
+      "romance": "auto",
+      "whimsy": "auto",
+      "performanceStyle": "auto",
+      "performanceEnergy": "auto"
+    }
+  }
+}

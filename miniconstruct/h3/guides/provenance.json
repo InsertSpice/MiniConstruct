@@ -24,4 +24,3 @@
   ],
   "policy": "Public-release packaging does not redistribute these read-only upstream files. sha256 values are for the canonical raw upstream bytes (LF), not platform-normalized working-tree text. Acquire them from sourceUrl or install them manually at local. MiniConstruct additions live under h3/operating."
 }
-

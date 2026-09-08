@@ -42,9 +42,9 @@ def validate_replacement(selection: RevisionSelection, replacement: str) -> str 
 
 
 def assemble_revision_prompt(request: RevisionRequest) -> AssembledPrompt:
-    base = assemble_prompt(request.workspace, request.llm.supports_vision)
+    base = assemble_prompt(request.prompt_workspace, request.llm.supports_vision)
     layers = [
-        layer for layer in instruction_layers(request.workspace, request.llm.supports_vision)
+        layer for layer in instruction_layers(request.prompt_workspace, request.llm.supports_vision)
         if layer[0] != "Generation policy"
     ]
     layers.append(("Selective revision policy", REVISION_POLICY))

@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "id": "story-reference-sheet-continuity",
+  "version": "1",
+  "title": "Reference sheet continuity",
+  "description": "After school, the protagonist realizes she left an important notebook in an empty classroom, hurries back through the school, finds it just before a storm arrives, and leaves relieved.",
+  "tags": [
+    "story",
+    "build"
+  ],
+  "operation": "build_story_plan",
+  "story": {
+    "sequenceContext": "The same protagonist and outfit are maintained throughout the sequence.",
+    "generations": [
+      {
+        "workspacePath": "workspace.json",
+        "incomingState": "",
+        "intendedOutgoingState": "",
+        "planning": {
+          "cameraIntent": "",
+          "relationshipToPrevious": null
+        },
+        "fixtureAssets": [
+          {
+            "assetId": "protagonist-sheet",
+            "path": "assets/Anime_Girl_ReferenceSheet.png",
+            "source": "external"
+          }
+        ]
+      }
+    ],
+    "build": {
+      "idea": "After school, the protagonist realizes she left an important notebook in an empty classroom, hurries back through the school, finds it just before a storm arrives, and leaves relieved.",
+      "desiredGenerationCount": 4
+    }
+  },
+  "expectations": {
+    "checks": [
+      {
+        "kind": "story_item_count_equals",
+        "value": 4
+      },
+      {
+        "kind": "story_existing_generation_count_equals",
+        "value": 1
+      },
+      {
+        "kind": "story_existing_generation_ids_preserved"
+      },
+      {
+        "kind": "story_new_items_have_no_existing_generation_id"
+      },
+      {
+        "kind": "story_first_relationship_null"
+      },
+      {
+        "kind": "story_relationship_valid"
+      },
+      {
+        "kind": "story_recommendation_pairs_valid"
+      },
+      {
+        "kind": "story_no_duplicate_recommendation_pairs"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "creativeRequest"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "incomingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "intendedOutgoingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "cameraIntent"
+      },
+      {
+        "kind": "story_sequence_context_equals",
+        "value": "The same protagonist and outfit are maintained throughout the sequence."
+      },
+      {
+        "kind": "image_input_count_equals",
+        "value": 1
+      }
+    ]
+  },
+  "humanReview": [
+    "Does the planner understand the sheet as one protagonist rather than several characters?",
+    "Does it preserve established appearance and wardrobe across planned shots?",
+    "Does it use the sheet as identity evidence rather than an exact first-frame or expression anchor?",
+    "Are close-up and wide-shot plans compatible with the sheet?",
+    "Does it avoid contradicting obvious visible identity traits?"
+  ],
+  "requirements": {
+    "vision": true
+  }
+}

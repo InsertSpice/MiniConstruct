@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "ref2va-continuation-state",
+  "version": "1",
+  "title": "Ref2VA continuation end-state authority",
+  "description": "A native metadata-only continuation-source fixture that distinguishes previous-video end state from identity-picture provenance.",
+  "tags": ["baseline", "Ref2VA", "vision", "continuation", "video-reference", "state-continuity", "identity", "reference-precedence"],
+  "requirements": {"vision": true},
+  "expectations": {},
+  "humanReview": [
+    "Does the prompt continue from Video 1's end state rather than reset to the identity picture's pose?",
+    "Are the established orientation, right-hand placement, hallway, and outgoing camera state preserved at the continuation boundary?",
+    "Is Picture 1 used as identity evidence rather than starting-frame authority?",
+    "Does Subject 1 remain recognizable while acting from the previous-video state?",
+    "Does the video reference retain state authority distinct from the identity reference?"
+  ],
+  "fixtureAssets": [{"assetId": "a46fa829-2b96-43f3-8e70-9e1b08d0b824", "path": "assets/subject-1-reference-sheet.jpg"}]
+}

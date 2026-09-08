@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Planner source disambiguation",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "Alice speaks toward the train while the camera moves around her.",
+  "assets": [{"id": "shared-reference", "kind": "video", "filename": "current-camera.mp4", "mimeType": "video/mp4", "role": "camera_movement", "notes": "Current-generation camera metadata"}]
+}

@@ -181,9 +181,27 @@ def _mask_literal_text(text: str) -> str:
     return re.sub(r'"(?:\\.|[^"\\])*"', lambda match: " " * len(match.group()), masked)
 
 
+def _mask_fl_alignment_labels(text: str) -> str:
+    """Protect only the bare Picture tokens required by the existing FL2VA rule."""
+    first = re.match(
+        r"\AHow the reference pictures align with the target video — (Picture 1) "
+        r"\(from Shot 1\) aligns with the 0\.00-second mark", text,
+    )
+    if first is None:
+        return text
+    line_end = text.find("\n")
+    line_end = len(text) if line_end < 0 else line_end
+    last = re.search(r"(Picture 2) \(from Shot \d+\) aligns with the \d+\.\d{2}-second mark", text[:line_end])
+    for match in (first, last):
+        if match is not None:
+            start, end = match.span(1)
+            text = text[:start] + " " * (end - start) + text[end:]
+    return text
+
+
 def canonicalize_bare_reference_labels(text: str) -> str:
     """Bracket bare labels while preserving dialogue and quoted literal text."""
-    protected = _mask_literal_text(text)
+    protected = _mask_fl_alignment_labels(_mask_literal_text(text))
     parts: list[str] = []
     cursor = 0
     for match in BARE_LABEL_RE.finditer(protected):
@@ -250,10 +268,13 @@ def validate_prompt(
     text = prompt.strip()
     if not text:
         return ValidationResult(valid=False, findings=[_finding("ERROR", "empty", "The generated prompt is empty.")])
-    if text.startswith("```") or text.endswith("```"):
+    if "```" in text:
         findings.append(_finding("ERROR", "markdown_fence", "Remove Markdown fences from the H3 prompt."))
 
-    for kind, number in BARE_LABEL_RE.findall(_mask_literal_text(text)):
+    label_text = _mask_literal_text(text)
+    if mode == H3Mode.FL2VA:
+        label_text = _mask_fl_alignment_labels(label_text)
+    for kind, number in BARE_LABEL_RE.findall(label_text):
         token = f"{kind} {number}"
         findings.append(_finding(
             "ERROR", "bare_reference_label",
@@ -261,6 +282,11 @@ def validate_prompt(
         ))
 
     expected = REF_FIELDS if mode == H3Mode.REF2VA else BASE_FIELDS
+    if mode in {H3Mode.T2VA, H3Mode.REF2VA} and not text.startswith(f"{expected[0]}:"):
+        findings.append(_finding(
+            "ERROR", "extraneous_preamble",
+            f"The H3 prompt must begin directly with {expected[0]}: without commentary or a heading.",
+        ))
     observed = [match.group("name") for match in FIELD_RE.finditer(text)]
     known_observed = [field for field in observed if field in set(BASE_FIELDS + REF_FIELDS)]
     for field in expected:

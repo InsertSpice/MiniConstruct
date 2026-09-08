@@ -9,3 +9,9 @@ export function resolveProjectSave({ currentProjectId, currentProjectSavedName, 
   );
   return { create, collision };
 }
+
+export function resolveProjectSaveRoute({ activeProjectType, currentProjectId, create, asNew = false }) {
+  if (activeProjectType === "filesystem" && currentProjectId && (create || asNew)) return "fork";
+  if (activeProjectType === "filesystem" && currentProjectId) return "save";
+  return "create";
+}

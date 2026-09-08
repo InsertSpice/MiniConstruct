@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "core",
+  "title": "Real behavioral benchmark baseline",
+  "cases": [
+    "ref2va-height-comparison",
+    "ref2va-reference-sheet-identity",
+    "ref2va-offscreen-retention",
+    "ref2va-transient-expression-identity",
+    "ref2va-wardrobe-authority",
+    "t2va-laterality-baseline",
+    "ref2va-creative-inference-baseline",
+    "ref2va-continuation-state",
+    "ref2va-camera-multishot-controls"
+  ]
+}

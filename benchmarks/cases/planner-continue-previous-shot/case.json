@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "planner-continue-previous-shot",
+  "version": "1",
+  "title": "Planner continues the previous shot",
+  "description": "An ongoing action keeps its temporal and camera continuity.",
+  "tags": ["planner", "infer", "relationship"],
+  "operation": "infer_plan",
+  "planner": {
+    "operation": "infer_plan",
+    "sequenceContext": "The runner remains on the same forest path.",
+    "previousGeneration": {"workspacePath": "previous-workspace.json", "incomingState": "The runner is already moving downhill.", "intendedOutgoingState": "The runner is mid-stride beside the fallen log.", "planning": {"relationshipToPrevious": "continue_previous_shot", "cameraIntent": "Side-on tracking shot."}},
+    "currentGeneration": {"incomingState": "", "intendedOutgoingState": "", "planning": {"relationshipToPrevious": "continue_previous_shot", "cameraIntent": ""}}
+  },
+  "expectations": {"checks": [
+    {"kind": "relationship_equals", "value": "continue_previous_shot"},
+    {"kind": "field_not_empty", "field": "incomingState"},
+    {"kind": "field_not_empty", "field": "cameraIntent"}
+  ]},
+  "humanReview": ["Does the response favor temporal, action, and camera continuation?", "Does it avoid unnecessarily staging an unrelated new scene?"]
+}

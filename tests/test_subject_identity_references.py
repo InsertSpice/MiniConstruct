@@ -344,6 +344,38 @@ def test_multiple_identity_pictures_compile_as_one_subject_and_comparison_is_not
     assert restored.assets[3].comparison_subject_ids == ["subject-1", "subject-2"]
 
 
+def test_comparison_scale_numeric_measurement_authority_is_explicit(workspace_factory, image_asset_factory):
+    comparison = image_asset_factory("compare", role="character_comparison_scale")
+    comparison.comparison_subject_ids = ["subject-1", "subject-2"]
+    comparison.notes = "Subject 1 is 163 cm tall and Subject 2 is 148 cm tall."
+    workspace = workspace_factory(
+        mode="Ref2VA",
+        assets=[comparison],
+        subjects=[{"id": "subject-1", "number": 1}, {"id": "subject-2", "number": 2}],
+        creativeRequest="Subject 1 is 163 cm tall and Subject 2 is 148 cm tall.",
+        referenceLabels="The explicit relationship is Subject 1 is 15 cm taller than Subject 2.",
+    )
+
+    text = assemble_prompt(workspace, True).inspector_text
+
+    assert "relative height, body-size contrast, and broad body-proportion relationship" in text
+    assert "not authority for exact heights, exact height differences" in text
+    assert "centimetres/inches" in text
+    assert "numeric ratios or percentages" in text
+    assert "inferred physical dimensions" in text
+    assert "OCR-read measurement labels" in text
+    assert "visually estimated measurements" in text
+    assert "Text or numbers printed inside the image remain image-derived, even when readable by OCR or vision" in text
+    assert "they are not user-authored textual input" in text
+    assert "The REQUIRED <Picture 1> relationship statement in subject_definitions must remain qualitative" in text
+    assert "the exact numeric measurement is explicitly present in an actual user-authored textual workspace field" in text
+    assert "the Creative Request, this reference's Notes, or Reference Labels / explicit relationship text" in text
+    assert "If an exact number exists only in image pixels, printed labels, OCR, or visual inference, omit it" in text
+    assert "163 cm" in text
+    assert "148 cm" in text
+    assert "15 cm" in text
+
+
 def test_auto_and_single_view_metadata_remain_distinct(workspace_factory, image_asset_factory):
     auto = image_asset_factory("auto")
     auto.subject_identity.view = SubjectIdentityView.PROFILE

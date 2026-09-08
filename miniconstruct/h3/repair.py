@@ -15,7 +15,7 @@ from miniconstruct.models.api import RepairRequest, ValidationFinding
 REPAIR_POLICY = """You are performing one narrow MiniMax H3 format-repair pass.
 Repair only the listed structural or syntactic H3 failures in the supplied current output.
 Preserve the current prompt's creative and semantic content as strictly as possible: do not add, remove, merge, split, or renumber shots merely to match the workspace shot-count setting; do not rewrite the creative request; do not alter stable Subject identity sets, reference-sheet meaning, Character Comparison / Scale relationships, reference roles, exact dialogue, music, or unrelated valid sections.
-Workspace settings, including Creative Controls, and reference material remain context for correct H3 syntax, but they are not authority to reconcile an intentionally edited output.
+Workspace settings, including Creative Interpretation and Creative Controls, and reference material remain context for correct H3 syntax, but they are not authority to reconcile an intentionally edited output.
 Make the minimum textual changes required for the listed structural failures. Return only the repaired full H3 prompt as plain text, with no Markdown fences or commentary."""
 
 
@@ -23,9 +23,9 @@ def assemble_repair_prompt(
     request: RepairRequest,
     findings: list[ValidationFinding],
 ) -> AssembledPrompt:
-    base = assemble_prompt(request.workspace, request.llm.supports_vision)
+    base = assemble_prompt(request.prompt_workspace, request.llm.supports_vision)
     layers = [
-        layer for layer in instruction_layers(request.workspace, request.llm.supports_vision)
+        layer for layer in instruction_layers(request.prompt_workspace, request.llm.supports_vision)
         if layer[0] != "Generation policy"
     ]
     layers.append(("Format repair policy", REPAIR_POLICY))

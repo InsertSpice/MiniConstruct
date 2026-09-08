@@ -7,6 +7,8 @@ build/
 *.egg-info/
 .upstream-minimax-h3/
 .env
+/benchmarks/models.local.json
+/benchmarks/runs/
 /miniconstruct/h3/guides/SKILL.md
 /miniconstruct/h3/guides/base-en.txt
 /miniconstruct/h3/guides/ref-en.txt

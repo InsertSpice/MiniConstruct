@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "id": "story-station-multi-source-continuity",
+  "version": "1",
+  "title": "Station multi source continuity",
+  "description": "Alice is at the same rainy station. Continue the story from waiting for the train toward boarding and departure.",
+  "tags": [
+    "story",
+    "build"
+  ],
+  "operation": "build_story_plan",
+  "story": {
+    "sequenceContext": "Alice remains at the same rainy station until she boards the train.",
+    "generations": [
+      {
+        "workspacePath": "workspace.json",
+        "incomingState": "",
+        "intendedOutgoingState": "",
+        "planning": {
+          "cameraIntent": "",
+          "relationshipToPrevious": null
+        },
+        "fixtureAssets": [
+          {
+            "assetId": "alice-identity",
+            "path": "assets/alice_station_identity.png",
+            "source": "external"
+          }
+        ]
+      },
+      {
+        "workspacePath": "generation-2-workspace.json",
+        "incomingState": "",
+        "intendedOutgoingState": "",
+        "planning": {
+          "cameraIntent": "",
+          "relationshipToPrevious": null
+        },
+        "fixtureAssets": [
+          {
+            "assetId": "station-environment",
+            "path": "assets/station_environment.png",
+            "source": "external"
+          }
+        ]
+      }
+    ],
+    "build": {
+      "idea": "Alice is at the same rainy station. Continue the story from waiting for the train toward boarding and departure.",
+      "desiredGenerationCount": 4
+    }
+  },
+  "expectations": {
+    "checks": [
+      {
+        "kind": "story_item_count_equals",
+        "value": 4
+      },
+      {
+        "kind": "story_existing_generation_count_equals",
+        "value": 2
+      },
+      {
+        "kind": "story_existing_generation_ids_preserved"
+      },
+      {
+        "kind": "story_new_items_have_no_existing_generation_id"
+      },
+      {
+        "kind": "story_first_relationship_null"
+      },
+      {
+        "kind": "story_relationship_valid"
+      },
+      {
+        "kind": "story_recommendation_pairs_valid"
+      },
+      {
+        "kind": "story_no_duplicate_recommendation_pairs"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "creativeRequest"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "incomingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "intendedOutgoingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "cameraIntent"
+      },
+      {
+        "kind": "story_sequence_context_equals",
+        "value": "Alice remains at the same rainy station until she boards the train."
+      },
+      {
+        "kind": "story_field_equals",
+        "item": 1,
+        "field": "creativeRequest",
+        "value": "Alice waits for her train."
+      },
+      {
+        "kind": "story_field_equals",
+        "item": 2,
+        "field": "creativeRequest",
+        "value": "The train arrives at the platform."
+      },
+      {
+        "kind": "image_input_count_equals",
+        "value": 2
+      }
+    ]
+  },
+  "humanReview": [
+    "Do Alice's identity and wardrobe remain visually consistent?",
+    "Does the rainy station environment remain consistent?",
+    "Does the planner distinguish subject identity from environment evidence?",
+    "Are recommendations associated with the correct source Generation?",
+    "Does it avoid treating the environment image as an exact frame anchor without narrative justification?"
+  ],
+  "requirements": {
+    "vision": true
+  }
+}

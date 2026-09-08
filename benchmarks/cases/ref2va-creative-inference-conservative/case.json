@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "ref2va-creative-inference-conservative",
+  "version": "1",
+  "title": "Ref2VA creative inference — Conservative",
+  "description": "Controlled Conservative interpretation case derived from the frozen Ref2VA creative inference baseline.",
+  "tags": ["behavioral", "Ref2VA", "vision", "single-subject", "reference-sheet", "creative-inference", "conservative"],
+  "requirements": {"vision": true},
+  "expectations": {},
+  "humanReview": [
+    "Does the prompt stay close to the supplied waiting and impatience premise?",
+    "Does it use enough natural connective body language to avoid stiffness?",
+    "Does it minimize unsupported props, actions, and environmental events?",
+    "Does it avoid invented dialogue and new characters?",
+    "Are Subject 1's identity, wardrobe, and reference semantics preserved?"
+  ],
+  "fixtureAssets": [{"assetId": "b9059e49-58b0-4d86-895e-17bc5c2f9552", "path": "assets/subject-1-reference-sheet.jpg"}]
+}

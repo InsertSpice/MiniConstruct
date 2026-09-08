@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "planner-manual-authority",
+  "version": "1",
+  "title": "Planner manual authority and fill-missing behavior",
+  "description": "Explicit current prompt and relationship remain authoritative while missing state and camera fields are proposed.",
+  "tags": ["planner", "infer", "authority"],
+  "operation": "infer_plan",
+  "planner": {
+    "operation": "infer_plan",
+    "sequenceContext": "Alice remains at the rainy station throughout the sequence.",
+    "previousGeneration": {
+      "workspacePath": "previous-workspace.json",
+      "incomingState": "Alice waits on the platform before the train arrives.",
+      "intendedOutgoingState": "The train has arrived beside Alice at the platform.",
+      "planning": {"relationshipToPrevious": "continue_previous_shot", "cameraIntent": "Wide platform view."}
+    },
+    "currentGeneration": {
+      "incomingState": "",
+      "intendedOutgoingState": "",
+      "planning": {"relationshipToPrevious": "new_shot_preserve_continuity", "cameraIntent": ""}
+    }
+  },
+  "expectations": {"checks": [
+    {"kind": "field_equals", "field": "creativeRequest", "value": "Alice begins walking toward the train doors while remaining on the platform."},
+    {"kind": "relationship_equals", "value": "new_shot_preserve_continuity"},
+    {"kind": "field_not_empty", "field": "incomingState"},
+    {"kind": "field_not_empty", "field": "intendedOutgoingState"},
+    {"kind": "field_not_empty", "field": "cameraIntent"}
+  ]},
+  "humanReview": [
+    "Do inferred states logically follow the previous Generation?",
+    "Does the plan avoid contradicting the explicit Main Prompt?",
+    "Does the camera establish an appropriate new shot?"
+  ]
+}

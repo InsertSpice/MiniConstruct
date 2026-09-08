@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
 from miniconstruct.llm.client import LLMBackendError, OpenAICompatibleClient
+from miniconstruct.llm.compatibility import DIRECT_OUTPUT_INSTRUCTION
 from miniconstruct.models.api import LLMSettings
 
 
@@ -15,13 +18,34 @@ def config(**overrides):
 
 @pytest.mark.asyncio
 async def test_model_discovery_and_generation():
+    observed = {}
+
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/models"):
             return httpx.Response(200, json={"data": [{"id": "z"}, {"id": "a"}]})
+        observed.update(json.loads(request.content))
         return httpx.Response(200, json={"choices": [{"message": {"content": "clean prompt"}}]})
     async with OpenAICompatibleClient(config(), httpx.MockTransport(handler)) as client:
         assert await client.list_models() == ["a", "z"]
-        assert await client.generate([{"role": "user", "content": "go"}]) == "clean prompt"
+        assert await client.generate([{"role": "system", "content": "H3 rules"}, {"role": "user", "content": "go"}]) == "clean prompt"
+    assert DIRECT_OUTPUT_INSTRUCTION in observed["messages"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_structured_call_can_suppress_h3_response_instruction():
+    observed = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    async with OpenAICompatibleClient(config(), httpx.MockTransport(handler)) as client:
+        await client.generate(
+            [{"role": "system", "content": "Return exactly one JSON object."}],
+            response_instruction=None,
+        )
+    assert "Return exactly one JSON object." in observed["messages"][0]["content"]
+    assert DIRECT_OUTPUT_INSTRUCTION not in observed["messages"][0]["content"]
 
 
 @pytest.mark.asyncio

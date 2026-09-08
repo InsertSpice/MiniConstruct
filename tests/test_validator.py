@@ -18,6 +18,34 @@ def test_valid_base_output():
     assert result.valid
 
 
+def test_fl2va_required_alignment_does_not_conflict_with_bare_label_rule(image_asset_factory):
+    header = "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark; Picture 2 (from Shot 2) aligns with the 8.00-second mark."
+    assets = [image_asset_factory("first", role="first_frame_anchor"), image_asset_factory("last", role="last_frame_anchor")]
+    prompt = header + "\n\n" + VALID_BASE
+    assert validate_prompt(prompt, H3Mode.FL2VA, 8, assets).valid
+    assert canonicalize_bare_reference_labels(prompt) == prompt
+    invalid = prompt.replace("a cyclist waits", "Picture 1 shows a cyclist who waits")
+    assert any(f.code == "bare_reference_label" for f in validate_prompt(invalid, H3Mode.FL2VA, 8, assets).findings)
+    assert canonicalize_bare_reference_labels(invalid).startswith(header)
+    for changed in (prompt.replace("8.00-second", "9.00-second"), prompt.replace("Picture 2 (from Shot 2)", "Picture 2 (from Shot 3)")):
+        assert not validate_prompt(changed, H3Mode.FL2VA, 8, assets).valid
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    (
+        "Here is the finished prompt:\n" + VALID_BASE,
+        "Preface\n```text\n" + VALID_BASE + "\n```\nHope this helps.",
+    ),
+)
+def test_outer_chatter_and_embedded_fences_are_rejected(prompt):
+    result = validate_prompt(prompt, H3Mode.T2VA, 8)
+    assert not result.valid
+    assert any(item.code == "extraneous_preamble" for item in result.findings)
+    if "```" in prompt:
+        assert any(item.code == "markdown_fence" for item in result.findings)
+
+
 def test_missing_base_section():
     result = validate_prompt(VALID_BASE.replace("overall_soundscape:", "sound:"), H3Mode.T2VA, 8)
     assert not result.valid
@@ -70,6 +98,12 @@ N/A"""
 def test_valid_ref2va_output(image_asset_factory):
     result = validate_prompt(valid_ref_prompt(), H3Mode.REF2VA, 6, [image_asset_factory()], "Subject 1: Ready?")
     assert result.valid
+
+
+def test_ref2va_preamble_is_rejected_even_when_the_six_sections_are_valid(image_asset_factory):
+    result = validate_prompt("Generated prompt:\n" + valid_ref_prompt(), H3Mode.REF2VA, 6, [image_asset_factory()])
+    assert not result.valid
+    assert any(item.code == "extraneous_preamble" for item in result.findings)
 
 
 def test_dangling_reference_label(image_asset_factory):

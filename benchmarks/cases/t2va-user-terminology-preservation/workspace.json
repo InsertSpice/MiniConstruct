@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "projectName": "User Authority Preservation Baseline",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "In a quiet municipal archive, an adult woman works as a field archivist. She sorts weathered maps into labeled folders, checks one map under a desk lamp, and closes the folder. There is no spoken dialogue."
+}

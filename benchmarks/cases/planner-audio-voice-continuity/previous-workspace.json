@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Planner voice predecessor",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "Alice waits at a rainy station while a train arrives.",
+  "assets": [{"id": "audio-alice-voice", "kind": "audio", "filename": "alice-voice.wav", "mimeType": "audio/wav", "role": "voice_timbre", "notes": "Alice's established voice; keep consistent", "attached": true}]
+}

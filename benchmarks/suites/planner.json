@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "planner",
+  "title": "E4 planner behavioral benchmark suite",
+  "cases": [
+    "planner-manual-authority",
+    "planner-continue-previous-shot",
+    "planner-new-shot-preserve-continuity",
+    "planner-match-ending-frame",
+    "planner-independent-scene",
+    "planner-audio-voice-continuity",
+    "planner-unanalysed-media-honesty",
+    "planner-picture-identity-continuity",
+    "planner-picture-environment-continuity",
+    "planner-revision-camera-only",
+    "planner-revision-action-and-outgoing",
+    "planner-reference-source-disambiguation"
+  ]
+}

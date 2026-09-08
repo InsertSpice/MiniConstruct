@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "story-stress",
+  "title": "Story Planner structured output stress (opt-in)",
+  "cases": [
+    "story-eight-generation-stress"
+  ]
+}

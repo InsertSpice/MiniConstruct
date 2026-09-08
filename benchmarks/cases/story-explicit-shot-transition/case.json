@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "id": "story-explicit-shot-transition",
+  "version": "1",
+  "title": "Explicit shot transition",
+  "description": "Plan three Generations. In Generation 1 a courier approaches a delivery door at night. Generation 2 continues the same uninterrupted action and camera shot as the courier places the parcel down; there is no cut. Generation 3 begins after a deliberate cut and time jump to the next morning, when the recipient discovers the parcel. This new morning setup is not expected to match the previous ending frame.",
+  "tags": [
+    "story",
+    "build"
+  ],
+  "operation": "build_story_plan",
+  "story": {
+    "sequenceContext": "",
+    "generations": [
+      {
+        "workspacePath": "workspace.json",
+        "incomingState": "",
+        "intendedOutgoingState": "",
+        "planning": {
+          "cameraIntent": "",
+          "relationshipToPrevious": null
+        }
+      }
+    ],
+    "build": {
+      "idea": "Plan three Generations. In Generation 1 a courier approaches a delivery door at night. Generation 2 continues the same uninterrupted action and camera shot as the courier places the parcel down; there is no cut. Generation 3 begins after a deliberate cut and time jump to the next morning, when the recipient discovers the parcel. This new morning setup is not expected to match the previous ending frame.",
+      "desiredGenerationCount": 3
+    }
+  },
+  "expectations": {
+    "checks": [
+      {
+        "kind": "story_item_count_equals",
+        "value": 3
+      },
+      {
+        "kind": "story_existing_generation_count_equals",
+        "value": 1
+      },
+      {
+        "kind": "story_existing_generation_ids_preserved"
+      },
+      {
+        "kind": "story_new_items_have_no_existing_generation_id"
+      },
+      {
+        "kind": "story_first_relationship_null"
+      },
+      {
+        "kind": "story_relationship_valid"
+      },
+      {
+        "kind": "story_recommendation_pairs_valid"
+      },
+      {
+        "kind": "story_no_duplicate_recommendation_pairs"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "creativeRequest"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "incomingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "intendedOutgoingState"
+      },
+      {
+        "kind": "story_field_not_empty",
+        "field": "cameraIntent"
+      },
+      {
+        "kind": "story_sequence_context_not_empty"
+      },
+      {
+        "kind": "story_relationship_equals",
+        "item": 2,
+        "value": "continue_previous_shot"
+      },
+      {
+        "kind": "story_relationship_not_equals",
+        "item": 3,
+        "value": "match_previous_ending_frame"
+      }
+    ]
+  },
+  "humanReview": [
+    "Did the planner distinguish uninterrupted action/camera continuity from the later deliberate cut?",
+    "Did it avoid forcing previous-frame composition across the time jump?",
+    "Is independent versus new_shot_preserve_continuity sensible for the morning aftermath?"
+  ]
+}

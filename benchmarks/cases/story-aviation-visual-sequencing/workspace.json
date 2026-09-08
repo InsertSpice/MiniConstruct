@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Aviation visual sequencing",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "",
+  "assets": [
+    {
+      "id": "aviation-reference-1",
+      "kind": "image",
+      "filename": "glider1.png",
+      "mimeType": "image/png",
+      "role": "general_visual",
+      "notes": "Fictional aviation sequence visual reference 1.",
+      "order": 0
+    },
+    {
+      "id": "aviation-reference-2",
+      "kind": "image",
+      "filename": "glider2.png",
+      "mimeType": "image/png",
+      "role": "general_visual",
+      "notes": "Fictional aviation sequence visual reference 2.",
+      "order": 1
+    },
+    {
+      "id": "aviation-reference-3",
+      "kind": "image",
+      "filename": "glider3.png",
+      "mimeType": "image/png",
+      "role": "general_visual",
+      "notes": "Fictional aviation sequence visual reference 3.",
+      "order": 2
+    },
+    {
+      "id": "aviation-reference-4",
+      "kind": "image",
+      "filename": "glider4.png",
+      "mimeType": "image/png",
+      "role": "general_visual",
+      "notes": "Fictional aviation sequence visual reference 4.",
+      "order": 3
+    },
+    {
+      "id": "aviation-reference-5",
+      "kind": "image",
+      "filename": "glider5.png",
+      "mimeType": "image/png",
+      "role": "general_visual",
+      "notes": "Fictional aviation sequence visual reference 5.",
+      "order": 4
+    },
+    {
+      "id": "aviation-reference-6",
+      "kind": "image",
+      "filename": "glider6.png",
+      "mimeType": "image/png",
+      "role": "general_visual",
+      "notes": "Fictional aviation sequence visual reference 6.",
+      "order": 5
+    }
+  ]
+}

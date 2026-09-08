@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Camera Multi-Shot Controls Baseline",
+  "mode": "Ref2VA",
+  "durationSeconds": 8,
+  "shots": 3,
+  "aspectRatio": "auto",
+  "variations": 1,
+  "creativeRequest": "Subject 1 crosses a quiet rooftop at sunset. In the first shot, show a wide full-body view as she begins walking. In the second shot, move closer while following alongside her as she continues forward. In the final shot, arc around her as she stops near the railing and turns toward the camera. Keep Subject 1 visible and recognizable throughout.",
+  "dialogue": "",
+  "referenceLabels": "",
+  "assets": [{
+    "id": "b9059e49-58b0-4d86-895e-17bc5c2f9552", "kind": "image", "filename": "Codex Image Sep 1, 2026, 05_50_19 AM.png", "mimeType": "image/jpeg", "durationSeconds": null,
+    "role": "subject_identity", "notes": "", "options": {}, "subjectIdentity": {"subjectId": "subject-1", "focus": "general", "view": "unspecified", "layout": "reference_sheet"}, "order": 0, "attached": true,
+    "image": {"data_url": "data:image/jpeg,fixture-placeholder", "width": 1600, "height": 900}
+  }],
+  "subjects": [{"id": "subject-1", "number": 1}], "nextSubjectNumber": 2,
+  "creativeControls": {
+    "music": {"mode": "off", "description": ""},
+    "camera": {"zoom": "auto", "pushPull": "auto", "pan": "auto", "truck": "auto", "tilt": "auto", "pedestal": "auto", "arc": "prefer", "tracking": "prefer", "static": "avoid", "shake": "auto", "pov": "auto", "roll": "auto"},
+    "visualStyle": {"preset": "auto", "custom": ""}, "subjectIdentityFidelity": {"level": "strict"},
+    "tonePerformance": {"sensuality": "auto", "drama": "auto", "horror": "auto", "tension": "auto", "romance": "auto", "whimsy": "auto", "performanceStyle": "auto", "performanceEnergy": "auto"}
+  }
+}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveProjectSave } from "../../web/js/project-save.js";
+import { resolveProjectSave, resolveProjectSaveRoute } from "../../web/js/project-save.js";
 
 const projects = [{ id: "a", name: "Classroom Test" }, { id: "other", name: "Existing Other Project" }];
 
@@ -23,4 +23,11 @@ test("new workspaces and Save As create records", () => {
 test("explicit Rename updates the loaded record while still rejecting another project's name", () => {
   assert.deepEqual(resolveProjectSave({ currentProjectId: "a", currentProjectSavedName: "Classroom Test", currentProjectName: "HeightTest", projects, renameInPlace: true }), { create: false, collision: false });
   assert.deepEqual(resolveProjectSave({ currentProjectId: "a", currentProjectSavedName: "Classroom Test", currentProjectName: "Existing Other Project", projects, renameInPlace: true }), { create: false, collision: true });
+});
+
+test("saved-project forks route through the complete Sequence clone", () => {
+  assert.equal(resolveProjectSaveRoute({ activeProjectType: "filesystem", currentProjectId: "a", create: true }), "fork");
+  assert.equal(resolveProjectSaveRoute({ activeProjectType: "filesystem", currentProjectId: "a", create: false, asNew: true }), "fork");
+  assert.equal(resolveProjectSaveRoute({ activeProjectType: "filesystem", currentProjectId: "a", create: false }), "save");
+  assert.equal(resolveProjectSaveRoute({ activeProjectType: "none", currentProjectId: null, create: true }), "create");
 });

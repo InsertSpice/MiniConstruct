@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Planner endpoint match",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "Alice begins boarding the stopped train through the open door in the rain."
+}

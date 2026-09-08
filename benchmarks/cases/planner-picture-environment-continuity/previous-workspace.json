@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Planner station environment predecessor",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "Alice waits on a rainy railway platform as the train stops.",
+  "assets": [{"id": "picture-station-environment", "kind": "image", "filename": "station_environment.png", "mimeType": "image/png", "role": "environment", "notes": "Established station environment reference."}]
+}

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Planner media predecessor",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "A performer stands under a soft light in a quiet studio.",
+  "assets": [
+    {"id": "video-minimal", "kind": "video", "filename": "reference.mp4", "mimeType": "video/mp4", "role": "continuation_source", "notes": "Minimal metadata only; bytes not analysed", "attached": false},
+    {"id": "audio-minimal", "kind": "audio", "filename": "reference.wav", "mimeType": "audio/wav", "role": "general_audio", "notes": "Minimal metadata only; bytes not analysed", "attached": false}
+  ]
+}

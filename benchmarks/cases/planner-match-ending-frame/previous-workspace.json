@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Rainy railway platform predecessor",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "Alice approaches the stopped train in the rain as its doors begin to open.",
+  "assets": [{"id": "picture-alice-endpoint", "kind": "image", "filename": "alice_station_endpoint.png", "mimeType": "image/png", "role": "last_frame_anchor", "notes": "Alice's previous-generation endpoint composition reference."}]
+}

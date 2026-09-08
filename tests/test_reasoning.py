@@ -40,6 +40,16 @@ def test_reasoning_modes_and_provider_isolation():
     )
     assert "chat_template_kwargs" not in unrelated
 
+    planner, _ = build_generation_payload(
+        config("off"),
+        [{"role": "system", "content": "Return exactly one JSON object."}],
+        stream=False,
+        response_instruction=None,
+    )
+    assert planner["chat_template_kwargs"] == {"thinking": False, "enable_thinking": False}
+    assert "Return exactly one JSON object." in planner["messages"][0]["content"]
+    assert DIRECT_OUTPUT_INSTRUCTION not in planner["messages"][0]["content"]
+
 
 @pytest.mark.asyncio
 async def test_reasoning_deltas_and_inline_tags_never_enter_final_content():

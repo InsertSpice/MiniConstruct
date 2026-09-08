@@ -6,6 +6,7 @@ import {
   normalizeSubjectRegistry, normalizedComparisonSubjects, subjectLabel,
   subjectIdentityHelperText, subjectIdentityNotesGuidance, subjectIdentityNotesPlaceholder,
 } from "../../web/js/subject-identity.js";
+import { groupInputMapEntries, inputMapEmptyMessage, inputMapLabelForAsset, inputMapRefreshStatus } from "../../web/js/input-map.js";
 
 test("subject identity defaults and normalization are safe and independent", () => {
   const first = defaultSubjectIdentity();
@@ -68,4 +69,32 @@ test("contextual Notes guidance prioritizes facial and view-specific facts", () 
   assert.match(subjectIdentityNotesGuidance({ focus: "face" }), /Optional factual emphasis.*cheek marks/i);
   assert.match(subjectIdentityNotesGuidance({ focus: "outfit" }), /gold buttons.*red bow shape.*pink shoes/i);
   assert.match(subjectIdentityNotesGuidance({ view: "profile" }), /pointed nose profile/i);
+});
+
+test("input map presentation groups backend labels without renumbering them", () => {
+  const groups = groupInputMapEntries([
+    { id: "audio", kind: "audio", h3Label: "Audio 4", filename: "voice.wav" },
+    { id: "image", kind: "image", h3Label: "Picture 7", filename: "sheet.png" },
+    { id: "video", kind: "video", h3Label: "Video 2", filename: "motion.mp4" },
+  ]);
+  assert.deepEqual(groups.map(group => group.label), ["Pictures", "Videos", "Audio"]);
+  assert.deepEqual(groups.map(group => group.entries[0].h3Label), ["Picture 7", "Video 2", "Audio 4"]);
+});
+
+test("input map messages distinguish pending, loaded-empty, no-assets, and failed states", () => {
+  assert.equal(inputMapEmptyMessage({ assetCount: 2, status: "pending" }), "Updating H3 input identifiers…");
+  assert.equal(inputMapEmptyMessage({ assetCount: 2, status: "loaded" }), "No H3 reference inputs are active for this mode.");
+  assert.equal(inputMapEmptyMessage({ assetCount: 0, status: "loaded" }), "Add reference assets to see their H3 input identifiers.");
+  assert.equal(inputMapEmptyMessage({ assetCount: 2, status: "failed" }), "Could not update H3 input identifiers.");
+});
+
+test("canonical labels are looked up by stable asset identity and absent entries clear", () => {
+  const entries = [{ id: "asset-a", h3Label: "Picture 2" }];
+  assert.equal(inputMapLabelForAsset(entries, "asset-a"), "Picture 2");
+  assert.equal(inputMapLabelForAsset(entries, "missing"), "");
+});
+
+test("loaded wiring stays loaded during background refresh", () => {
+  assert.equal(inputMapRefreshStatus(false), "pending");
+  assert.equal(inputMapRefreshStatus(true), "loaded");
 });

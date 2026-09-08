@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "ref2va-camera-multishot-controls",
+  "version": "1",
+  "title": "Ref2VA camera and multi-shot controls",
+  "description": "A three-shot Ref2VA fixture that records current interaction between explicit shot progression and active tracking, arc, and static-camera controls.",
+  "tags": ["baseline", "Ref2VA", "vision", "single-subject", "reference-sheet", "identity", "camera", "multi-shot", "tracking", "arc"],
+  "requirements": {"vision": true},
+  "expectations": {},
+  "humanReview": ["Is the fixed three-shot structure respected?", "Does the shot progression remain coherent from wide walk, to closer following view, to final arc at the railing?", "Do the workspace Camera controls influence prompt generation without overriding the requested action?", "Does tracking behavior appear where appropriate?", "Does an arc appear in the final shot?", "Is a fully static-camera preference avoided?", "Does Subject 1 remain visible and recognizable throughout?"],
+  "fixtureAssets": [{"assetId": "b9059e49-58b0-4d86-895e-17bc5c2f9552", "path": "assets/subject-1-reference-sheet.jpg"}]
+}

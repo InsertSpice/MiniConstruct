@@ -90,6 +90,23 @@ MiniConstruct replaces only that selected section instead of regenerating the en
 
 ## How it works
 
+### Execution orchestration
+
+ComfyUI integration is optional. Open **Execution / ComfyUI** to save machine-local
+self-hosted ComfyUI Connections and reusable API-format Workflow Profiles. Import a
+graph, choose compatible H3 modes, and map completed prompt, duration and logical
+Picture, Audio and Video reference inputs. For a saved Generation, **Prepare**
+builds the executable job offline from persisted executable Picture, Audio and
+Video references, and routes
+master-workflow reference capacity for that Generation. **Send to ComfyUI** is a
+separate, explicit action that uploads the prepared inputs and submits the job to
+the selected Connection. Test Connection remains a read-only reachability check.
+
+See [Execution orchestration](docs/execution-orchestration.md) for persistence,
+mapping rules, sending boundaries and API routes.
+
+### Prompt-writing flow
+
 MiniConstruct sits between you and a prompt-writing LLM:
 
 ```text
@@ -233,13 +250,11 @@ Guide acquisition does not happen silently during generation. If the required gu
 
 ### Windows
 
-From the repository directory in PowerShell:
+For first-time setup, double-click `setup-miniconstruct.bat` (or run it from any directory). It creates or reuses the repository-local `.venv`, installs MiniConstruct, and acquires the pinned official MiniMax H3 guides. Existing environments are never deleted or replaced automatically.
+
+The setup helper offers to launch MiniConstruct when it finishes. To launch it later from the repository directory in PowerShell:
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-python -m miniconstruct.h3.guide_acquisition
 .\run.ps1
 ```
 
@@ -302,17 +317,55 @@ Reasoning defaults to **Off** because MiniConstruct primarily wants direct struc
 
 ## Projects and History
 
-**Projects** are complete editable workspaces stored locally in IndexedDB.
+**Projects** are complete editable workspaces stored by the local filesystem backend. The visible Projects list and normal New/Open/Save/Rename workflow use the filesystem Project API.
 
-They can be saved, loaded, renamed, deleted, exported, and imported.
+**New** creates a fresh unsaved Workspace. The first Save creates the filesystem Project and assigns its backend UUID; clicking New alone does not create a persisted Project.
+
+Existing browser/IndexedDB Project records remain discoverable under **Legacy browser Projects** and can be explicitly imported into a new filesystem Project. The legacy source is retained after import. Filesystem Projects can be permanently deleted after an explicit confirmation; legacy browser records may also be deleted explicitly.
+
+Portable project files can still be exported and imported. An imported project becomes a new filesystem Project after it is saved.
 
 Exported `.miniconstruct-project.json` files can contain processed Pictures but never API keys or raw Video/Audio.
 
 Because raw Video and Audio are not stored inside a Project, imported or reloaded projects may show **media not attached** until the original local file is reattached. Its semantic settings are preserved.
 
-**History** stores recent completed generated prompts and their validation metadata.
+**History** stores the 50 most recent completed generated prompts and their validation metadata in browser IndexedDB.
 
 Projects and History are separate.
+
+### Filesystem Project foundation
+
+MiniConstruct’s server-side filesystem-backed Project storage provides durable, portable project storage, while History remains browser/IndexedDB-backed.
+
+By default, filesystem Projects are stored in the platform application-data directory: `%LOCALAPPDATA%\MiniConstruct\Projects` on Windows, or `$XDG_DATA_HOME/miniconstruct/projects` (falling back to `~/.local/share/miniconstruct/projects`) on Unix-like systems. Set `MINICONSTRUCT_PROJECTS_ROOT` to choose another root before starting the server.
+
+Each filesystem Project has a UUID-based directory and a versioned `project.json` manifest, with immutable content-addressed image payloads kept under `assets/pictures/`. Projects persist one canonical linear ordered Sequence of stable-identity Generations. The UI can add, insert, duplicate, activate, delete, and move Generations; displayed numbers come from current order, while Generation UUIDs remain internal and stable. A new Generation is blank/default, while Duplicate copies the committed authoring state and asset mappings. Normal Save updates only the active Generation. The manifest stores structured Workspace metadata and references to owned asset files rather than embedding image data URLs. `outputs/`, `workflows/`, and `provenance/` are reserved for later phases.
+
+Existing schema v1, v2, v3, and v4 filesystem Projects continue to load safely. They are adapted in memory to the canonical schema-v5 representation, with blank planning metadata where it did not previously exist and an empty Project-level `storyIdea`, and are upgraded to schema v5 on the next successful write without being rewritten merely by listing or opening them. Sequences remain linear. Portable export remains active-Generation/Workspace-oriented for now, and legacy browser migration remains a one-Generation import.
+
+### Continuity authoring
+
+Each filesystem Project Sequence has one manually authored **Sequence Context** for facts or rules that should remain broadly consistent. Each Generation also has manually authored **Incoming State** and **Intended Outgoing State** describing the relevant start state and the intended successful end state. These are plain authoring notes: MiniConstruct does not propagate state automatically, analyze generated output, or feed these notes into H3 prompt generation yet. Save requests that omit continuity preserve the stored values; an explicit blank clears a value.
+
+### Assisted continuation and shot planning
+
+Each Generation may also have **Relationship to Previous** and a free-text **Camera / Shot Intent**. The relationship can be **Continue previous shot**, **New shot — preserve continuity**, **Match previous ending frame**, or **Independent / new scene**. The first Generation is shown as **Sequence start**. These are planning metadata, separate from general Creative Controls and Workspace state.
+
+Manual authoring remains fully supported. **Infer from Previous** is an optional, explicit one-Generation action that fills missing prompt, continuity, relationship, and camera-intent fields from the committed predecessor; it never silently runs on Save or Generation changes. **Revise Plan** is also optional and scoped to the fields selected by the user. Both actions produce a draft proposal that must be reviewed and saved normally.
+
+### Optional Story Planner
+
+Open **Story Planner** in the Sequence panel of a saved filesystem Project. Save canonical edits first, enter a high-level Sequence Idea, save it, and choose **2–12 total Generations**, at least the existing count. **Build Sequence** proposes an editable draft containing existing Generations in order followed by new slots. Existing non-empty authored fields and Sequence Context remain authoritative during Build; blank areas may be filled.
+
+Nothing in the Project changes until **Apply Draft** succeeds. Edit draft Sequence Context and per-Generation fields directly, or select Generations, fields, and an instruction for **Revise Selected**. Revision preserves every unselected field exactly and cannot change Sequence Context. Unselected neighbors are never silently rewritten; upstream/downstream warnings may require manual reconciliation.
+
+Reference recommendations remain source-qualified. Valid recommendations on new Story items are planned references: Apply attaches the committed source references and required Subjects. Recommendations on existing Story items remain advisory, and their rationale is not persisted. Pictures may supply actual vision input when **Model accepts images** is enabled; Audio/Video remain metadata-only. No media analysis occurs.
+
+**Apply Draft** saves the complete Sequence in one atomic operation, preserving existing identities, assets, and the active Generation. New Generations are created only then, inheriting the immediately preceding Generation’s H3 mode and attaching only planned source references with their required Subjects. **Discard Draft** clears only the proposal. Navigation or conflicting operations ask before discarding a draft; a changed underlying Project blocks revision/Apply until the draft is rebuilt. The High-level Sequence Idea is saved as Project-level `storyIdea` in schema v5; editing it marks the Project dirty. Save As, copies, and portable export/import retain it. There is no special Project mode.
+
+See the [Story Planner guide](docs/story-planner.md).
+
+Picture references may be supplied as visual planner context when the configured model supports the existing image-input protocol. Audio and Video references contribute continuity-aware metadata, roles, ordering, and user-authored notes, but are not content analysed. MiniConstruct does not yet perform audio/video analysis or automatic last-frame handoff.
 
 ## Validation and diagnostics
 

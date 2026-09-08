@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "story",
+  "title": "Story Planner normal regression",
+  "cases": [
+    "story-basic-four-beat",
+    "story-existing-authority",
+    "story-explicit-shot-transition",
+    "story-reference-sheet-continuity",
+    "story-station-multi-source-continuity",
+    "story-aviation-visual-sequencing",
+    "story-media-honesty",
+    "story-reference-source-disambiguation",
+    "story-revision-camera-multiselect",
+    "story-revision-outgoing-warning",
+    "story-revision-transition-reframe"
+  ]
+}

@@ -20,13 +20,17 @@ def supports_thinking_kwargs(settings: LLMSettings) -> bool:
     return parsed.hostname in {"127.0.0.1", "localhost", "::1"} and parsed.port == 8888
 
 
-def prepare_messages(messages: list[dict[str, Any]], mode: ReasoningMode) -> list[dict[str, Any]]:
+def prepare_messages(
+    messages: list[dict[str, Any]],
+    mode: ReasoningMode,
+    response_instruction: str | None = DIRECT_OUTPUT_INSTRUCTION,
+) -> list[dict[str, Any]]:
     prepared = deepcopy(messages)
-    if mode != ReasoningMode.OFF:
+    if mode != ReasoningMode.OFF or response_instruction is None:
         return prepared
     for message in prepared:
         if message.get("role") == "system" and isinstance(message.get("content"), str):
-            message["content"] += f"\n\n## Response behavior\n\n{DIRECT_OUTPUT_INSTRUCTION}"
+            message["content"] += f"\n\n## Response behavior\n\n{response_instruction}"
             break
     return prepared
 
@@ -38,10 +42,11 @@ def build_generation_payload(
     stream: bool,
     include_optional: bool = True,
     include_seed: bool = True,
+    response_instruction: str | None = DIRECT_OUTPUT_INSTRUCTION,
 ) -> tuple[dict[str, Any], set[str]]:
     payload: dict[str, Any] = {
         "model": settings.selected_model_id,
-        "messages": prepare_messages(messages, settings.reasoning_mode),
+        "messages": prepare_messages(messages, settings.reasoning_mode, response_instruction),
         "temperature": settings.temperature,
         "max_tokens": settings.max_tokens,
         "stream": stream,

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "ref2va-creative-inference-baseline",
+  "version": "1",
+  "title": "Ref2VA creative inference baseline",
+  "description": "An intentionally under-specified Ref2VA request that records the current balance between faithful interpretation and useful cinematic invention.",
+  "tags": ["baseline", "Ref2VA", "vision", "single-subject", "reference-sheet", "creative-inference", "underspecified", "identity"],
+  "requirements": {"vision": true},
+  "expectations": {},
+  "humanReview": [
+    "Is the elaboration useful rather than unnecessarily verbose?",
+    "Does invented staging remain consistent with the simple request?",
+    "Does the prompt avoid unrelated story events, characters, and dialogue?",
+    "Does it avoid unsupported identity or wardrobe changes?",
+    "Is any camera or action elaboration helpful rather than excessive?",
+    "Does Subject 1's identity remain stable?",
+    "Are Reference Sheet panels and grid not reproduced?",
+    "Overall, does it balance faithful interpretation and creative filling-in?"
+  ],
+  "fixtureAssets": [{"assetId": "b9059e49-58b0-4d86-895e-17bc5c2f9552", "path": "assets/subject-1-reference-sheet.jpg"}]
+}

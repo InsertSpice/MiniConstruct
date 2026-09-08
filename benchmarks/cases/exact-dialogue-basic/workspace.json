@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Benchmark exact dialogue",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "Two people pause beside a closed train door.",
+  "dialogue": "Subject 1: Don't touch that!"
+}

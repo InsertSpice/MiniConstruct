@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "planner-revision-camera-only",
+  "version": "1",
+  "title": "Planner camera-only scoped revision",
+  "description": "Only Camera / Shot Intent is editable.",
+  "tags": ["planner", "revise", "scoped-revision"],
+  "operation": "revise_plan",
+  "planner": {
+    "operation": "revise_plan",
+    "sequenceContext": "The same scene remains in progress.",
+    "currentGeneration": {"incomingState": "Alice is seated beside the window.", "intendedOutgoingState": "Alice looks toward the door.", "planning": {"relationshipToPrevious": "continue_previous_shot", "cameraIntent": "Static medium shot from eye level."}},
+    "revision": {"instruction": "Make the shot substantially more dramatic with a low-angle tracking camera while preserving all other planning fields.", "editableScopes": ["camera_intent"]}
+  },
+  "expectations": {"checks": [
+    {"kind": "field_changed", "field": "cameraIntent"},
+    {"kind": "field_unchanged", "field": "creativeRequest"},
+    {"kind": "field_unchanged", "field": "incomingState"},
+    {"kind": "field_unchanged", "field": "intendedOutgoingState"},
+    {"kind": "field_unchanged", "field": "relationshipToPrevious"},
+    {"kind": "selected_fields_only_changed", "fields": ["cameraIntent"]}
+  ]},
+  "humanReview": ["Is the revised camera substantially more dramatic and low-angle/tracking?", "Are all non-camera planning fields byte/string-identical?"]
+}

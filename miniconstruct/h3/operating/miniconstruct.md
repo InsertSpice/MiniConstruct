@@ -5,4 +5,4 @@
 - `<Subject N>` is a stable visible entity independent of asset numbering; one Subject may combine several assets.
 - Inspect Pictures only when vision is enabled. Video and Audio are metadata-only: never invent their contents from filenames; use only explicit instructions, Notes, Reference Labels, and inspectable Pictures.
 - Follow the applicable mode guidance for continuation behavior. Exact Dialogue / Lyrics is immutable: preserve wording and punctuation inside `<d>...</d>` in its source language; speaker IDs follow first vocal-event order, not Subject numbers.
-- Keep labels stable: Video audio does not create an Audio label, and Audio reuse is direct signal retention while Audio reference is guidance only.
+- Keep labels stable: a reference video's embedded audio creates an <Audio N> only when its embedded-audio execution route is enabled; otherwise the video creates no Audio label. Audio reuse is direct signal retention while Audio reference is guidance only.

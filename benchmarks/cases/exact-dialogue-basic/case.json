@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "exact-dialogue-basic",
+  "version": "1",
+  "title": "Exact dialogue preservation",
+  "description": "Exercises MiniConstruct's existing exact-dialogue validator.",
+  "tags": ["smoke", "dialogue", "validator"],
+  "expectations": {
+    "contains": ["Don't touch that!"],
+    "requiredFindingCodes": ["structure_ok"],
+    "forbiddenFindingCodes": ["dialogue_changed"]
+  },
+  "humanReview": ["Is the spoken line staged coherently with the action and camera?"]
+}

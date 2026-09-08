@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Creative Inference Baseline",
+  "mode": "Ref2VA",
+  "durationSeconds": 7,
+  "shots": null,
+  "aspectRatio": "auto",
+  "variations": 1,
+  "creativeRequest": "Subject 1 waits alone beneath a covered bus stop during light evening rain. She is visibly impatient and periodically checks whether the bus is coming.",
+  "dialogue": "",
+  "referenceLabels": "",
+  "assets": [{
+    "id": "b9059e49-58b0-4d86-895e-17bc5c2f9552", "kind": "image", "filename": "Codex Image Sep 1, 2026, 05_50_19 AM.png", "mimeType": "image/jpeg", "durationSeconds": null,
+    "role": "subject_identity", "notes": "", "options": {}, "subjectIdentity": {"subjectId": "subject-1", "focus": "general", "view": "unspecified", "layout": "reference_sheet"}, "order": 0, "attached": true,
+    "image": {"data_url": "data:image/jpeg,fixture-placeholder", "width": 1600, "height": 900}
+  }],
+  "subjects": [{"id": "subject-1", "number": 1}], "nextSubjectNumber": 2,
+  "creativeControls": {
+    "music": {"mode": "off", "description": ""},
+    "camera": {"zoom": "auto", "pushPull": "auto", "pan": "auto", "truck": "auto", "tilt": "auto", "pedestal": "auto", "arc": "auto", "tracking": "auto", "static": "auto", "shake": "auto", "pov": "auto", "roll": "auto"},
+    "visualStyle": {"preset": "auto", "custom": ""}, "subjectIdentityFidelity": {"level": "strict"},
+    "tonePerformance": {"sensuality": "auto", "drama": "auto", "horror": "auto", "tension": "auto", "romance": "auto", "whimsy": "auto", "performanceStyle": "auto", "performanceEnergy": "auto"}
+  }
+}

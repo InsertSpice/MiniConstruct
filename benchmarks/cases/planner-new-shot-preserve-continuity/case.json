@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "planner-new-shot-preserve-continuity",
+  "version": "1",
+  "title": "Planner new shot with preserved continuity",
+  "description": "The paired continuation fixture asks for a deliberate new camera setup over the same narrative state.",
+  "tags": ["planner", "infer", "relationship"],
+  "operation": "infer_plan",
+  "planner": {
+    "operation": "infer_plan",
+    "sequenceContext": "The runner remains on the same forest path.",
+    "previousGeneration": {"workspacePath": "previous-workspace.json", "incomingState": "The runner is already moving downhill.", "intendedOutgoingState": "The runner is mid-stride beside the fallen log.", "planning": {"relationshipToPrevious": "continue_previous_shot", "cameraIntent": "Side-on tracking shot."}},
+    "currentGeneration": {"incomingState": "", "intendedOutgoingState": "", "planning": {"relationshipToPrevious": "new_shot_preserve_continuity", "cameraIntent": ""}}
+  },
+  "expectations": {"checks": [
+    {"kind": "relationship_equals", "value": "new_shot_preserve_continuity"},
+    {"kind": "field_not_empty", "field": "incomingState"},
+    {"kind": "field_not_empty", "field": "cameraIntent"}
+  ]},
+  "humanReview": ["Do character, environment, and story state remain continuous?", "Does the camera propose a deliberate new setup?", "Does it avoid assuming the previous final frame must be the next first frame?"]
+}

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "ref2va-creative-inference-expansive",
+  "version": "1",
+  "title": "Ref2VA creative inference — Expansive",
+  "description": "Controlled Expansive interpretation case derived from the frozen Ref2VA creative inference baseline.",
+  "tags": ["behavioral", "Ref2VA", "vision", "single-subject", "reference-sheet", "creative-inference", "expansive"],
+  "requirements": {"vision": true},
+  "expectations": {},
+  "humanReview": [
+    "Does the prompt add noticeably richer compatible performance, staging, or environmental detail?",
+    "Do creative additions remain supportive rather than changing the scene premise?",
+    "Does it use plausible incidental details, props, or environmental business without contradiction?",
+    "Does it avoid invented dialogue and new Subjects?",
+    "Are Subject 1's identity, wardrobe, and reference semantics preserved?"
+  ],
+  "fixtureAssets": [{"assetId": "b9059e49-58b0-4d86-895e-17bc5c2f9552", "path": "assets/subject-1-reference-sheet.jpg"}]
+}

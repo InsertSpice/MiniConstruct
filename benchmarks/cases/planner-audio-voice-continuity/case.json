@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "planner-audio-voice-continuity",
+  "version": "1",
+  "title": "Planner Audio voice continuity",
+  "description": "An established voice-timbre Audio reference is available only in the predecessor.",
+  "tags": ["planner", "infer", "audio", "continuity"],
+  "operation": "infer_plan",
+  "planner": {
+    "operation": "infer_plan",
+    "sequenceContext": "Alice's voice remains identical throughout the sequence.",
+    "previousGeneration": {"workspacePath": "previous-workspace.json", "incomingState": "Alice stands at the station entrance.", "intendedOutgoingState": "Alice turns toward the arriving train.", "planning": {"relationshipToPrevious": "continue_previous_shot", "cameraIntent": "Medium station shot."}},
+    "currentGeneration": {"incomingState": "", "intendedOutgoingState": "", "planning": {"relationshipToPrevious": "new_shot_preserve_continuity", "cameraIntent": ""}}
+  },
+  "expectations": {"checks": [
+    {"kind": "recommendation_pair_valid"},
+    {"kind": "no_duplicate_recommendation_pairs"}
+  ]},
+  "humanReview": ["Does the planner recognize reuse of the previous-generation voice reference as useful for voice continuity?", "If the voice asset is recommended, is its source previous_generation?"]
+}

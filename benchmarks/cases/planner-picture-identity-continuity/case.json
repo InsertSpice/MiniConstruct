@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "planner-picture-identity-continuity",
+  "version": "1",
+  "title": "Planner Picture identity continuity",
+  "description": "A real external Picture tests visual identity and wardrobe continuity across Generations.",
+  "tags": ["planner", "infer", "picture", "continuity"],
+  "requirements": {"vision": true},
+  "operation": "infer_plan",
+  "planner": {
+    "operation": "infer_plan",
+    "sequenceContext": "Alice keeps the same established identity and wardrobe throughout the sequence.",
+    "previousGeneration": {"workspacePath": "previous-workspace.json", "incomingState": "Alice waits on the rainy railway platform as the train approaches.", "intendedOutgoingState": "Alice turns toward the arriving train while remaining on the platform.", "planning": {"relationshipToPrevious": "continue_previous_shot", "cameraIntent": "Medium portrait view."}},
+    "currentGeneration": {"incomingState": "", "intendedOutgoingState": "", "planning": {"relationshipToPrevious": "new_shot_preserve_continuity", "cameraIntent": ""}}
+  },
+  "expectations": {"checks": [
+    {"kind": "recommendation_pair_valid"},
+    {"kind": "no_duplicate_recommendation_pairs"}
+  ]},
+  "fixtureAssets": [{"assetId": "picture-alice", "path": "assets/alice_station_identity.png", "source": "external"}],
+  "humanReview": ["Does the planner preserve Alice's established visual identity?", "Does it preserve the clearly visible orange rain jacket and established outfit?", "Does it avoid contradictory appearance changes?", "If it recommends a reference, is the previous-generation Picture referenced with the correct source?"]
+}

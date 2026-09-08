@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Planner runner predecessor",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "A runner moves downhill along a forest path toward a fallen log."
+}

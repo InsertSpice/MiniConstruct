@@ -9,15 +9,18 @@ from typing import Any
 import httpx
 
 from miniconstruct.models.api import LLMSettings
-from miniconstruct.llm.compatibility import build_generation_payload
+from miniconstruct.llm.compatibility import DIRECT_OUTPUT_INSTRUCTION, build_generation_payload
 from miniconstruct.llm.diagnostics import safe_usage
 
 
 class LLMBackendError(RuntimeError):
-    def __init__(self, message: str, status_code: int = 502, upstream_status: int | None = None) -> None:
+    def __init__(self, message: str, status_code: int = 502, upstream_status: int | None = None,
+                 *, category: str = "provider_error", safe_message: str | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.upstream_status = upstream_status
+        self.category = category
+        self.safe_message = safe_message or (message if category.startswith("story_") else "The LLM request failed.")
 
 
 @dataclass(slots=True)
@@ -82,8 +85,12 @@ class OpenAICompatibleClient:
         )
         self._seed_endpoint_key = (settings.endpoint.base_url, settings.selected_model_id)
         self._seed_known_unsupported = self._seed_endpoint_key in self._unsupported_seed_endpoints
+        self.seed_known_unsupported = self._seed_known_unsupported
         self.seed_unsupported = False
         self.effective_seed: int | None = None if self._seed_known_unsupported else settings.seed
+        self.compatibility_fallback = False
+        self.last_usage: dict[str, int] = {}
+        self.last_payload: dict[str, Any] | None = None
 
     async def __aenter__(self) -> "OpenAICompatibleClient":
         return self
@@ -100,16 +107,26 @@ class OpenAICompatibleClient:
                 raise ValueError("response is not a JSON object")
             return data
         except httpx.TimeoutException as exc:
-            raise LLMBackendError("The LLM endpoint timed out.", 504) from exc
+            kind = type(exc).__name__
+            message = f"The LLM endpoint timed out ({kind}; timeoutSeconds={self.settings.timeout_seconds:g})."
+            raise LLMBackendError(message, 504, category="provider_timeout", safe_message=message) from exc
         except httpx.HTTPStatusError as exc:
             detail = exc.response.text[:500]
             raise LLMBackendError(
                 f"LLM endpoint returned HTTP {exc.response.status_code}: {detail}",
                 502,
                 upstream_status=exc.response.status_code,
+                category="provider_http",
+                safe_message=f"LLM endpoint returned HTTP {exc.response.status_code}.",
             ) from exc
-        except (httpx.RequestError, ValueError) as exc:
-            raise LLMBackendError(f"Could not use the LLM endpoint: {exc}", 502) from exc
+        except httpx.RequestError as exc:
+            raise LLMBackendError(f"Could not use the LLM endpoint: {exc}", 502,
+                                  category="provider_connection",
+                                  safe_message=f"Could not use the LLM endpoint ({type(exc).__name__}).") from exc
+        except ValueError as exc:
+            raise LLMBackendError(f"Could not use the LLM endpoint: {exc}", 502,
+                                  category="provider_response",
+                                  safe_message="LLM endpoint returned invalid or non-object JSON.") from exc
 
     async def list_models(self) -> list[str]:
         data = await self._request("GET", "models")
@@ -122,9 +139,15 @@ class OpenAICompatibleClient:
         models = await self.list_models()
         return {"ok": True, "models": models, "message": f"Connected; discovered {len(models)} model(s)."}
 
-    async def generate(self, messages: list[dict[str, Any]]) -> str:
+    async def generate(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        response_instruction: str | None = DIRECT_OUTPUT_INSTRUCTION,
+    ) -> str:
         if not self.settings.selected_model_id.strip():
-            raise LLMBackendError("A model ID is required.", 400)
+            raise LLMBackendError("A model ID is required.", 400, category="request",
+                                  safe_message="A model ID is required.")
         include_seed = not self._seed_known_unsupported
         include_optional = True
         seed_fallback_used = False
@@ -136,7 +159,9 @@ class OpenAICompatibleClient:
                 stream=False,
                 include_optional=include_optional,
                 include_seed=include_seed,
+                response_instruction=response_instruction,
             )
+            self.last_payload = payload
             try:
                 data = await self._request("POST", "chat/completions", json=payload)
                 break
@@ -151,12 +176,16 @@ class OpenAICompatibleClient:
                 if not optional_fallback_used and _is_optional_compatibility_rejection(exc, optional):
                     include_optional = False
                     optional_fallback_used = True
+                    self.compatibility_fallback = True
                     continue
                 raise
+        self.last_usage = safe_usage(data.get("usage"))
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise LLMBackendError("Malformed chat-completions response: missing choices[0].message.content.") from exc
+            raise LLMBackendError("Malformed chat-completions response: missing choices[0].message.content.",
+                                  category="provider_response",
+                                  safe_message="Malformed chat-completions response: missing choices[0].message.content.") from exc
         if isinstance(content, str):
             return content.strip()
         if isinstance(content, list):
@@ -165,7 +194,9 @@ class OpenAICompatibleClient:
             ).strip()
             if text:
                 return text
-        raise LLMBackendError("Malformed chat-completions response: content is not text.")
+        raise LLMBackendError("Malformed chat-completions response: content is not text.",
+                              category="provider_response",
+                              safe_message="Malformed chat-completions response: content is not text.")
 
     async def stream_generate(self, messages: list[dict[str, Any]]) -> AsyncIterator[str]:
         """Yield only textual OpenAI-compatible SSE deltas.
@@ -196,6 +227,7 @@ class OpenAICompatibleClient:
                     include_optional=include_optional,
                     include_seed=include_seed,
                 )
+                self.last_payload = payload
                 splitter = ReasoningSplitter()
                 async with self.client.stream(
                     "POST", "chat/completions", json=payload, timeout=timeout,
@@ -218,6 +250,7 @@ class OpenAICompatibleClient:
                         if not optional_fallback_used and _is_optional_compatibility_rejection(error, optional):
                             include_optional = False
                             optional_fallback_used = True
+                            self.compatibility_fallback = True
                             yield LLMStreamEvent("compatibility_fallback")
                             continue
                         raise error

@@ -41,6 +41,15 @@ GUIDE_SPECS = tuple(
 )
 
 
+def managed_guide_target_paths() -> tuple[str, ...]:
+    """Return repository-relative targets managed by official-guide acquisition.
+
+    This derives paths from ``GUIDE_SPECS`` so maintenance tools can discover the
+    complete set without downloading guide contents.
+    """
+    return tuple(f"miniconstruct/h3/guides/{spec.local_name}" for spec in GUIDE_SPECS)
+
+
 class GuideAcquisitionError(RuntimeError):
     """An official reference guide is unavailable or was not authentic."""
 
@@ -100,6 +109,12 @@ def acquire_missing_guides(
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--managed-targets"]:
+        print("\n".join(managed_guide_target_paths()))
+        return 0
+    if sys.argv[1:]:
+        print("Usage: python -m miniconstruct.h3.guide_acquisition [--managed-targets]", file=sys.stderr)
+        return 2
     try:
         downloaded = acquire_missing_guides()
     except GuideAcquisitionError as exc:

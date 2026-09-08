@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "projectId": "20cf6b74-a2a8-439d-b6aa-5fa1245b1f3f",
+  "projectName": "OffscreenRetentionTest",
+  "mode": "Ref2VA",
+  "durationSeconds": 8,
+  "shots": null,
+  "aspectRatio": "auto",
+  "variations": 1,
+  "creativeRequest": "Subject 1 walks down a quiet school hallway toward an open classroom doorway. Begin with her clearly visible in a medium-full tracking shot. She stops at the doorway, briefly looks into the classroom, then walks through it and completely leaves the camera's view. The camera remains in the hallway after she exits and does not follow her inside. Once Subject 1 is fully off-screen, she calls back from inside the classroom using the exact supplied dialogue. Subject 1 must remain completely out of frame for the rest of the video after exiting.",
+  "dialogue": "Subject 1: Wait here. I'll only be a minute.",
+  "referenceLabels": "",
+  "assets": [
+    {
+      "notes": "",
+      "options": {},
+      "order": 0,
+      "attached": true,
+      "id": "a46fa829-2b96-43f3-8e70-9e1b08d0b824",
+      "kind": "image",
+      "filename": "Codex Image Sep 1, 2026, 05_50_06 AM.png",
+      "mimeType": "image/jpeg",
+      "durationSeconds": null,
+      "role": "subject_identity",
+      "subjectIdentity": {
+        "subjectId": "subject-1",
+        "focus": "general",
+        "view": "unspecified",
+        "layout": "reference_sheet"
+      },
+      "image": {
+        "data_url": "data:image/jpeg,fixture-placeholder",
+        "width": 1600,
+        "height": 900
+      }
+    }
+  ],
+  "subjects": [
+    {
+      "id": "subject-1",
+      "number": 1
+    }
+  ],
+  "nextSubjectNumber": 2,
+  "creativeControls": {
+    "music": {
+      "mode": "off",
+      "description": ""
+    },
+    "camera": {
+      "zoom": "auto",
+      "pushPull": "auto",
+      "pan": "auto",
+      "truck": "auto",
+      "tilt": "auto",
+      "pedestal": "auto",
+      "arc": "auto",
+      "tracking": "auto",
+      "static": "auto",
+      "shake": "auto",
+      "pov": "auto",
+      "roll": "auto"
+    },
+    "visualStyle": {
+      "preset": "auto",
+      "custom": ""
+    },
+    "subjectIdentityFidelity": {
+      "level": "strict"
+    },
+    "tonePerformance": {
+      "sensuality": "auto",
+      "drama": "auto",
+      "horror": "auto",
+      "tension": "auto",
+      "romance": "auto",
+      "whimsy": "auto",
+      "performanceStyle": "auto",
+      "performanceEnergy": "auto"
+    }
+  }
+}

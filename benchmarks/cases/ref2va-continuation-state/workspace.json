@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Continuation State Baseline",
+  "mode": "Ref2VA",
+  "durationSeconds": 7,
+  "shots": null,
+  "aspectRatio": "auto",
+  "variations": 1,
+  "creativeRequest": "Continue directly from the end state of Video 1. Subject 1 opens the classroom door with the hand already resting on the handle, steps through the doorway, then glances back over her shoulder toward the hallway before continuing inside. Preserve the established hallway, her starting orientation, her initial hand placement, and her identity.",
+  "dialogue": "",
+  "referenceLabels": "",
+  "assets": [
+    {
+      "id": "a46fa829-2b96-43f3-8e70-9e1b08d0b824", "kind": "image", "filename": "Codex Image Sep 1, 2026, 05_50_06 AM.png", "mimeType": "image/jpeg", "durationSeconds": null,
+      "role": "subject_identity", "notes": "", "options": {}, "subjectIdentity": {"subjectId": "subject-1", "focus": "general", "view": "unspecified", "layout": "reference_sheet"}, "order": 0, "attached": true,
+      "image": {"data_url": "data:image/jpeg,fixture-placeholder", "width": 1600, "height": 900}
+    },
+    {
+      "id": "video-1-continuation-state", "kind": "video", "filename": "previous-generation.mp4", "mimeType": "video/mp4", "durationSeconds": null,
+      "role": "continuation_source", "notes": "At the end of Video 1, Subject 1 is standing beside a classroom doorway, facing screen-right with her right hand resting on the door handle. The hallway is empty. The camera is at medium-full distance in front of her. Subject 1 is alert but motionless at the exact end of the reference.", "options": {}, "subjectIdentity": {"subjectId": "subject-1", "focus": "general", "view": "unspecified", "layout": "auto"}, "order": 0, "attached": false
+    }
+  ],
+  "subjects": [{"id": "subject-1", "number": 1}], "nextSubjectNumber": 2,
+  "creativeControls": {
+    "music": {"mode": "off", "description": ""},
+    "camera": {"zoom": "auto", "pushPull": "auto", "pan": "auto", "truck": "auto", "tilt": "auto", "pedestal": "auto", "arc": "auto", "tracking": "auto", "static": "auto", "shake": "auto", "pov": "auto", "roll": "auto"},
+    "visualStyle": {"preset": "auto", "custom": ""}, "subjectIdentityFidelity": {"level": "strict"},
+    "tonePerformance": {"sensuality": "auto", "drama": "auto", "horror": "auto", "tension": "auto", "romance": "auto", "whimsy": "auto", "performanceStyle": "auto", "performanceEnergy": "auto"}
+  }
+}

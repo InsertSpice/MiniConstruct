@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Laterality Baseline",
+  "mode": "T2VA",
+  "durationSeconds": 8,
+  "shots": null,
+  "aspectRatio": "auto",
+  "variations": 1,
+  "creativeRequest": "In a small workshop, an adult woman stands facing the camera beside a work table. A bright red work glove is worn only on her left hand, while her right hand is bare. A blue tool box sits on screen-left and a yellow chair sits on screen-right. She reaches with her left hand toward the blue tool box, then turns her head toward screen-right without turning her body. Finally, she raises her bare right hand to shoulder height while the red glove remains on her left hand. Keep the left/right and screen-left/screen-right relationships exactly as stated throughout the video.",
+  "dialogue": "",
+  "referenceLabels": "",
+  "assets": [],
+  "subjects": [],
+  "nextSubjectNumber": 1,
+  "creativeControls": {
+    "music": {"mode": "off", "description": ""},
+    "camera": {"zoom": "auto", "pushPull": "auto", "pan": "auto", "truck": "auto", "tilt": "auto", "pedestal": "auto", "arc": "auto", "tracking": "auto", "static": "auto", "shake": "auto", "pov": "auto", "roll": "auto"},
+    "visualStyle": {"preset": "auto", "custom": ""},
+    "subjectIdentityFidelity": {"level": "auto"},
+    "tonePerformance": {"sensuality": "auto", "drama": "auto", "horror": "auto", "tension": "auto", "romance": "auto", "whimsy": "auto", "performanceStyle": "auto", "performanceEnergy": "auto"}
+  }
+}

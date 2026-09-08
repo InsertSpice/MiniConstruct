@@ -21,6 +21,7 @@
       <button id="project-save-as" class="quiet">Save As</button>
       <button id="project-rename" class="quiet">Rename</button>
       <button id="project-delete" class="quiet danger">Delete</button>
+      <button id="project-migrate" class="quiet" title="Import the selected legacy browser Project as a new filesystem Project" disabled>Import Legacy</button>
       <button id="project-export" class="icon-button" title="Export project" aria-label="Export project">⇩</button>
       <label class="icon-button file-button" title="Import project" aria-label="Import project">⇧<input id="project-import" type="file" accept=".json,.miniconstruct.json,.miniconstruct-project.json"></label>
       <span id="dirty-indicator" class="dirty" aria-live="polite">Unsaved</span>
@@ -29,11 +30,64 @@
       <span id="active-model-status"><span class="status-dot"></span>No model selected</span>
       <button id="eject-model" class="quiet eject-button" title="Unload the selected model from its local inference server" aria-label="Eject selected model" disabled>⏏ Eject</button>
       <button id="open-settings" class="quiet">⚙ Settings</button>
+      <button id="open-execution" class="quiet">Execution / ComfyUI</button>
     </div>
   </header>
 
   <main class="workspace">
     <aside class="left-rail">
+      <section id="sequence-panel" class="panel sequence-panel" aria-labelledby="sequence-heading">
+        <div class="section-heading"><div><span class="eyebrow">Ordered authoring</span><h2 id="sequence-heading">Sequence</h2></div></div>
+        <div class="sequence-selector-row">
+          <label class="sr-only" for="generation-select">Active Generation</label>
+          <select id="generation-select" title="Select active Generation" aria-label="Active Generation"></select>
+          <span id="sequence-count" class="muted"></span>
+        </div>
+        <div class="sequence-actions" role="group" aria-label="Generation lifecycle">
+          <button id="generation-add" type="button" title="Append a blank Generation">Add</button>
+          <button id="generation-before" type="button" title="Insert a blank Generation before the active Generation">Before</button>
+          <button id="generation-after" type="button" title="Insert a blank Generation after the active Generation">After</button>
+          <button id="generation-duplicate" type="button" title="Duplicate the committed active Generation">Duplicate</button>
+          <button id="generation-earlier" type="button" title="Move the active Generation earlier" aria-label="Move Generation earlier">↑</button>
+          <button id="generation-later" type="button" title="Move the active Generation later" aria-label="Move Generation later">↓</button>
+          <button id="generation-delete" type="button" class="quiet danger" title="Delete the active Generation">Delete</button>
+        </div>
+         <p id="sequence-helper" class="helper">Save the Project to add more Generations.</p>
+         <details class="continuity-section" id="story-planner-section">
+           <summary>Story Planner <span class="muted">optional Sequence draft</span></summary>
+           <div id="story-planner"></div>
+         </details>
+         <details id="continuity-section" class="continuity-section" open>
+           <summary>Continuity <span class="muted">authoring notes</span></summary>
+           <p class="helper">These notes are saved with the Sequence and active Generation. They do not change H3 prompt generation yet.</p>
+           <label>Sequence Context
+             <span class="muted">Facts or rules that should remain consistent across the sequence.</span>
+             <textarea id="sequence-context" rows="3" maxlength="20000" placeholder="Alice wears a navy jacket throughout the sequence."></textarea>
+           </label>
+           <label>Incoming State — <span id="incoming-state-generation">Generation 1</span>
+             <span class="muted">Relevant state at the start of this Generation.</span>
+             <textarea id="incoming-state" rows="3" maxlength="20000" placeholder="Alice is standing beside the machine."></textarea>
+           </label>
+           <label>Intended Outgoing State — <span id="outgoing-state-generation">Generation 1</span>
+             <span class="muted">State that should be true at the intended end of this Generation.</span>
+             <textarea id="intended-outgoing-state" rows="3" maxlength="20000" placeholder="The machine is powered off."></textarea>
+           </label>
+           <label>Relationship to Previous
+             <span class="muted">How this Generation relates to the preceding shot.</span>
+             <select id="relationship-to-previous" aria-label="Relationship to Previous"></select>
+           </label>
+           <label>Camera / Shot Intent
+             <span class="muted">The planned camera setup and composition for this Generation.</span>
+             <textarea id="camera-intent" rows="4" maxlength="20000" placeholder="Describe the planned framing, angle, composition, and camera movement."></textarea>
+           </label>
+           <div class="inline-row wrap">
+             <button id="infer-from-previous" type="button" class="primary">Infer from Previous</button>
+             <button id="revise-plan" type="button" class="quiet">Revise Plan…</button>
+           </div>
+           <p id="planning-status" class="helper" role="status" aria-live="polite"></p>
+           <div id="planning-recommendations" class="hidden"></div>
+         </details>
+       </section>
       <section class="panel settings-panel">
         <div class="section-heading"><div><span class="eyebrow">Target format</span><h2>H3 setup</h2></div></div>
         <div class="mode-tabs" role="radiogroup" aria-label="H3 mode">
@@ -45,7 +99,7 @@
         </div>
         <p id="mode-description" class="helper">Text-driven video and audio generation using the official three-field base format.</p>
         <div class="field-grid four">
-          <label>Duration <span class="unit">seconds</span><input id="duration" type="number" min="4" max="15" step="0.01" value="6"></label>
+          <label>Duration <span class="unit">seconds</span><input id="duration" type="number" min="4" max="15" step="1" value="6"></label>
           <label>Shots <span class="muted">auto or integer</span><input id="shots" inputmode="numeric" placeholder="auto"></label>
           <label>Aspect ratio<select id="aspect-ratio"><option value="auto">Automatic</option><option>16:9</option><option>9:16</option><option>1:1</option><option>4:3</option><option>3:4</option><option value="custom">Custom…</option></select></label>
           <label>Variations<input id="variations" type="number" min="1" max="8" step="1" value="1"></label>
@@ -56,6 +110,11 @@
       <section class="panel author-panel">
         <div class="section-heading"><div><span class="eyebrow">Direction</span><h2>Main prompt / idea</h2></div><span id="char-count" class="muted">0</span></div>
         <textarea id="creative-request" rows="8" placeholder="Describe what the target video should contain and do: action, staging, timing, camera behavior, performance, atmosphere…"></textarea>
+        <div class="creative-interpretation-control">
+          <label>Creative Interpretation</label>
+          <div id="creative-interpretation-controls" class="segmented" role="group" aria-label="Creative Interpretation"></div>
+          <p class="helper">Controls how freely MiniConstruct fills in details you did not specify.</p>
+        </div>
         <details>
           <summary>Exact dialogue / lyrics</summary>
           <p class="helper">Keep conversational timing, reactions, pauses, and performance in Main Prompt. Enter only the exact words that must remain verbatim here; speaker IDs follow vocal-event order, not Subject numbers.</p>
@@ -95,6 +154,10 @@
         <p id="reference-helper" class="helper"></p>
         <div id="asset-drop-hint" class="asset-drop-hint" aria-hidden="true">Drop image, video or audio references here</div>
         <div id="asset-list" class="asset-list"></div>
+        <details class="input-map">
+          <summary>H3 input wiring</summary>
+          <div id="input-map-list" class="input-map-list"></div>
+        </details>
         <details id="reference-labels-wrap" class="advanced-field">
           <summary>Reference relationships <span class="muted">advanced</span></summary>
           <p class="helper">Usually leave this blank. Use asset Notes for facts about individual references. Use this only for relationships spanning multiple references or timelines.</p>
@@ -169,16 +232,32 @@
           <div id="revision-validation" class="revision-validation"></div>
         </div>
       </section>
+      <section id="plan-revision-panel" class="revision-panel hidden" aria-labelledby="plan-revision-heading">
+        <div class="section-heading">
+          <div><span class="eyebrow">Scoped planning edit</span><h2 id="plan-revision-heading">Revise Plan</h2></div>
+          <button id="cancel-plan-revision" class="icon-button" aria-label="Cancel plan revision">×</button>
+        </div>
+        <label>Revision request
+          <textarea id="plan-revision-instruction" rows="3" placeholder="Make this a much more dramatic low-angle tracking shot while keeping the action unchanged."></textarea>
+        </label>
+        <fieldset id="plan-revision-scopes"><legend>Fields the assistant may change</legend></fieldset>
+        <div class="inline-row wrap revision-actions">
+          <button id="generate-plan-revision" class="primary">Generate Plan Revision</button>
+          <button id="cancel-plan-revision-secondary" class="quiet">Cancel</button>
+        </div>
+        <p id="plan-revision-status" class="helper" role="status" aria-live="polite"></p>
+      </section>
       <section class="lower-grid">
         <div class="panel validation-panel">
           <div class="section-heading"><div><span class="eyebrow">Format audit</span><h2>Validation</h2></div></div>
           <div id="validation-list" class="validation-list"><p class="muted">Generate or paste a prompt to inspect official H3 grammar and invariants.</p></div>
         </div>
         <div class="panel history-panel">
-          <div class="section-heading"><div><span class="eyebrow">Local only</span><h2>History</h2></div><button id="clear-history" class="text-button">Clear</button></div>
-          <div id="history-list" class="history-list"><p class="muted">No generated prompts yet.</p></div>
+          <div class="section-heading"><div><span class="eyebrow">Local only</span><h2>History</h2></div><button id="load-history" class="text-button">Load History</button><button id="clear-history" class="text-button">Clear</button></div>
+          <div id="history-list" class="history-list"><p class="muted">Load browser History to browse earlier prompts. Execution selections load from your saved Project.</p></div>
         </div>
       </section>
+      <section id="workflow-preparation" class="workflow-preparation" aria-label="ComfyUI preparation"></section>
     </section>
   </main>
 
@@ -218,6 +297,11 @@
     <div class="dialog-actions"><button data-close-settings>Done</button></div>
   </dialog>
 
+  <dialog id="execution-dialog" aria-labelledby="execution-heading">
+    <div class="dialog-head"><h2 id="execution-heading">Execution / ComfyUI</h2><button class="icon-button" data-close-execution aria-label="Close execution settings">×</button></div>
+    <div id="execution-config" class="settings-content"></div>
+    <div class="dialog-actions"><button data-close-execution>Done</button></div>
+  </dialog>
   <input id="asset-file-input" class="hidden" type="file">
   <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
   <script type="module" src="/static/js/app.js"></script>
