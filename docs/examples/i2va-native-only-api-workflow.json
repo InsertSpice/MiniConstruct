@@ -1,0 +1,257 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "example-h3.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "example-clip.safetensors",
+      "type": "minimax",
+      "device": "default"
+    }
+  },
+  "4": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "example-video-vae.safetensors"
+    }
+  },
+  "5": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "example-audio-vae.safetensors"
+    }
+  },
+  "6": {
+    "class_type": "MiniMaxH3ImageToVideo",
+    "inputs": {
+      "prompt": "Imported placeholder",
+      "width": 1024,
+      "height": 768,
+      "length": [
+        "36",
+        1
+      ],
+      "clip": [
+        "2",
+        0
+      ],
+      "vae": [
+        "4",
+        0
+      ]
+    }
+  },
+  "8": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 123
+    }
+  },
+  "9": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "10": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "scheduler": "simple",
+      "steps": 8,
+      "denoise": 1
+    }
+  },
+  "11": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "conditioning": [
+        "55",
+        0
+      ]
+    }
+  },
+  "12": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "8",
+        0
+      ],
+      "guider": [
+        "11",
+        0
+      ],
+      "sampler": [
+        "9",
+        0
+      ],
+      "sigmas": [
+        "10",
+        0
+      ],
+      "latent_image": [
+        "6",
+        1
+      ]
+    }
+  },
+  "13": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "56",
+        0
+      ],
+      "vae": [
+        "4",
+        0
+      ]
+    }
+  },
+  "14": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {
+      "samples": [
+        "56",
+        0
+      ],
+      "vae": [
+        "5",
+        0
+      ]
+    }
+  },
+  "15": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "fps": 24,
+      "images": [
+        "57",
+        0
+      ],
+      "audio": [
+        "14",
+        0
+      ]
+    }
+  },
+  "16": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "example/output",
+      "format": "mp4",
+      "codec": "auto",
+      "video": [
+        "15",
+        0
+      ]
+    }
+  },
+  "35": {
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "value": 8
+    }
+  },
+  "36": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+      "values.a": [
+        "35",
+        0
+      ]
+    }
+  },
+  "55": {
+    "class_type": "MiniMaxH3VideoExtender",
+    "inputs": {
+      "mode": "always_extend",
+      "context_length": 22,
+      "encode_mode": "video",
+      "anchor_mode": "head",
+      "crop": "disabled",
+      "audio_context_length": 22,
+      "audio_mode": "timeline",
+      "conditioning": [
+        "6",
+        0
+      ],
+      "latent": [
+        "6",
+        1
+      ],
+      "vae": [
+        "4",
+        0
+      ],
+      "prev_latent": [
+        "59",
+        0
+      ],
+      "audio_vae": [
+        "5",
+        0
+      ]
+    }
+  },
+  "56": {
+    "class_type": "MiniMaxH3SaveLatent",
+    "inputs": {
+      "filename_prefix": "example/clip",
+      "clip_index": 1,
+      "latent": [
+        "12",
+        0
+      ]
+    }
+  },
+  "57": {
+    "class_type": "MiniMaxH3LoopTrim",
+    "inputs": {
+      "trim_frames": [
+        "55",
+        1
+      ],
+      "fps": 24,
+      "match_tail": true,
+      "retain_overlap_frames": 0,
+      "images": [
+        "13",
+        0
+      ],
+      "audio": [
+        "14",
+        0
+      ]
+    }
+  },
+  "59": {
+    "class_type": "MiniMaxH3LoadLatent",
+    "inputs": {
+      "latent_path": "example/state",
+      "clip_index": 0,
+      "vae": [
+        "4",
+        0
+      ],
+      "audio_vae": [
+        "5",
+        0
+      ]
+    }
+  }
+}

@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 
 import uvicorn
-
 from miniconstruct.h3.guide_acquisition import GuideAcquisitionError, require_guides
 
 

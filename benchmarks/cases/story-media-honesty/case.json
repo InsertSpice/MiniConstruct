@@ -57,7 +57,7 @@
       },
       {
         "kind": "story_field_not_empty",
-        "field": "creativeRequest"
+        "field": "scenePlan"
       },
       {
         "kind": "story_field_not_empty",

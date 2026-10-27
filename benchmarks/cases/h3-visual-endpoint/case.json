@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "h3-visual-endpoint",
+  "title": "Visual Handoff: endpoint",
+  "operation": "generate_prompt",
+  "description": "Opt-in synthetic Selected Take visual handoff through production resolution. Generated H3 prompts and exported predecessor/handoff media require explicit external rendering and human review; no LLM judge, renderer submission, trimming or stitching.",
+  "tags": [
+    "continuity",
+    "visual-handoff",
+    "vision"
+  ],
+  "requirements": {
+    "vision": true
+  },
+  "fixtureAssets": [
+    {
+      "assetId": "subject-1-picture",
+      "path": "assets/subject-1.png"
+    }
+  ],
+  "h3Project": {
+    "predecessorVisualFixture": true,
+    "planning": {
+      "relationshipToPrevious": "match_previous_ending_frame",
+      "cameraIntent": "Continue Subject 1 from the exact endpoint pose while carrying the yellow object.",
+      "visualHandoff": {
+        "strategy": "auto",
+        "tailSeconds": 1.5,
+        "immediateCutMilliseconds": 100
+      }
+    },
+    "inputContains": [
+      "strong opening/initial-frame",
+      "no forced immediate camera cut"
+    ],
+    "inputAbsent": [],
+    "expectedTaskRelationship": "keyframe completion"
+  },
+  "humanReview": [
+    "Does the first frame/state match the actual predecessor endpoint?",
+    "Is there no unnecessary replay or forced immediate camera cut?"
+  ]
+}

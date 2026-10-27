@@ -1,0 +1,45 @@
+{
+  "note": "Read-only capture 2026-10-22: Extender-Profile, Ref2VA. Only relevant control and live input declaration; no private graph or project data.",
+  "control": {
+    "id": "aspect_ratio",
+    "label": "Aspect Ratio",
+    "target": {
+      "nodeId": "115",
+      "inputName": "aspect_ratio",
+      "path": []
+    },
+    "type": "enum",
+    "defaultValue": "4:3 (Standard)",
+    "minimum": null,
+    "maximum": null,
+    "step": null,
+    "choices": [
+      "4:3 (Standard)",
+      "16:9 (Widescreen)"
+    ]
+  },
+  "node": {
+    "class_type": "ResolutionSelector",
+    "inputs": {
+      "aspect_ratio": "4:3 (Standard)"
+    }
+  },
+  "liveInput": [
+    "COMBO",
+    {
+      "tooltip": "The aspect ratio for the output dimensions.",
+      "default": "1:1 (Square)",
+      "multiselect": false,
+      "options": [
+        "1:1 (Square)",
+        "2:3 (Portrait Photo)",
+        "3:2 (Photo)",
+        "3:4 (Portrait Standard)",
+        "4:3 (Standard)",
+        "9:16 (Portrait Widescreen)",
+        "16:9 (Widescreen)",
+        "21:9 (Ultrawide)"
+      ]
+    }
+  ]
+}

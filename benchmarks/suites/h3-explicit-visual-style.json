@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "h3-explicit-visual-style",
+  "title": "Reference-informed Visual Style comparison",
+  "cases": [
+    "ref2va-explicit-style-auto",
+    "ref2va-explicit-style-anime",
+    "ref2va-explicit-style-live-action"
+  ]
+}

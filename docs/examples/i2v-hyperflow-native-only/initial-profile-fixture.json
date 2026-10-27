@@ -1,0 +1,628 @@
+{
+  "name": "Example Hyperflow Initial (Optional Picture)",
+  "nativeContinuation": {
+    "kind": "native_h3_av",
+    "version": 1,
+    "adapter": "opaque_keys",
+    "compatibilityKey": "example-hyperflow-native-av-v1",
+    "inputs": {
+      "enable": {
+        "nodeId": "55",
+        "inputName": "mode",
+        "enabledValue": "auto",
+        "disabledValue": "disabled",
+        "unsetValue": -1
+      },
+      "save_key": {
+        "nodeId": "56",
+        "inputName": "filename_prefix",
+        "enabledValue": true,
+        "disabledValue": false,
+        "unsetValue": -1
+      },
+      "load_key": {
+        "nodeId": "59",
+        "inputName": "latent_path",
+        "enabledValue": true,
+        "disabledValue": false,
+        "unsetValue": -1
+      },
+      "save_segment_index": {
+        "nodeId": "56",
+        "inputName": "clip_index",
+        "enabledValue": true,
+        "disabledValue": false,
+        "unsetValue": -1
+      },
+      "load_segment_index": {
+        "nodeId": "59",
+        "inputName": "clip_index",
+        "enabledValue": true,
+        "disabledValue": false,
+        "unsetValue": 0
+      },
+      "context_frames": {
+        "nodeId": "55",
+        "inputName": "context_length",
+        "enabledValue": true,
+        "disabledValue": false,
+        "unsetValue": -1
+      }
+    },
+    "sourceLinks": [
+      {
+        "nodeId": "55",
+        "inputName": "prev_latent",
+        "expectedSourceNodeId": "59",
+        "expectedOutputIndex": 0
+      }
+    ],
+    "requiredInputs": [
+      "save_segment_index",
+      "load_segment_index",
+      "context_frames"
+    ],
+    "videoContinuity": true,
+    "audioContinuity": false,
+    "audioEnabled": false,
+    "contextFrames": 22,
+    "contextGrid": {
+      "minimum": 5,
+      "step": 17,
+      "maximum": 39,
+      "alignment": "reject"
+    },
+    "extensionGrid": null,
+    "sourceOutGrid": null,
+    "framesPerSecond": null,
+    "requiresTailReference": false,
+    "allowEndpointAnchor": false,
+    "pictureFreeI2va": null
+  },
+  "description": "Synthetic production-shaped fixture. Fictional model filenames and Profile identities; not an installed renderer configuration.",
+  "compatibleModes": [
+    "I2VA"
+  ],
+  "bindings": [
+    {
+      "source": {
+        "kind": "generated_prompt"
+      },
+      "nodeId": "6",
+      "inputName": "prompt"
+    },
+    {
+      "source": {
+        "kind": "duration"
+      },
+      "nodeId": "35",
+      "inputName": "value"
+    },
+    {
+      "source": {
+        "kind": "reference_asset",
+        "assetKind": "image",
+        "ordinal": 1
+      },
+      "nodeId": "50",
+      "inputName": "image",
+      "presence": "optional",
+      "routes": [
+        {
+          "nodeId": "6",
+          "inputName": "first_frame",
+          "expectedSourceNodeId": "51",
+          "expectedOutputIndex": 0,
+          "channel": "image"
+        }
+      ]
+    }
+  ],
+  "exposedControls": [
+    {
+      "id": "enable_turbo_lora",
+      "label": "Enable example turbo LoRA",
+      "target": {
+        "nodeId": "58",
+        "inputName": "lora_1",
+        "path": [
+          "on"
+        ]
+      },
+      "type": "boolean",
+      "defaultValue": false,
+      "minimum": null,
+      "maximum": null,
+      "step": null,
+      "choices": []
+    },
+    {
+      "id": "turbo_lora_strength",
+      "label": "Example turbo LoRA strength",
+      "target": {
+        "nodeId": "58",
+        "inputName": "lora_1",
+        "path": [
+          "strength"
+        ]
+      },
+      "type": "float",
+      "defaultValue": 1,
+      "minimum": null,
+      "maximum": null,
+      "step": null,
+      "choices": []
+    }
+  ],
+  "workflowControlPresets": [],
+  "id": "11111111-1111-4111-8111-111111111111",
+  "workflow": {
+    "1": {
+      "inputs": {
+        "unet_name": "example-h3.safetensors",
+        "weight_dtype": "default"
+      },
+      "class_type": "UNETLoader",
+      "_meta": {
+        "title": "Load Diffusion Model"
+      }
+    },
+    "2": {
+      "inputs": {
+        "clip_name": "example-minimax-clip.safetensors",
+        "type": "minimax",
+        "device": "default"
+      },
+      "class_type": "CLIPLoader",
+      "_meta": {
+        "title": "Load CLIP"
+      }
+    },
+    "4": {
+      "inputs": {
+        "vae_name": "example-video-vae.safetensors"
+      },
+      "class_type": "VAELoader",
+      "_meta": {
+        "title": "Load VAE"
+      }
+    },
+    "5": {
+      "inputs": {
+        "vae_name": "example-audio-vae.safetensors"
+      },
+      "class_type": "VAELoader",
+      "_meta": {
+        "title": "Load VAE"
+      }
+    },
+    "6": {
+      "inputs": {
+        "prompt": "Insert Prompt Here",
+        "width": [
+          "52",
+          0
+        ],
+        "height": [
+          "52",
+          1
+        ],
+        "length": [
+          "36",
+          1
+        ],
+        "clip": [
+          "2",
+          0
+        ],
+        "vae": [
+          "4",
+          0
+        ],
+        "first_frame": [
+          "51",
+          0
+        ]
+      },
+      "class_type": "MiniMaxH3ImageToVideo",
+      "_meta": {
+        "title": "MiniMax H3 Image to Video"
+      }
+    },
+    "8": {
+      "inputs": {
+        "noise_seed": 123456789
+      },
+      "class_type": "RandomNoise",
+      "_meta": {
+        "title": "RandomNoise"
+      }
+    },
+    "9": {
+      "inputs": {
+        "sampler_name": "euler"
+      },
+      "class_type": "KSamplerSelect",
+      "_meta": {
+        "title": "KSamplerSelect"
+      }
+    },
+    "11": {
+      "inputs": {
+        "model": [
+          "17",
+          0
+        ],
+        "conditioning": [
+          "55",
+          0
+        ]
+      },
+      "class_type": "BasicGuider",
+      "_meta": {
+        "title": "Basic Guider"
+      }
+    },
+    "12": {
+      "inputs": {
+        "noise": [
+          "8",
+          0
+        ],
+        "guider": [
+          "11",
+          0
+        ],
+        "sampler": [
+          "9",
+          0
+        ],
+        "sigmas": [
+          "47",
+          1
+        ],
+        "latent_image": [
+          "6",
+          1
+        ]
+      },
+      "class_type": "SamplerCustomAdvanced",
+      "_meta": {
+        "title": "SamplerCustomAdvanced"
+      }
+    },
+    "13": {
+      "inputs": {
+        "samples": [
+          "56",
+          0
+        ],
+        "vae": [
+          "4",
+          0
+        ]
+      },
+      "class_type": "VAEDecode",
+      "_meta": {
+        "title": "VAE Decode"
+      }
+    },
+    "14": {
+      "inputs": {
+        "samples": [
+          "56",
+          0
+        ],
+        "vae": [
+          "5",
+          0
+        ]
+      },
+      "class_type": "VAEDecodeAudio",
+      "_meta": {
+        "title": "VAE Decode Audio"
+      }
+    },
+    "15": {
+      "inputs": {
+        "fps": 24,
+        "bit_depth": "auto",
+        "color_space": "sRGB",
+        "codec": "h264",
+        "images": [
+          "57",
+          0
+        ],
+        "audio": [
+          "14",
+          0
+        ]
+      },
+      "class_type": "CreateVideo",
+      "_meta": {
+        "title": "Create Video"
+      }
+    },
+    "16": {
+      "inputs": {
+        "filename_prefix": "example/video/initial",
+        "format": "mp4",
+        "format.codec": "h264",
+        "format.codec.encoding": "re-encode",
+        "format.codec.encoding.crf": 14,
+        "codec": "auto",
+        "video": [
+          "15",
+          0
+        ]
+      },
+      "class_type": "SaveVideo",
+      "_meta": {
+        "title": "Save Video"
+      }
+    },
+    "17": {
+      "inputs": {
+        "max_resolution": 248,
+        "jpeg_quality": 80,
+        "suppress_default_preview": true,
+        "preview_frames": 362,
+        "preview_fps": 12,
+        "tiny_vae": "example-tiny-vae.safetensors",
+        "model": [
+          "47",
+          0
+        ],
+        "audio_vae": [
+          "5",
+          0
+        ]
+      },
+      "class_type": "ModelPreviewOverrideKJ",
+      "_meta": {
+        "title": "Model Preview Override"
+      }
+    },
+    "27": {
+      "inputs": {
+        "chunks": 2,
+        "seq_threshold": 4096,
+        "model": [
+          "37",
+          0
+        ]
+      },
+      "class_type": "MiniMaxChunkFeedForward",
+      "_meta": {
+        "title": "MiniMax H3 Chunk FeedForward"
+      }
+    },
+    "34": {
+      "inputs": {
+        "attention": "comfy kitchen attention",
+        "model": [
+          "58",
+          0
+        ]
+      },
+      "class_type": "ModelAttentionBackend",
+      "_meta": {
+        "title": "Model Attention Backend"
+      }
+    },
+    "35": {
+      "inputs": {
+        "value": 12
+      },
+      "class_type": "PrimitiveFloat",
+      "_meta": {
+        "title": "Float (Duration)"
+      }
+    },
+    "36": {
+      "inputs": {
+        "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+        "values.a": [
+          "35",
+          0
+        ]
+      },
+      "class_type": "ComfyMathExpression",
+      "_meta": {
+        "title": "Math Expression"
+      }
+    },
+    "37": {
+      "inputs": {
+        "selection": "sol-attn",
+        "selection.tau": 1,
+        "start_percent": 0.25,
+        "end_percent": 0.9,
+        "dense_blocks": "0,1",
+        "min_tokens": 12288,
+        "extra_tokens": 256,
+        "sink_conditioning": "exact_kv_and_rows",
+        "verbose": false,
+        "model": [
+          "34",
+          0
+        ]
+      },
+      "class_type": "BlockSparseAttention",
+      "_meta": {
+        "title": "Model Sparse Attention"
+      }
+    },
+    "47": {
+      "inputs": {
+        "hyperflow_file": "example-hyperflow-8step.safetensors",
+        "strength": 1,
+        "lora_mode": "bypass",
+        "variant": "auto",
+        "download_if_missing": false,
+        "verbose": false,
+        "experimental_curve_refit": false,
+        "model": [
+          "27",
+          0
+        ]
+      },
+      "class_type": "ApplyHyperFlow",
+      "_meta": {
+        "title": "Apply HyperFlow (MiniMax-H3 8-Step)"
+      }
+    },
+    "50": {
+      "inputs": {
+        "image": "example-first-frame.png"
+      },
+      "class_type": "LoadImage",
+      "_meta": {
+        "title": "Load Image"
+      }
+    },
+    "51": {
+      "inputs": {
+        "upscale_method": "nearest-exact",
+        "megapixels": 0.8,
+        "resolution_steps": 32,
+        "image": [
+          "50",
+          0
+        ]
+      },
+      "class_type": "ImageScaleToTotalPixels",
+      "_meta": {
+        "title": "Scale Image to Total Pixels"
+      }
+    },
+    "52": {
+      "inputs": {
+        "image": [
+          "51",
+          0
+        ]
+      },
+      "class_type": "GetImageSize",
+      "_meta": {
+        "title": "Get Image Size"
+      }
+    },
+    "55": {
+      "inputs": {
+        "mode": "auto",
+        "context_length": 22,
+        "encode_mode": "video",
+        "anchor_mode": "head",
+        "crop": "disabled",
+        "audio_context_length": 22,
+        "audio_mode": "timeline",
+        "conditioning": [
+          "6",
+          0
+        ],
+        "latent": [
+          "6",
+          1
+        ],
+        "vae": [
+          "4",
+          0
+        ],
+        "prev_latent": [
+          "59",
+          0
+        ],
+        "audio_vae": [
+          "5",
+          0
+        ]
+      },
+      "class_type": "MiniMaxH3VideoExtender",
+      "_meta": {
+        "title": "MiniMax H3 Video Extender"
+      }
+    },
+    "56": {
+      "inputs": {
+        "filename_prefix": "example/native/clip",
+        "clip_index": 1,
+        "latent": [
+          "12",
+          0
+        ]
+      },
+      "class_type": "MiniMaxH3SaveLatent",
+      "_meta": {
+        "title": "MiniMax H3 Save AV Latent"
+      }
+    },
+    "57": {
+      "inputs": {
+        "trim_frames": [
+          "55",
+          1
+        ],
+        "fps": 24,
+        "match_tail": true,
+        "retain_overlap_frames": 0,
+        "images": [
+          "13",
+          0
+        ],
+        "audio": [
+          "14",
+          0
+        ]
+      },
+      "class_type": "MiniMaxH3LoopTrim",
+      "_meta": {
+        "title": "MiniMax H3 Extension Trim"
+      }
+    },
+    "58": {
+      "inputs": {
+        "PowerLoraLoaderHeaderWidget": {
+          "type": "PowerLoraLoaderHeaderWidget"
+        },
+        "lora_1": {
+          "on": false,
+          "lora": "example/turbo-8step.safetensors",
+          "strength": 1
+        },
+        "lora_2": {
+          "on": false,
+          "lora": "example/style.safetensors",
+          "strength": 0.5
+        },
+        "model": [
+          "1",
+          0
+        ]
+      },
+      "class_type": "Power Lora Loader (rgthree)",
+      "_meta": {
+        "title": "Power Lora Loader (rgthree)"
+      }
+    },
+    "59": {
+      "inputs": {
+        "latent_path": "example/native/source",
+        "clip_index": 0,
+        "vae": [
+          "4",
+          0
+        ],
+        "audio_vae": [
+          "5",
+          0
+        ]
+      },
+      "class_type": "MiniMaxH3LoadLatent",
+      "_meta": {
+        "title": "MiniMax H3 Load AV Latent"
+      }
+    }
+  },
+  "fingerprint": "6f889ab13ad4ec3450e1775d61732ad72bc20b0d369b0a1c8ddcca35bb68e84a"
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 from pathlib import Path
 
@@ -96,13 +97,15 @@ async def test_reference_sheet_skips_without_vision_and_sends_one_image():
     item = result["cases"][0]
     assert item["status"] == "completed"
     assert item["modelInput"]["imageInputCount"] == 1
+    image_parts = [part for part in instances[0].messages[1]["content"] if part.get("type") == "image_url"]
+    assert len(image_parts) == 1
+    sent_digest = hashlib.sha256(base64.b64decode(image_parts[0]["image_url"]["url"].split(",", 1)[1])).hexdigest()
+    assert sent_digest != EXPECTED_SHA256
     assert item["modelInput"]["images"] == [{
         "index": 1,
-        "sha256": EXPECTED_SHA256,
+        "sha256": sent_digest,
         "mimeType": "image/jpeg",
         "assetId": "a46fa829-2b96-43f3-8e70-9e1b08d0b824",
         "filename": "Codex Image Sep 1, 2026, 05_50_06 AM.png",
         "fixturePath": "assets/subject-1-reference-sheet.jpg",
     }]
-    image_parts = [part for part in instances[0].messages[1]["content"] if part.get("type") == "image_url"]
-    assert len(image_parts) == 1

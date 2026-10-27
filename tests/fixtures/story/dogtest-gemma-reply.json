@@ -7,7 +7,7 @@
     {
       "planItemId": "204da469-fce1-4f3a-b6fe-18f0adf65ed4",
       "existingGenerationId": "031450e8-8960-49bb-a282-bcc19dd3764e",
-      "creativeRequest": "",
+      "scenePlan": "",
       "incomingState": "",
       "intendedOutgoingState": "",
       "relationshipToPrevious": null,
@@ -28,7 +28,7 @@
     {
       "planItemId": "83223892-a375-4655-8038-4465791c8994",
       "existingGenerationId": null,
-      "creativeRequest": "The cyclist stops her bike and kneels down in the rain to gently offer her hand to the shivering dog, who is hesitant but curious.",
+      "scenePlan": "The cyclist stops her bike and kneels down in the rain to gently offer her hand to the shivering dog, who is hesitant but curious.",
       "incomingState": "Cyclist and dog have spotted each other in the rain.",
       "intendedOutgoingState": "The dog cautiously approaches the cyclist's hand.",
       "relationshipToPrevious": "new_shot_preserve_continuity",
@@ -49,7 +49,7 @@
     {
       "planItemId": "cbe8712d-e6b9-4295-8ea4-71fe5e822bc2",
       "existingGenerationId": null,
-      "creativeRequest": "The cyclist walks her bike slowly down the city sidewalk, with the dog happily trotting close to her side, tails wagging through the rain.",
+      "scenePlan": "The cyclist walks her bike slowly down the city sidewalk, with the dog happily trotting close to her side, tails wagging through the rain.",
       "incomingState": "The dog has trusted the cyclist and decided to follow.",
       "intendedOutgoingState": "They arrive at a residential neighborhood.",
       "relationshipToPrevious": "new_shot_preserve_continuity",
@@ -70,7 +70,7 @@
     {
       "planItemId": "a1d04c2e-76ed-4644-9672-9954d6fed53f",
       "existingGenerationId": null,
-      "creativeRequest": "The dog leaps with joy into the arms of its owner in front of a cozy house, while the cyclist watches with a smile.",
+      "scenePlan": "The dog leaps with joy into the arms of its owner in front of a cozy house, while the cyclist watches with a smile.",
       "incomingState": "The dog recognizes its home and owner.",
       "intendedOutgoingState": "A heartwarming reunion completed.",
       "relationshipToPrevious": "new_shot_preserve_continuity",

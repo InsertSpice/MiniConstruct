@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "id": "h3-observed-current-override",
+  "title": "Observed jacket on: current-override",
+  "operation": "generate_prompt",
+  "description": "Opt-in textual observation fixture. The illustration and persisted observation are synthetic; this case does not analyze real media or prove rendered continuity. Human review only, no LLM judge.",
+  "tags": [
+    "continuity",
+    "observed",
+    "vision"
+  ],
+  "requirements": {
+    "vision": true
+  },
+  "fixtureAssets": [
+    {
+      "assetId": "kent-picture",
+      "path": "assets/kent-jacket.png"
+    }
+  ],
+  "h3Project": {
+    "sequenceContext": "Kent is Subject 1, in the same blue bedroom.",
+    "incomingState": "Kent removed the jacket between shots and now wears the cream shirt underneath.",
+    "intendedOutgoingState": "Kent reaches the window.",
+    "planning": {
+      "relationshipToPrevious": "new_shot_preserve_continuity",
+      "cameraIntent": "Medium shot from the window."
+    },
+    "predecessorIntendedOutgoingState": "Kent removes the red jacket.",
+    "predecessorObservation": {
+      "summary": "Kent visibly still wears the red jacket at the cut.",
+      "environment": "Blue bedroom; door open.",
+      "subjectStates": [
+        {
+          "subjectId": "kent",
+          "visibility": "visible",
+          "appearance": "Brown-haired adult",
+          "wardrobe": "Red jacket still on",
+          "condition": "",
+          "positionPose": "Standing near the chair",
+          "heldObjects": "",
+          "currentAction": "Turning toward window"
+        }
+      ],
+      "propsObjects": [
+        "Door open"
+      ],
+      "actionMomentum": "Turning toward window",
+      "cameraState": "Medium shot; settled camera",
+      "lightingConditions": "Evening light",
+      "plannedOutcomeAssessment": {
+        "status": "conflicts",
+        "explanation": "The planned jacket removal did not occur."
+      },
+      "unresolvedVisibleEntities": []
+    },
+    "inputContains": [
+      "predecessorObservation",
+      "Kent visibly still wears the red jacket at the cut.",
+      "predecessor user-corrected Observed End State > predecessor machine Observed End State > predecessor Intended Outgoing State",
+      "Kent removed the jacket between shots and now wears the cream shirt underneath."
+    ],
+    "inputAbsent": [
+      "UNSELECTED OBSERVATION"
+    ]
+  },
+  "humanReview": [
+    "Does Kent remain correctly mapped to Subject 1?",
+    "Does current explicit Incoming State win, beginning with jacket absent and cream shirt visible?"
+  ]
+}

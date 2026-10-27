@@ -15,12 +15,15 @@ from miniconstruct.llm.diagnostics import safe_usage
 
 class LLMBackendError(RuntimeError):
     def __init__(self, message: str, status_code: int = 502, upstream_status: int | None = None,
-                 *, category: str = "provider_error", safe_message: str | None = None) -> None:
+                 *, category: str = "provider_error", safe_message: str | None = None,
+                 raw_response: str | None = None, raw_response_visible: bool = True) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.upstream_status = upstream_status
         self.category = category
         self.safe_message = safe_message or (message if category.startswith("story_") else "The LLM request failed.")
+        self.raw_response = raw_response
+        self.raw_response_visible = raw_response_visible
 
 
 @dataclass(slots=True)
@@ -144,6 +147,8 @@ class OpenAICompatibleClient:
         messages: list[dict[str, Any]],
         *,
         response_instruction: str | None = DIRECT_OUTPUT_INSTRUCTION,
+        response_format: dict[str, Any] | None = None,
+        allow_retries: bool = True,
     ) -> str:
         if not self.settings.selected_model_id.strip():
             raise LLMBackendError("A model ID is required.", 400, category="request",
@@ -160,20 +165,21 @@ class OpenAICompatibleClient:
                 include_optional=include_optional,
                 include_seed=include_seed,
                 response_instruction=response_instruction,
+                response_format=response_format,
             )
             self.last_payload = payload
             try:
                 data = await self._request("POST", "chat/completions", json=payload)
                 break
             except LLMBackendError as exc:
-                if not seed_fallback_used and _is_seed_rejection(exc, optional):
+                if allow_retries and not seed_fallback_used and _is_seed_rejection(exc, optional):
                     include_seed = False
                     seed_fallback_used = True
                     self.seed_unsupported = True
                     self.effective_seed = None
                     self._unsupported_seed_endpoints.add(self._seed_endpoint_key)
                     continue
-                if not optional_fallback_used and _is_optional_compatibility_rejection(exc, optional):
+                if allow_retries and not optional_fallback_used and _is_optional_compatibility_rejection(exc, optional):
                     include_optional = False
                     optional_fallback_used = True
                     self.compatibility_fallback = True
@@ -187,13 +193,13 @@ class OpenAICompatibleClient:
                                   category="provider_response",
                                   safe_message="Malformed chat-completions response: missing choices[0].message.content.") from exc
         if isinstance(content, str):
-            return content.strip()
+            return content if response_format is not None else content.strip()
         if isinstance(content, list):
             text = "".join(
                 part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") in {"text", "output_text"}
-            ).strip()
-            if text:
-                return text
+            )
+            if text.strip() or response_format is not None:
+                return text if response_format is not None else text.strip()
         raise LLMBackendError("Malformed chat-completions response: content is not text.",
                               category="provider_response",
                               safe_message="Malformed chat-completions response: content is not text.")
@@ -210,10 +216,53 @@ class OpenAICompatibleClient:
             if event.kind == "content":
                 yield event.text
 
-    async def stream_events(self, messages: list[dict[str, Any]]) -> AsyncIterator[LLMStreamEvent]:
+    async def generate_streamed(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        response_instruction: str | None = DIRECT_OUTPUT_INSTRUCTION,
+        response_format: dict[str, Any] | None = None,
+    ) -> str:
+        content: list[str] = []
+        usage: dict[str, int] = {}
+        async for event in self.stream_events(
+            messages,
+            response_instruction=response_instruction,
+            response_format=response_format,
+            timeout=self.settings.timeout_seconds,
+        ):
+            if event.kind == "content":
+                content.append(event.text)
+            elif event.kind == "usage" and event.usage:
+                usage.update(event.usage)
+        self.last_usage = safe_usage(usage)
+        joined = "".join(content)
+        result = joined if response_format is not None else joined.strip()
+        if not result.strip() and response_format is None:
+            raise LLMBackendError(
+                "Malformed streamed chat-completions response: no final content.",
+                category="provider_response",
+                safe_message="Malformed streamed chat-completions response: no final content.",
+            )
+        return result
+
+    async def stream_events(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        response_instruction: str | None = DIRECT_OUTPUT_INSTRUCTION,
+        response_format: dict[str, Any] | None = None,
+        timeout: httpx.Timeout | float | None = None,
+    ) -> AsyncIterator[LLMStreamEvent]:
         if not self.settings.selected_model_id.strip():
             raise LLMBackendError("A model ID is required.", 400)
-        timeout = httpx.Timeout(connect=10.0, write=30.0, read=None, pool=10.0)
+        request_timeout: httpx.Timeout
+        if timeout is None:
+            request_timeout = httpx.Timeout(connect=10.0, write=30.0, read=None, pool=10.0)
+        elif isinstance(timeout, httpx.Timeout):
+            request_timeout = timeout
+        else:
+            request_timeout = httpx.Timeout(timeout)
         try:
             include_seed = not self._seed_known_unsupported
             include_optional = True
@@ -226,11 +275,13 @@ class OpenAICompatibleClient:
                     stream=True,
                     include_optional=include_optional,
                     include_seed=include_seed,
+                    response_instruction=response_instruction,
+                    response_format=response_format,
                 )
                 self.last_payload = payload
                 splitter = ReasoningSplitter()
                 async with self.client.stream(
-                    "POST", "chat/completions", json=payload, timeout=timeout,
+                    "POST", "chat/completions", json=payload, timeout=request_timeout,
                 ) as response:
                     if response.is_error:
                         detail = (await response.aread()).decode(errors="replace")[:500]
@@ -238,6 +289,8 @@ class OpenAICompatibleClient:
                             f"LLM endpoint returned HTTP {response.status_code}: {detail}",
                             502,
                             upstream_status=response.status_code,
+                            category="provider_http",
+                            safe_message=f"LLM endpoint returned HTTP {response.status_code}.",
                         )
                         if not seed_fallback_used and _is_seed_rejection(error, optional):
                             include_seed = False
@@ -254,6 +307,21 @@ class OpenAICompatibleClient:
                             yield LLMStreamEvent("compatibility_fallback")
                             continue
                         raise error
+                    content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                    if content_type == "application/json":
+                        try:
+                            data = json.loads((await response.aread()).decode(errors="replace"))
+                        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                            raise LLMBackendError(
+                                "Malformed JSON response from the LLM endpoint.",
+                                category="provider_response",
+                                safe_message="Malformed JSON response from the LLM endpoint.",
+                            ) from exc
+                        for event in _decode_json_response(data, splitter):
+                            yield event
+                        for event in splitter.flush():
+                            yield event
+                        return
                     data_lines: list[str] = []
                     async for line in response.aiter_lines():
                         if line == "":
@@ -278,9 +346,11 @@ class OpenAICompatibleClient:
         except LLMBackendError:
             raise
         except httpx.TimeoutException as exc:
-            raise LLMBackendError("The LLM endpoint timed out while connecting or writing the request.", 504) from exc
+            message = "The LLM endpoint timed out while connecting, reading, or writing the request."
+            raise LLMBackendError(message, 504, category="provider_timeout", safe_message=message) from exc
         except httpx.RequestError as exc:
-            raise LLMBackendError(f"The LLM stream ended unexpectedly: {exc}", 502) from exc
+            message = "The LLM stream ended unexpectedly."
+            raise LLMBackendError(message, 502, category="provider_connection", safe_message=message) from exc
 
 
 def _is_seed_rejection(error: LLMBackendError, optional_fields: set[str]) -> bool:
@@ -344,3 +414,46 @@ def _decode_sse_data(
     if not events:
         events.append(LLMStreamEvent("metadata"))
     return events, False
+
+
+def _decode_json_response(data: Any, splitter: ReasoningSplitter) -> list[LLMStreamEvent]:
+    """Decode a provider that returned one normal JSON completion to a stream."""
+    if not isinstance(data, dict):
+        raise LLMBackendError(
+            "Malformed JSON response from the LLM endpoint.",
+            category="provider_response",
+            safe_message="Malformed JSON response from the LLM endpoint.",
+        )
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise LLMBackendError(
+            "Malformed chat-completions response: missing choices.",
+            category="provider_response",
+            safe_message="Malformed chat-completions response: missing choices.",
+        )
+    choice = choices[0]
+    message = choice.get("message")
+    if not isinstance(message, dict):
+        message = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
+    events: list[LLMStreamEvent] = []
+    usage = safe_usage(data.get("usage"))
+    if usage:
+        events.append(LLMStreamEvent("usage", usage=usage))
+    for source in (choice, message):
+        reasoning = source.get("reasoning_content") or source.get("reasoning")
+        if isinstance(reasoning, str) and reasoning:
+            events.append(LLMStreamEvent("reasoning", reasoning))
+    content = message.get("content")
+    if isinstance(content, str) and content:
+        events.extend(splitter.feed(content))
+    elif isinstance(content, list):
+        text = "".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") in {"text", "output_text"}
+        )
+        if text:
+            events.extend(splitter.feed(text))
+    if not events:
+        events.append(LLMStreamEvent("metadata"))
+    return events

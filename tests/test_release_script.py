@@ -1,550 +1,434 @@
+"""Real Git integration tests; every push targets a disposable local bare remote."""
 from __future__ import annotations
 
+import copy
+import json
+from pathlib import Path
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
+from tools import release as r
+from tools.release_policy import ReleaseError, GUIDES, audit, digest, exclusion
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = PROJECT_ROOT / "release.ps1"
-
-
-def run_powershell(*arguments: str, cwd: Path = PROJECT_ROOT, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
-    executable = shutil.which("pwsh") or shutil.which("powershell")
-    if executable is None:
-        pytest.skip("PowerShell is not installed")
-    return subprocess.run(
-        [executable, "-NoProfile", "-File", str(SCRIPT), *arguments],
-        cwd=cwd,
-        check=False,
-        capture_output=True,
-        text=True,
-        input=input_text,
-    )
+ROOT = Path(__file__).resolve().parents[1]
 
 
-def git(root: Path, *arguments: str) -> str:
-    return subprocess.run(["git", "-C", str(root), *arguments], check=True, capture_output=True, text=True).stdout.strip()
+def git(path, *args):
+    return r.git(path, *args)
 
 
-def run_release_helper(tmp_path: Path, function: str, *arguments: str) -> subprocess.CompletedProcess[str]:
-    executable = shutil.which("pwsh") or shutil.which("powershell")
-    if executable is None:
-        pytest.skip("PowerShell is not installed")
-    helper = tmp_path / "release-functions.ps1"
-    source = SCRIPT.read_text(encoding="utf-8")
-    helper.write_text(source[source.index("Set-StrictMode"):source.index("\ntry {\n")], encoding="utf-8")
-    return subprocess.run(
-        [executable, "-NoProfile", "-Command", "& { . $args[0]; $callArgs = @($args[2..($args.Count - 1)]); & $args[1] @callArgs }", str(helper), function, *arguments],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+def commit(path, message='fixture'):
+    git(path, 'add', '-f', '.')
+    git(path, 'commit', '-qm', message)
 
 
-def init_repo(root: Path, branch: str) -> None:
-    root.mkdir()
-    git(root, "init", "-b", branch)
-    git(root, "config", "user.name", "Release Tool Tests")
-    git(root, "config", "user.email", "tests@example.invalid")
-    (root / "README.md").write_text("fixture\n", encoding="utf-8")
-    git(root, "add", "README.md")
-    git(root, "commit", "-m", "fixture")
+def init(path, branch='master'):
+    path.mkdir()
+    git(path, 'init', '-q', '-b', branch)
+    git(path, 'config', 'user.name', 'Release Tests')
+    git(path, 'config', 'user.email', 'release@example.invalid')
+    git(path, 'config', 'core.autocrlf', 'false')
 
 
-def fixture_repositories(tmp_path: Path) -> tuple[Path, Path, Path]:
-    dev, public, github = tmp_path / "dev", tmp_path / "public", tmp_path / "github"
-    init_repo(dev, "master")
-    init_repo(public, "public-release")
-    init_repo(github, "master")
-    (dev / "pyproject.toml").write_text('[project]\nversion = "0.3.0"\n', encoding="utf-8")
-    (dev / "miniconstruct/api").mkdir(parents=True)
-    (dev / "miniconstruct/h3").mkdir(parents=True)
-    (dev / "miniconstruct/__init__.py").write_text('__version__ = "0.3.0"\n', encoding="utf-8")
-    (dev / "miniconstruct/app.py").write_text('app = object(\n    version="0.3.0",\n)\n', encoding="utf-8")
-    (dev / "miniconstruct/api/routes.py").write_text('payload = {"version": "0.3.0"}\n', encoding="utf-8")
-    (dev / "miniconstruct/h3/__init__.py").write_text("", encoding="utf-8")
-    (dev / "miniconstruct/h3/guide_acquisition.py").write_text(
-        'import sys\n'
-        'TARGETS = ("miniconstruct/h3/guides/SKILL.md", "miniconstruct/h3/guides/base-en.txt", "miniconstruct/h3/guides/ref-en.txt")\n'
-        'if sys.argv[1:] == ["--managed-targets"]:\n'
-        '    print("\\n".join(TARGETS))\n',
-        encoding="utf-8",
-    )
-    git(dev, "add", ".")
-    git(dev, "commit", "-m", "add version fixtures")
-    return dev, public, github
+def passed_checks(snapshot, output):
+    # Integration fixtures have no installable app. The production CLI never
+    # exposes this dependency injection; its fresh-install runner is exercised separately.
+    assert not any((snapshot / name).exists() for name in GUIDES)
+    return {name: {'passed': True} for name in r.CHECKS if name != 'tree_audit'}
 
 
-def test_release_script_parses_without_running_a_release():
-    executable = shutil.which("pwsh") or shutil.which("powershell")
-    if executable is None:
-        pytest.skip("PowerShell is not installed")
-    result = subprocess.run(
-        [
-            executable,
-            "-NoProfile",
-            "-Command",
-            "& { $tokens = $null; $errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile($args[0], [ref]$tokens, [ref]$errors); if ($errors.Count) { $errors | ForEach-Object Message; exit 1 } }",
-            str(SCRIPT),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+@pytest.fixture
+def repos(tmp_path):
+    dev, staging, github, origin = [tmp_path / n for n in ('dev', 'staging', 'github', 'origin.git')]
+    init(dev)
+    init(staging, 'public-release')
+    init(github)
+    (staging / 'README.md').write_text('historic staging, preserved\n')
+    commit(staging)
+    (github / 'README.md').write_text('public baseline\n')
+    commit(github)
+    git(github, 'tag', '-a', 'v0.4.0', '-m', 'baseline')
+    subprocess.run(['git', 'init', '--bare', '-q', str(origin)], check=True)
+    git(github, 'remote', 'add', 'origin', str(origin))
+    git(github, 'push', 'origin', 'master', 'v0.4.0')
+    for folder in ('tools', 'release'):
+        shutil.copytree(ROOT / folder, dev / folder, ignore=shutil.ignore_patterns('__pycache__'))
+    shutil.copy2(ROOT / 'release.ps1', dev / 'release.ps1')
+    config = json.loads((dev / 'release/overlay.json').read_text())
+    config.update(remote=str(origin), replace=[], append={'README.md': 'files/README-public.md'},
+                  version_fields={'pyproject.toml': r'^(version = ")[^"\n]+(")$'})
+    # Local bare-remote paths are test infrastructure, never public snapshot data.
+    config['copy']['release/overlay.json'] = 'files/public-config.json'
+    (dev / 'release/files/public-config.json').write_bytes(b'{}\n')
+    r.save_json(dev / 'release/overlay.json', config)
+    r.write_files(dev, {'README.md': b'modern development\n', 'pyproject.toml': b'version = "0.4.0"\n',
+                        'miniconstruct/app.py': b'# modern app\n', '.gitignore': b'.local/\n.venv/\n'})
+    for name in ('guide_snapshot.py', 'guides/provenance.json'):
+        target = dev / 'miniconstruct/h3' / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / 'miniconstruct/h3' / name, target)
+    for path in GUIDES:
+        (dev / path).write_bytes(b'official content must not be exported')
+    commit(dev)
+    return dev, staging, github, origin
+
+
+def prepare(repos, path, **kwargs):
+    return r.prepare(*repos[:3], path, validator=passed_checks, **kwargs)
+
+
+def publish(path):
+    return r.publish(path, confirm=lambda prompt: 'PUBLISH ' + json.loads((path / 'manifest.json').read_text())['tag'])
+
+
+def states(repos):
+    return [r.status(p) for p in repos[:3]]
+
+
+def test_prepare_dry_run_and_exact_atomic_publication(repos, tmp_path):
+    before = states(repos)
+    preview = tmp_path / 'preview'
+    dry = prepare(repos, preview, dry_run=True)
+    assert states(repos) == before
+    assert dry['status'] == 'verified' and not dry['publishable']
+    with pytest.raises(ReleaseError, match='not publishable'):
+        publish(preview)
+    candidate = tmp_path / 'candidate'
+    prepared = prepare(repos, candidate)
+    assert prepared['version'] == '0.5.0'
+    assert prepared['public_tree'] == dry['public_tree']
+    assert states(repos) == before
+    result = publish(candidate)
+    refs = r.remote_refs(repos[2])
+    assert refs['refs/heads/master'] == result['commit']
+    assert refs['refs/tags/v0.5.0^{}'] == result['commit']
+    assert git(repos[2], 'rev-parse', 'HEAD^{tree}') == prepared['public_tree']
+    assert git(repos[2], 'rev-parse', 'HEAD^') == prepared['public_base']
+    assert not any(p in r.read_tree(repos[2], 'HEAD')[0] for p in GUIDES)
+    assert git(repos[0], 'rev-parse', 'HEAD') == before[0]['head']
+    assert git(repos[1], 'rev-parse', 'HEAD') == before[1]['head']
+    assert publish(candidate) == result  # lost acknowledgement / repeat is idempotent
+    with pytest.raises(ReleaseError, match='newer than'):
+        prepare(repos, tmp_path / 'repeat', version='0.5.0')
+
+
+def test_successive_releases_keep_modern_readme_and_app(repos, tmp_path):
+    first = tmp_path / 'first'
+    prepare(repos, first)
+    publish(first)
+    dev = repos[0]
+    (dev / 'README.md').write_text('new feature documentation\n')
+    (dev / 'miniconstruct/app.py').write_text('# new route preserved\n')
+    commit(dev)
+    second = tmp_path / 'second'
+    prepare(repos, second)
+    assert (second / 'snapshot/miniconstruct/app.py').read_text() == '# new route preserved\n'
+    assert (second / 'snapshot/README.md').read_text().startswith('new feature documentation')
+    result = publish(second)
+    assert r.remote_refs(repos[2])['refs/tags/v0.6.0^{}'] == result['commit']
+
+
+@pytest.mark.parametrize('which', [0, 1, 2])
+def test_dirty_repositories_are_preserved(repos, tmp_path, which):
+    (repos[which] / 'README.md').write_text('preserve dirty work\n')
+    before = states(repos)
+    with pytest.raises(ReleaseError, match='uncommitted'):
+        prepare(repos, tmp_path / 'candidate')
+    assert states(repos) == before
+
+
+def test_review_preview_is_real_but_never_publishable(repos, tmp_path):
+    (repos[0] / 'README.md').write_text('review edits\n')
+    before = states(repos)
+    path = tmp_path / 'review'
+    manifest = prepare(repos, path, dry_run=True, review=True)
+    assert manifest['blockers'] and not manifest['publishable']
+    assert (path / 'snapshot/README.md').read_text().startswith('review edits')
+    assert states(repos) == before
+
+
+@pytest.mark.parametrize('name', ['.venv/Lib/site.py', 'benchmarks/runs/result.json', 'benchmarks/send-local-staged.json',
+                                 '.local/private/Hyperflow/workflow.json', 'Projects/project.json', 'web/node_modules/module.js'])
+def test_tracked_private_and_generated_files_are_excluded(repos, tmp_path, name):
+    r.write_files(repos[0], {name: b'private runtime bytes'})
+    commit(repos[0])
+    target = tmp_path / 'candidate'
+    prepare(repos, target)
+    assert name not in r.read_tree(target / 'snapshot', git(target / 'snapshot', 'write-tree'))[0]
+    assert name in json.loads((target / 'inventory.json').read_text())['excluded']
+
+
+@pytest.mark.parametrize('name,data,message', [
+    ('personal-notes.txt', b'private', 'Unclassified'),
+    ('tests/fixtures/api.json', ('{"api_key":"sk-' + 'A' * 32 + '"}').encode(), 'credential'),
+    ('docs/account.md', ('path: C:' + '/' + 'Users/alice/private').encode(), 'personal absolute'),
+    ('web/assets/unexpected.png', b'new image', 'unreviewed binary'),
+    ('README.md', ('<' * 7 + ' ours\n').encode(), 'conflict marker'),
+])
+def test_fail_closed_content_audit(repos, tmp_path, name, data, message):
+    r.write_files(repos[0], {name: data})
+    commit(repos[0])
+    with pytest.raises(ReleaseError, match=message):
+        prepare(repos, tmp_path / 'candidate')
+
+
+def test_overlay_conflict_leaves_repositories_intact(repos, tmp_path):
+    path = repos[0] / 'release/overlay.json'
+    config = json.loads(path.read_text())
+    config['replace'] = [dict(path='miniconstruct/app.py', before='missing old anchor', after='new code')]
+    r.save_json(path, config)
+    commit(repos[0])
+    before = states(repos)
+    with pytest.raises(ReleaseError, match='Overlay conflict: miniconstruct/app.py'):
+        prepare(repos, tmp_path / 'candidate')
+    assert states(repos) == before
+
+
+def test_public_only_readme_change_requires_integration(repos, tmp_path):
+    (repos[2] / 'README.md').write_text('public-only editorial fix\n')
+    commit(repos[2])
+    git(repos[2], 'push', 'origin', 'master')
+    with pytest.raises(ReleaseError, match='Public-only changes.*README.md'):
+        prepare(repos, tmp_path / 'candidate')
+
+
+def test_divergent_remote_before_prepare(repos, tmp_path):
+    git(repos[2], 'commit', '--allow-empty', '-qm', 'unpublished local work')
+    with pytest.raises(ReleaseError, match='remote branch differ'):
+        prepare(repos, tmp_path / 'candidate')
+
+
+@pytest.mark.parametrize('change,match', [('source', 'Source or staging'), ('overlay', 'Overlay/tool'),
+                                         ('snapshot', 'Snapshot bytes'), ('extra', 'file set'),
+                                         ('manifest', 'manifest changed'), ('identity', 'author identity'),
+                                         ('remote', 'Unexpected origin'), ('index', 'index changed')])
+def test_publish_rejects_changed_preparation(repos, tmp_path, change, match):
+    target = tmp_path / 'candidate'
+    prepare(repos, target)
+    if change == 'source':
+        (repos[0] / 'README.md').write_text('new source\n')
+        commit(repos[0])
+    elif change == 'overlay':
+        with (repos[0] / 'release/files/README-public.md').open('a') as f:
+            f.write('overlay changed\n')
+    elif change in ('snapshot', 'extra'):
+        (target / 'snapshot' / ('README.md' if change == 'snapshot' else 'extra.txt')).write_text('tampered\n')
+    elif change == 'manifest':
+        with (target / 'manifest.json').open('a') as f:
+            f.write(' ')
+    elif change == 'identity':
+        git(repos[2], 'config', 'user.email', 'changed@example.invalid')
+    elif change == 'remote':
+        git(repos[2], 'remote', 'set-url', '--push', 'origin', str(tmp_path / 'wrong.git'))
+    elif change == 'index':
+        git(target / 'snapshot', 'read-tree', '--empty')
+    before = r.remote_refs(repos[2])
+    with pytest.raises(ReleaseError, match=match):
+        publish(target)
+    assert r.remote_refs(repos[2]) == before
+
+
+def test_failed_tests_and_export_do_not_mutate_inputs(repos, tmp_path):
+    before = states(repos)
+    def fail(snapshot, output):
+        raise ReleaseError('injected test failure')
+    target = tmp_path / 'failed'
+    with pytest.raises(ReleaseError, match='test failure'):
+        r.prepare(*repos[:3], target, validator=fail)
+    manifest = json.loads((target / 'manifest.json').read_text())
+    assert manifest['status'] == 'blocked' and not manifest['publishable']
+    assert states(repos) == before
+    with pytest.raises(ReleaseError, match='already exists'):
+        prepare(repos, target)
+    assert states(repos) == before
+
+
+def test_interrupted_merge_is_reported_and_preserved(repos, tmp_path):
+    repo = repos[1]
+    git(repo, 'checkout', '-qb', 'side')
+    (repo / 'README.md').write_text('side\n')
+    commit(repo)
+    git(repo, 'checkout', 'public-release')
+    (repo / 'README.md').write_text('main\n')
+    commit(repo)
+    with pytest.raises(ReleaseError):
+        git(repo, 'merge', 'side')
+    before = states(repos)
+    with pytest.raises(ReleaseError, match='Interrupted Git operation'):
+        prepare(repos, tmp_path / 'candidate')
+    assert states(repos) == before
+    assert git(repo, 'ls-files', '-u')
+
+
+def test_existing_local_tag_is_a_blocker(repos, tmp_path):
+    git(repos[0], 'tag', 'v0.5.0')
+    with pytest.raises(ReleaseError, match='already exists'):
+        prepare(repos, tmp_path / 'candidate')
+
+
+def test_publish_confirmation_and_remote_race(repos, tmp_path):
+    target = tmp_path / 'candidate'
+    prepare(repos, target)
+    before = states(repos)
+    with pytest.raises(ReleaseError, match='Confirmation'):
+        r.publish(target, confirm=lambda _: 'no')
+    assert states(repos) == before
+    # Advance the actual bare remote without changing the publication checkout.
+    other = tmp_path / 'other'
+    subprocess.run(['git', 'clone', '-q', str(repos[3]), str(other)], check=True)
+    git(other, 'config', 'user.name', 'Other')
+    git(other, 'config', 'user.email', 'other@example.invalid')
+    git(other, 'commit', '--allow-empty', '-qm', 'remote advance')
+    git(other, 'push', 'origin', 'master')
+    with pytest.raises(ReleaseError, match='Remote branch diverged'):
+        publish(target)
+
+
+def test_actual_atomic_push_rejection_is_retryable(repos, tmp_path):
+    target = tmp_path / 'candidate'
+    prepare(repos, target)
+    hook = repos[3] / 'hooks/pre-receive'
+    hook.write_text('#!/bin/sh\nexit 1\n')
+    hook.chmod(0o755)
+    before = r.remote_refs(repos[2])
+    with pytest.raises(ReleaseError, match='Command failed'):
+        publish(target)
+    assert r.remote_refs(repos[2]) == before
+    hook.unlink()
+    result = publish(target)
+    assert r.remote_refs(repos[2])['refs/heads/master'] == result['commit']
+
+
+def test_branch_only_partial_publication_recovers_same_objects(repos, tmp_path):
+    target = tmp_path / 'candidate'
+    prepare(repos, target)
+    # Declining computes deterministic objects only in the disposable candidate.
+    with pytest.raises(ReleaseError, match='Confirmation'):
+        r.publish(target, confirm=lambda _: 'no')
+    # Trigger a real rejected push to retain the exact release refs in the candidate.
+    hook = repos[3] / 'hooks/pre-receive'
+    hook.write_text('#!/bin/sh\nexit 1\n')
+    hook.chmod(0o755)
+    with pytest.raises(ReleaseError):
+        publish(target)
+    hook.unlink()
+    snapshot = target / 'snapshot'
+    expected = git(snapshot, 'rev-parse', 'release')
+    git(snapshot, 'push', str(repos[3]), 'release:refs/heads/master')
+    result = publish(target)
+    assert result['commit'] == expected
+
+
+def test_policy_protects_required_guides_and_unknown_git_entries():
+    config = json.loads((ROOT / 'release/overlay.json').read_text())
+    for guide in GUIDES:
+        assert exclusion(guide, config)
+        with pytest.raises(ReleaseError, match='excluded path'):
+            audit({guide: b'guide'}, config)
+    for name in ('../escape', '.git/config', 'C:/escape', 'tests/../escape'):
+        with pytest.raises(ReleaseError, match='Unsafe'):
+            exclusion(name, config)
+
+
+@pytest.mark.parametrize('runtime', ['pwsh', 'powershell'])
+def test_powershell_parser_and_execution(runtime, tmp_path):
+    exe = shutil.which(runtime)
+    if not exe:
+        pytest.skip(f'{runtime} not available')
+    source = ROOT / 'release.ps1'
+    result = subprocess.run([exe, '-NoProfile', '-Command',
+        '& { $tokens=$null; $errors=$null; [void][System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$tokens,[ref]$errors); if($errors.Count){ $errors; exit 1 } }',
+        str(source)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-
-
-def test_dry_run_checks_fixture_layout_without_mutating_it(tmp_path):
-    dev, public, github = fixture_repositories(tmp_path)
-    heads_before = [git(repo, "rev-parse", "HEAD") for repo in (dev, public, github)]
-
-    result = run_powershell(
-        "-Version", "0.4.0", "-DryRun",
-        "-DevRepo", str(dev), "-PublicRepo", str(public), "-GitHubRepo", str(github), "-PythonExe", sys.executable,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "DRY RUN" in result.stdout
-    assert "PREFLIGHT PASSED" in result.stdout
-    assert "does not simulate the full release sequence" in result.stdout
-    assert heads_before == [git(repo, "rev-parse", "HEAD") for repo in (dev, public, github)]
-    assert all(not git(repo, "status", "--porcelain") for repo in (dev, public, github))
-
-
-@pytest.mark.parametrize("which", ["dev", "public", "github"])
-def test_dirty_repository_stops_before_any_release_mutation(tmp_path, which):
-    dev, public, github = fixture_repositories(tmp_path)
-    selected = {"dev": dev, "public": public, "github": github}[which]
-    (selected / "dirty.txt").write_text("do not touch\n", encoding="utf-8")
-
-    result = run_powershell(
-        "-Version", "0.4.0", "-DryRun",
-        "-DevRepo", str(dev), "-PublicRepo", str(public), "-GitHubRepo", str(github), "-PythonExe", sys.executable,
-    )
-
-    assert result.returncode != 0
-    assert "uncommitted changes" in (result.stderr + result.stdout)
-    assert (selected / "dirty.txt").read_text(encoding="utf-8") == "do not touch\n"
-
-
-def test_dry_run_refuses_prohibited_public_guide(tmp_path):
-    dev, public, github = fixture_repositories(tmp_path)
-    guide = public / "miniconstruct/h3/guides/base-en.txt"
-    guide.parent.mkdir(parents=True)
-    guide.write_text("third-party guide", encoding="utf-8")
-    git(public, "add", ".")
-    git(public, "commit", "-m", "forbidden fixture")
-
-    result = run_powershell(
-        "-Version", "0.4.0", "-DryRun",
-        "-DevRepo", str(dev), "-PublicRepo", str(public), "-GitHubRepo", str(github), "-PythonExe", sys.executable,
-    )
-
-    assert result.returncode != 0
-    assert "prohibited MiniMax guide" in (result.stderr + result.stdout)
-
-
-def test_dry_run_refuses_an_existing_target_tag(tmp_path):
-    dev, public, github = fixture_repositories(tmp_path)
-    git(dev, "tag", "v0.4.0")
-
-    result = run_powershell(
-        "-Version", "0.4.0", "-DryRun",
-        "-DevRepo", str(dev), "-PublicRepo", str(public), "-GitHubRepo", str(github), "-PythonExe", sys.executable,
-    )
-
-    assert result.returncode != 0
-    assert "Target tag v0.4.0 already exists" in (result.stderr + result.stdout)
-
-
-def test_dry_run_recognizes_a_pending_target_version_bump(tmp_path):
-    dev, public, github = fixture_repositories(tmp_path)
-    for relative in ("pyproject.toml", "miniconstruct/__init__.py", "miniconstruct/app.py", "miniconstruct/api/routes.py"):
-        path = dev / relative
-        path.write_text(path.read_text(encoding="utf-8").replace("0.3.0", "0.4.0"), encoding="utf-8")
-
-    result = run_powershell(
-        "-Version", "0.4.0", "-DryRun",
-        "-DevRepo", str(dev), "-PublicRepo", str(public), "-GitHubRepo", str(github), "-PythonExe", sys.executable,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "version-bump-pending" in result.stdout
-
-
-def set_fixture_target_version(dev: Path) -> None:
-    for relative in ("pyproject.toml", "miniconstruct/__init__.py", "miniconstruct/app.py", "miniconstruct/api/routes.py"):
-        path = dev / relative
-        path.write_text(path.read_text(encoding="utf-8").replace("0.3.0", "0.4.0"), encoding="utf-8")
-
-
-def add_isolated_origin(repo: Path, origin: Path) -> None:
-    subprocess.run(["git", "init", "--bare", str(origin)], check=True, capture_output=True, text=True)
-    git(repo, "remote", "add", "origin", str(origin))
-    git(repo, "push", "origin", "master")
-    git(repo, "fetch", "origin", "master")
-
-
-def pending_release_repository(tmp_path: Path) -> tuple[Path, Path, str]:
-    github, _, _ = fixture_repositories(tmp_path)
-    origin = tmp_path / "origin.git"
-    add_isolated_origin(github, origin)
-    set_fixture_target_version(github)
-    git(github, "add", ".")
-    git(github, "commit", "-m", "Release MiniConstruct 0.4.0")
-    git(github, "tag", "-a", "v0.4.0", "-m", "MiniConstruct 0.4.0")
-    return github, origin, git(github, "rev-parse", "HEAD^{tree}")
-
-
-def publication_state(tmp_path: Path, github: Path, expected_tree: str) -> subprocess.CompletedProcess[str]:
-    return run_release_helper(tmp_path, "Get-GitHubPublicationState", str(github), "v0.4.0", "0.4.0", expected_tree)
-
-
-def test_publication_state_accepts_normal_fresh_release(tmp_path):
-    _, _, github = fixture_repositories(tmp_path)
-    add_isolated_origin(github, tmp_path / "origin.git")
-
-    result = publication_state(tmp_path, github, git(github, "rev-parse", "HEAD^{tree}"))
-
-    assert result.returncode == 0, result.stderr
-    assert "normal" in result.stdout
-
-
-def test_publication_state_recognizes_exact_push_pending_release(tmp_path):
-    github, _, expected_tree = pending_release_repository(tmp_path)
-    commit_before = git(github, "rev-parse", "HEAD")
-    tag_before = git(github, "rev-parse", "v0.4.0")
-
-    result = publication_state(tmp_path, github, expected_tree)
-
-    assert result.returncode == 0, result.stderr
-    assert "push-pending" in result.stdout
-    assert "resuming" in result.stdout
-    assert git(github, "rev-parse", "HEAD") == commit_before
-    assert git(github, "rev-parse", "v0.4.0") == tag_before
-
-
-def test_publication_state_rejects_extra_local_history_before_release(tmp_path):
-    github, _, _ = fixture_repositories(tmp_path)
-    add_isolated_origin(github, tmp_path / "origin.git")
-    set_fixture_target_version(github)
-    git(github, "add", ".")
-    git(github, "commit", "-m", "unintended intermediate local history")
-    git(github, "commit", "--allow-empty", "-m", "Release MiniConstruct 0.4.0")
-    git(github, "tag", "-a", "v0.4.0", "-m", "MiniConstruct 0.4.0")
-    expected_tree = git(github, "rev-parse", "HEAD^{tree}")
-
-    result = publication_state(tmp_path, github, expected_tree)
-
-    assert result.returncode != 0
-    assert "exact parent" in (result.stderr + result.stdout)
-
-
-def test_publication_state_rejects_master_only_partial_publication(tmp_path):
-    github, _, expected_tree = pending_release_repository(tmp_path)
-    git(github, "push", "origin", "master")
-    git(github, "fetch", "origin", "master")
-
-    result = publication_state(tmp_path, github, expected_tree)
-
-    assert result.returncode != 0
-    assert "exact parent" in (result.stderr + result.stdout)
-
-
-def test_publication_state_recognizes_lost_atomic_push_acknowledgement(tmp_path):
-    github, _, expected_tree = pending_release_repository(tmp_path)
-    git(github, "push", "--atomic", "origin", "master", "v0.4.0")
-    git(github, "fetch", "origin", "master")
-
-    result = publication_state(tmp_path, github, expected_tree)
-
-    assert result.returncode == 0, result.stderr
-    assert "already-pushed" in result.stdout
-    assert "already publish" in result.stdout
-
-
-def test_publication_state_rejects_wrong_local_tag_or_staging_tree(tmp_path):
-    github, _, expected_tree = pending_release_repository(tmp_path)
-    git(github, "tag", "-d", "v0.4.0")
-    git(github, "tag", "-a", "v0.4.0", "HEAD~1", "-m", "MiniConstruct 0.4.0")
-
-    wrong_tag = publication_state(tmp_path, github, expected_tree)
-    assert wrong_tag.returncode != 0
-    assert "does not peel to local master HEAD" in (wrong_tag.stderr + wrong_tag.stdout)
-
-    git(github, "tag", "-d", "v0.4.0")
-    git(github, "tag", "-a", "v0.4.0", "-m", "MiniConstruct 0.4.0")
-    wrong_tree = publication_state(tmp_path, github, "0" * 40)
-    assert wrong_tree.returncode != 0
-    assert "differs from the expected public staging tree" in (wrong_tree.stderr + wrong_tree.stdout)
-
-
-def test_publication_state_rejects_wrong_remote_tag_and_advanced_origin(tmp_path):
-    github, origin, expected_tree = pending_release_repository(tmp_path)
-    other = tmp_path / "other"
-    subprocess.run(["git", "clone", str(origin), str(other)], check=True, capture_output=True, text=True)
-    git(other, "config", "user.name", "Release Tool Tests")
-    git(other, "config", "user.email", "tests@example.invalid")
-    (other / "remote-only.txt").write_text("different\n", encoding="utf-8")
-    git(other, "add", ".")
-    git(other, "commit", "-m", "other remote state")
-    git(other, "tag", "-a", "v0.4.0", "-m", "MiniConstruct 0.4.0")
-    git(other, "push", "origin", "v0.4.0")
-
-    wrong_remote = publication_state(tmp_path, github, expected_tree)
-    assert wrong_remote.returncode != 0
-    assert "partial, divergent, or ambiguous" in (wrong_remote.stderr + wrong_remote.stdout)
-
-    git(other, "push", "origin", "master")
-    git(github, "fetch", "origin", "master")
-    git(other, "push", "origin", ":refs/tags/v0.4.0")
-    advanced = publication_state(tmp_path, github, expected_tree)
-    assert advanced.returncode != 0
-    assert "exact parent" in (advanced.stderr + advanced.stdout)
-
-
-def test_dry_run_recognizes_an_exact_already_staged_version_bump(tmp_path):
-    dev, public, github = fixture_repositories(tmp_path)
-    set_fixture_target_version(dev)
-    git(dev, "add", "pyproject.toml", "miniconstruct/__init__.py", "miniconstruct/app.py", "miniconstruct/api/routes.py")
-
-    result = run_powershell(
-        "-Version", "0.4.0", "-DryRun",
-        "-DevRepo", str(dev), "-PublicRepo", str(public), "-GitHubRepo", str(github), "-PythonExe", sys.executable,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "version-bump-pending" in result.stdout
-
-
-def test_version_bump_resume_rejects_unrelated_staged_version_file_edit(tmp_path):
-    dev, public, github = fixture_repositories(tmp_path)
-    set_fixture_target_version(dev)
-    app = dev / "miniconstruct/app.py"
-    app.write_text(app.read_text(encoding="utf-8") + "# staged-only edit\n", encoding="utf-8")
-    git(dev, "add", "miniconstruct/app.py")
-    app.write_text(app.read_text(encoding="utf-8").replace("# staged-only edit\n", ""), encoding="utf-8")
-    index_blob_before = git(dev, "rev-parse", ":miniconstruct/app.py")
-
-    result = run_powershell(
-        "-Version", "0.4.0", "-DryRun",
-        "-DevRepo", str(dev), "-PublicRepo", str(public), "-GitHubRepo", str(github), "-PythonExe", sys.executable,
-    )
-
-    assert result.returncode != 0
-    assert "beyond the exact version" in (result.stderr + result.stdout)
-    assert git(dev, "rev-parse", ":miniconstruct/app.py") == index_blob_before
-
-
-def test_version_bump_resume_rejects_extra_edit_inside_version_source(tmp_path):
-    dev, public, github = fixture_repositories(tmp_path)
-    for relative in ("pyproject.toml", "miniconstruct/__init__.py", "miniconstruct/app.py", "miniconstruct/api/routes.py"):
-        path = dev / relative
-        path.write_text(path.read_text(encoding="utf-8").replace("0.3.0", "0.4.0"), encoding="utf-8")
-    app = dev / "miniconstruct/app.py"
-    app.write_text(app.read_text(encoding="utf-8") + "# unrelated edit\n", encoding="utf-8")
-
-    rejected = run_powershell(
-        "-Version", "0.4.0", "-DryRun",
-        "-DevRepo", str(dev), "-PublicRepo", str(public), "-GitHubRepo", str(github), "-PythonExe", sys.executable,
-    )
-    accepted_as_correction = run_powershell(
-        "-Version", "0.4.0", "-DryRun", "-RefreshDevelopmentSource",
-        "-DevRepo", str(dev), "-PublicRepo", str(public), "-GitHubRepo", str(github), "-PythonExe", sys.executable,
-    )
-
-    assert rejected.returncode != 0
-    assert "beyond the exact version" in (rejected.stderr + rejected.stdout)
-    assert accepted_as_correction.returncode == 0, accepted_as_correction.stderr
-    assert "intentional-correction" in accepted_as_correction.stdout
-
-
-def test_atomic_version_validation_does_not_write_earlier_files(tmp_path):
-    dev, _, _ = fixture_repositories(tmp_path)
-    malformed = dev / "miniconstruct/api/routes.py"
-    malformed.write_text('payload = {"version": "0.3.0", "version": "0.3.0"}\n', encoding="utf-8")
-    before = {path: (dev / path).read_bytes() for path in ("pyproject.toml", "miniconstruct/__init__.py", "miniconstruct/app.py", "miniconstruct/api/routes.py")}
-
-    result = run_release_helper(tmp_path, "Set-ProjectVersion", str(dev), "0.4.0")
-
-    assert result.returncode != 0
-    assert "Expected exactly one authoritative version field" in (result.stderr + result.stdout)
-    assert before == {path: (dev / path).read_bytes() for path in before}
-
-
-def test_cached_conflict_marker_scan_handles_match_no_match_and_error(tmp_path):
-    repo = tmp_path / "repo"
-    init_repo(repo, "master")
-    (repo / "README.md").write_text("staged without markers\n", encoding="utf-8")
-    git(repo, "add", "README.md")
-    clean = run_release_helper(tmp_path, "Assert-NoCachedConflictMarkers", str(repo))
-    assert clean.returncode == 0, clean.stderr
-    (repo / "README.md").write_text("<<<<<<< ours\n", encoding="utf-8")
-    git(repo, "add", "README.md")
-    found = run_release_helper(tmp_path, "Assert-NoCachedConflictMarkers", str(repo))
-    assert found.returncode != 0
-    assert "contains merge-conflict markers" in (found.stderr + found.stdout)
-    failed = run_release_helper(tmp_path, "Assert-NoCachedConflictMarkers", str(tmp_path / "missing-repo"))
-    assert failed.returncode != 0
-    assert "conflict-marker scan failed" in (failed.stderr + failed.stdout)
-
-
-def test_unrelated_merge_head_is_rejected_without_committing_or_aborting(tmp_path):
-    _, public, _ = fixture_repositories(tmp_path)
-    make_unresolved_public_merge(public)
-    head_before = git(public, "rev-parse", "HEAD")
-    merge_head_before = git(public, "rev-parse", "-q", "--verify", "MERGE_HEAD")
-
-    result = run_release_helper(tmp_path, "Complete-PublicMerge", str(public), "0" * 40)
-
-    assert result.returncode != 0
-    assert "unrelated merge in progress" in (result.stderr + result.stdout)
-    assert git(public, "rev-parse", "HEAD") == head_before
-    assert git(public, "rev-parse", "-q", "--verify", "MERGE_HEAD") == merge_head_before
-
-
-def test_prepared_github_index_requires_exact_tree_and_no_untracked_files(tmp_path):
-    repo = tmp_path / "github"
-    init_repo(repo, "master")
-    (repo / "README.md").write_text("prepared\n", encoding="utf-8")
-    git(repo, "add", "README.md")
-    expected_tree = git(repo, "write-tree")
-
-    accepted = run_release_helper(tmp_path, "Assert-PreparedGitHubState", str(repo), expected_tree)
-    wrong_tree = run_release_helper(tmp_path, "Assert-PreparedGitHubState", str(repo), "0" * 40)
-    (repo / "unexpected.txt").write_text("no\n", encoding="utf-8")
-    untracked = run_release_helper(tmp_path, "Assert-PreparedGitHubState", str(repo), expected_tree)
-
-    assert accepted.returncode == 0, accepted.stderr
-    assert wrong_tree.returncode != 0
-    assert "do not equal" in (wrong_tree.stderr + wrong_tree.stdout)
-    assert untracked.returncode != 0
-    assert "untracked files" in (untracked.stderr + untracked.stdout)
-
-
-def test_release_script_retains_the_critical_resume_and_publish_guards():
-    source = SCRIPT.read_text(encoding="utf-8")
-
-    assert "--no-commit" in source
-    assert source.index("Invoke-PublicTests $PublicRepo $python") < source.index("Complete-PublicMerge $PublicRepo $developmentHead")
-    assert "MERGE_HEAD is $mergeHead, not the established tested source" in source
-    assert "Assert-PreparedGitHubState $GitHubRepo $stagingTree" in source
-    assert "-RefreshDevelopmentSource" in source
-    assert "Expected exactly one authoritative version field" in source
-    assert "push', '--atomic', 'origin', 'master', $tag" in source
-    assert "Get-GitHubPublicationState $GitHubRepo $tag $Version $stagingTree" in source
-    assert "Get-RemoteTagCommit" in source
-    assert "--managed-targets" in source
-    assert "tag', '-d'" not in source
-    assert "push', '--force" not in source
-    assert "reset', '--hard'" not in source
-    assert "Git ref publication is confirmed; only the GitHub Release object failed" in source
-    assert source.index("Release notes file does not exist") < source.index("Set-ProjectVersion $DevRepo $Version")
-
-
-def test_public_test_failure_cleans_guides_and_leaves_merge_uncommitted(tmp_path):
-    seed = tmp_path / "seed"
-    init_repo(seed, "master")
-    (seed / ".gitignore").write_text("__pycache__/\n*.pyc\n.pytest_cache/\n", encoding="utf-8")
-    for relative, content in {
-        "pyproject.toml": '[project]\nversion = "0.3.0"\n',
-        "miniconstruct/__init__.py": '__version__ = "0.3.0"\n',
-        "miniconstruct/app.py": 'app = object(\n    version="0.3.0",\n)\n',
-        "miniconstruct/api/routes.py": 'payload = {"version": "0.3.0"}\n',
-        "tests/test_ok.py": 'def test_ok(): assert True\n',
-        "tests/js/ok.test.mjs": 'import test from "node:test"; test("ok", () => {});\n',
-            "miniconstruct/h3/__init__.py": "",
-            "miniconstruct/h3/guide_acquisition.py": (
-                'import sys\n'
-                'from pathlib import Path\n'
-                'TARGETS = ("SKILL.md", "base-en.txt", "ref-en.txt", "future-en.txt")\n'
-                'if sys.argv[1:] == ["--managed-targets"]:\n'
-                '    print("\\n".join(f"miniconstruct/h3/guides/{name}" for name in TARGETS))\n'
-                '    raise SystemExit(0)\n'
-                'for name in TARGETS:\n'
-                '    target = Path(__file__).parent / "guides" / name\n'
-                '    target.parent.mkdir(parents=True, exist_ok=True)\n'
-                '    target.write_text("temporary", encoding="utf-8")\n'
-        ),
-    }.items():
-        path = seed / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-    git(seed, "add", ".")
-    git(seed, "commit", "-m", "release fixture")
-    for relative in ("pyproject.toml", "miniconstruct/__init__.py", "miniconstruct/app.py", "miniconstruct/api/routes.py"):
-        path = seed / relative
-        path.write_text(path.read_text(encoding="utf-8").replace("0.3.0", "0.4.0"), encoding="utf-8")
-    git(seed, "add", ".")
-    git(seed, "commit", "-m", "Release MiniConstruct 0.4.0", "-m", "MiniConstruct-Release-Version: 0.4.0")
-    dev, public, github = tmp_path / "dev", tmp_path / "public", tmp_path / "github"
-    subprocess.run(["git", "clone", str(seed), str(dev)], check=True, capture_output=True, text=True)
-    subprocess.run(["git", "clone", str(seed), str(public)], check=True, capture_output=True, text=True)
-    subprocess.run(["git", "clone", str(seed), str(github)], check=True, capture_output=True, text=True)
-    for repo in (dev, public, github):
-        git(repo, "config", "user.name", "Release Tool Tests")
-        git(repo, "config", "user.email", "tests@example.invalid")
-    git(public, "checkout", "-b", "public-release", "HEAD~1")
-    (public / "tests/test_public_failure.py").write_text('def test_public_failure(): assert False\n', encoding="utf-8")
-    git(public, "add", ".")
-    git(public, "commit", "-m", "simulate public test failure")
-    public_head_before = git(public, "rev-parse", "HEAD")
-
-    result = run_powershell(
-        "-Version", "0.4.0", "-DevRepo", str(dev), "-PublicRepo", str(public), "-GitHubRepo", str(github),
-        "-PythonExe", sys.executable,
-    )
-
-    assert result.returncode != 0
-    assert "public staging repository Python tests failed" in (result.stderr + result.stdout)
-    assert git(public, "rev-parse", "HEAD") == public_head_before
-    assert git(public, "rev-parse", "-q", "--verify", "MERGE_HEAD")
-    assert not any((public / "miniconstruct/h3/guides" / name).exists() for name in ("SKILL.md", "base-en.txt", "ref-en.txt", "future-en.txt"))
-
-
-def make_unresolved_public_merge(public: Path) -> None:
-    (public / "README.md").write_text("staging change\n", encoding="utf-8")
-    git(public, "add", "README.md")
-    git(public, "commit", "-m", "staging change")
-    git(public, "checkout", "-b", "release-side", "HEAD~1")
-    (public / "README.md").write_text("side change\n", encoding="utf-8")
-    git(public, "add", "README.md")
-    git(public, "commit", "-m", "side change")
-    git(public, "checkout", "public-release")
-    result = subprocess.run(["git", "-C", str(public), "merge", "release-side"], capture_output=True, text=True)
-    assert result.returncode != 0
-
-
-def test_dry_run_leaves_an_unresolved_staging_merge_in_progress(tmp_path):
-    dev, public, github = fixture_repositories(tmp_path)
-    make_unresolved_public_merge(public)
-
-    result = run_powershell(
-        "-Version", "0.4.0", "-DryRun",
-        "-DevRepo", str(dev), "-PublicRepo", str(public), "-GitHubRepo", str(github), "-PythonExe", sys.executable,
-    )
-
-    assert result.returncode != 0
-    assert "merge with unresolved paths" in (result.stderr + result.stdout)
-    assert git(public, "rev-parse", "-q", "--verify", "MERGE_HEAD")
-
-
-def test_dry_run_recognizes_a_resolved_staged_staging_merge(tmp_path):
-    dev, public, github = fixture_repositories(tmp_path)
-    make_unresolved_public_merge(public)
-    (public / "README.md").write_text("intentional resolution\n", encoding="utf-8")
-    git(public, "add", "README.md")
-    merge_head_before = git(public, "rev-parse", "-q", "--verify", "MERGE_HEAD")
-
-    result = run_powershell(
-        "-Version", "0.4.0", "-DryRun",
-        "-DevRepo", str(dev), "-PublicRepo", str(public), "-GitHubRepo", str(github), "-PythonExe", sys.executable,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "resolved, staged merge" in result.stdout
-    assert git(public, "rev-parse", "-q", "--verify", "MERGE_HEAD") == merge_head_before
+    result = subprocess.run([exe, '-NoProfile', '-File', str(source), '-Operation', 'Prepare',
+        '-DevRepo', str(tmp_path / 'absent'), '-PythonExe', sys.executable, '-DryRun'], capture_output=True, text=True)
+    assert result.returncode != 0 and 'RELEASE BLOCKED' in result.stderr
+    result = subprocess.run([exe, '-NoProfile', '-File', str(source), '-Operation', 'Publish',
+        '-PythonExe', sys.executable, '-DryRun'], capture_output=True, text=True)
+    assert result.returncode != 0 and 'requires -Manifest' in result.stderr
+
+
+def test_missing_guides_in_source_are_supported(repos, tmp_path):
+    for name in GUIDES:
+        (repos[0] / name).unlink()
+    commit(repos[0])
+    result = prepare(repos, tmp_path / 'candidate')
+    assert result['status'] == 'verified'
+
+
+def test_changed_source_during_confirmation_is_rejected(repos, tmp_path):
+    target = tmp_path / 'candidate'
+    prepare(repos, target)
+    before = r.remote_refs(repos[2])
+
+    def confirm(_):
+        (repos[0] / 'README.md').write_text('user edited during review\n')
+        return 'PUBLISH v0.5.0'
+
+    with pytest.raises(ReleaseError, match='uncommitted'):
+        r.publish(target, confirm=confirm)
+    assert r.remote_refs(repos[2]) == before
+
+
+def test_changed_asset_bytes_are_blocked(repos, tmp_path):
+    cfg_path = repos[0] / 'release/overlay.json'
+    cfg = json.loads(cfg_path.read_text())
+    cfg['binary_sha256']['web/assets/example.png'] = digest(b'reviewed image')
+    r.save_json(cfg_path, cfg)
+    r.write_files(repos[0], {'web/assets/example.png': b'changed image'})
+    commit(repos[0])
+    with pytest.raises(ReleaseError, match='changed asset hash'):
+        prepare(repos, tmp_path / 'candidate')
+
+
+def test_png_metadata_sanitization_preserves_pixels_and_source():
+    import io
+    from PIL import Image
+    from tools.release_policy import strip_png_metadata
+    name = 'benchmarks/environment-consistency/assets/anime-bedroom.png'
+    original = (ROOT / name).read_bytes()
+    # Public snapshots already contain the sanitized asset; both inputs are idempotent.
+    sanitized = strip_png_metadata(original)
+    assert strip_png_metadata(sanitized) == sanitized
+    with Image.open(io.BytesIO(original)) as old, Image.open(io.BytesIO(sanitized)) as new:
+        assert old.size == new.size and old.mode == new.mode
+        assert old.tobytes() == new.tobytes()
+        assert not {'prompt', 'workflow', 'exif'} & set(new.info)
+    assert (ROOT / name).read_bytes() == original
+
+
+def test_embedded_png_metadata_is_rejected_without_transformation():
+    import struct
+    import zlib
+    from tools.release_policy import strip_png_metadata
+    name = 'web/assets/example.png'
+    original = (ROOT / 'web/assets/favicon.png').read_bytes()
+    text = b'workflow\0private test metadata'
+    body = b'tEXt' + text
+    chunk = struct.pack('>I', len(text)) + body + struct.pack('>I', zlib.crc32(body))
+    embedded = original[:-12] + chunk + original[-12:]
+    with pytest.raises(ReleaseError, match='embedded PNG'):
+        audit({name: embedded}, {'binary_sha256': {name: digest(embedded)}})
+    assert strip_png_metadata(embedded) == original
+
+
+def test_linked_staging_worktree_migration_preserves_branches(repos, tmp_path):
+    linked = tmp_path / 'linked-staging'
+    git(repos[0], 'worktree', 'add', '-b', 'public-release', str(linked), 'HEAD')
+    (linked / 'README.md').write_text('historic public overlay on a linked worktree\n')
+    commit(linked)
+    layout = (repos[0], linked, repos[2], repos[3])
+    before = states(layout)
+    manifest = prepare(layout, tmp_path / 'candidate', dry_run=True)
+    assert manifest['status'] == 'verified'
+    assert states(layout) == before
+    assert (linked / 'README.md').read_text().startswith('historic public overlay')
+
+
+def test_staging_artifact_directory_does_not_dirty_staging(repos):
+    before = states(repos)
+    prepare(repos, repos[1] / '.release-artifacts' / 'candidate', dry_run=True)
+    assert states(repos) == before

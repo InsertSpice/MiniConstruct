@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "suite": "h3-character-performance",
+  "cases": [
+    {
+      "id": "strict-neutral-reference-reaction",
+      "title": "Strict identity with neutral Reference Sheet and changing scene reaction",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 2,
+      "requiresVision": true,
+      "workspace": {
+        "schemaVersion": 1, "projectName": "Performance · neutral reference", "mode": "Ref2VA",
+        "aspectRatio": "16:9", "variations": 1,
+        "creativeRequest": "<Subject 1> waits calmly beside a workshop door. A heavy object falls behind the door; she briefly startles, turns her attention toward the sound, then recognizes the harmless cause and settles again. Keep her recognizable facial structure, hair, jacket, and proportions consistent.",
+        "subjects": [{"id": "subject-1", "number": 1}], "nextSubjectNumber": 2,
+        "assets": [{"id": "neutral-sheet", "kind": "image", "filename": "neutral-subject-sheet.png", "mimeType": "image/png", "role": "subject_identity", "subjectIdentity": {"subjectId": "subject-1", "focus": "general", "layout": "reference_sheet"}, "order": 1}],
+        "creativeControls": {"subjectIdentityFidelity": {"level": "strict"}}
+      },
+      "fixtureAssets": [{"assetId": "neutral-sheet", "path": "assets/neutral-subject-sheet.png"}]
+    },
+    {
+      "id": "story-reserved-profile-news",
+      "title": "Reserved Profile shapes unsettling-news response",
+      "authoringPath": "story", "durationSeconds": 8, "shotCount": 2,
+      "workspace": {"schemaVersion": 1, "projectName": "Performance · reserved profile", "mode": "T2VA", "aspectRatio": "16:9", "variations": 1, "creativeRequest": "", "subjects": [{"id": "subject-1", "number": 1}], "nextSubjectNumber": 2},
+      "storyAuthority": {
+        "storyPlanPremise": "Mara searches for the missing maintenance log before the building opens.",
+        "sequenceContext": "Mara is an observant building manager; the missing log may explain a recent alarm.",
+        "orderedScenePlans": [{"generationId": "G1", "ordinal": 1, "scenePlan": "Mara receives a terse message that the log was deliberately removed. She absorbs the information before answering, while remaining at the reception desk.", "current": true}],
+        "currentGeneration": {"generationId": "G1", "ordinal": 1, "scenePlan": "Mara receives a terse message that the log was deliberately removed. She absorbs the information before answering, while remaining at the reception desk.", "incomingState": "Mara is reviewing the building records.", "intendedOutgoingState": "Mara knows the log was removed deliberately.", "relationshipToPrevious": null, "cameraIntent": "Hold the desk and Mara's reaction in a readable medium view.", "dialogue": "", "durationSeconds": 8, "participatingSubjects": [{"id": "subject-1", "number": 1}]},
+        "storyMemoryBefore": {"recentSummary": "The alarm was unexplained.", "durableFacts": []},
+        "characterProfiles": [{"subjectId": "subject-1", "canonicalH3Label": "<Subject 1>", "narrativeName": "Mara", "characterProfile": {"personality": "Normally composed, observant, and reserved. She notices details before speaking and rarely displays surprise openly."}}]
+      }
+    },
+    {
+      "id": "story-exact-dialogue-listener",
+      "title": "Exact speaker dialogue with a non-speaking listener",
+      "authoringPath": "story", "durationSeconds": 9, "shotCount": 2,
+      "workspace": {"schemaVersion": 1, "projectName": "Performance · listener", "mode": "T2VA", "aspectRatio": "16:9", "variations": 1, "creativeRequest": "", "dialogue": "Iris: \"The door was open when I got here.\"", "subjects": [{"id": "subject-1", "number": 1}, {"id": "subject-2", "number": 2}], "nextSubjectNumber": 3},
+      "storyAuthority": {
+        "storyPlanPremise": "Iris and Lev inspect the archive after hours.",
+        "sequenceContext": "They have been searching together; neither expects the secure door to be open.",
+        "orderedScenePlans": [{"generationId": "G1", "ordinal": 1, "scenePlan": "Iris notices the archive door ajar and tells Lev exactly what she found. Lev says nothing but attends to Iris and the doorway.", "current": true}],
+        "currentGeneration": {"generationId": "G1", "ordinal": 1, "scenePlan": "Iris notices the archive door ajar and tells Lev exactly what she found. Lev says nothing but attends to Iris and the doorway.", "incomingState": "Both stand outside the archive.", "intendedOutgoingState": "They know the door was already open.", "relationshipToPrevious": null, "cameraIntent": "Keep speaker, listener, and door legible.", "dialogue": "Iris: \"The door was open when I got here.\"", "durationSeconds": 9, "participatingSubjects": [{"id": "subject-1", "number": 1}, {"id": "subject-2", "number": 2}]},
+        "storyMemoryBefore": {"recentSummary": "The secure archive should be locked.", "durableFacts": []},
+        "characterProfiles": [{"subjectId": "subject-1", "canonicalH3Label": "<Subject 1>", "narrativeName": "Iris"}, {"subjectId": "subject-2", "canonicalH3Label": "<Subject 2>", "narrativeName": "Lev"}]
+      }
+    },
+    {
+      "id": "quiet-news-restraint",
+      "title": "Quiet negative control after difficult news",
+      "authoringPath": "one_shot", "durationSeconds": 8, "shotCount": 1,
+      "workspace": {"schemaVersion": 1, "projectName": "Performance · quiet", "mode": "T2VA", "aspectRatio": "16:9", "variations": 1, "creativeRequest": "Two friends sit in silence on a bench after difficult news. One avoids eye contact; the other stays beside them without pressing for a response. Neither cries, shakes, or makes an overt emotional outburst. Hold a calm, mostly still camera and let the shared silence remain awkward and restrained."}
+    },
+    {
+      "id": "active-alarm-movement",
+      "title": "Reaction while moving through a sudden event",
+      "authoringPath": "one_shot", "durationSeconds": 9, "shotCount": 2,
+      "workspace": {"schemaVersion": 1, "projectName": "Performance · action", "mode": "T2VA", "aspectRatio": "16:9", "variations": 1, "creativeRequest": "Nadia and Bo carry boxes down a narrow warehouse aisle. An alarm suddenly sounds behind them. Nadia checks Bo's position as she keeps moving; Bo notices her reaction and adjusts his path so they can reach the exit together. Keep their travel and the aisle geometry readable; the alarm interrupts the task but does not turn it into panic."}
+    },
+    {
+      "id": "one-shot-hope-to-uncertainty",
+      "title": "Ordinary Main Prompt emotional transition",
+      "authoringPath": "one_shot", "durationSeconds": 7, "shotCount": 1,
+      "workspace": {"schemaVersion": 1, "projectName": "Performance · one shot", "mode": "T2VA", "aspectRatio": "16:9", "variations": 1, "creativeRequest": "At a bus stop, Eli first expects the arriving bus to bring someone he has been waiting for. As the passengers step off and the person is absent, his hope gives way to quiet uncertainty. Stay with the ordinary waiting moment and do not add dialogue."}
+    }
+  ]
+}

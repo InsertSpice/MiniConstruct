@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "h3-visual-cut",
+  "title": "Visual Handoff: cut",
+  "operation": "generate_prompt",
+  "description": "Opt-in synthetic Selected Take visual handoff through production resolution. Generated H3 prompts and exported predecessor/handoff media require explicit external rendering and human review; no LLM judge, renderer submission, trimming or stitching.",
+  "tags": [
+    "continuity",
+    "visual-handoff",
+    "vision"
+  ],
+  "requirements": {
+    "vision": true
+  },
+  "fixtureAssets": [
+    {
+      "assetId": "subject-1-picture",
+      "path": "assets/subject-1.png"
+    }
+  ],
+  "h3Project": {
+    "predecessorVisualFixture": true,
+    "planning": {
+      "relationshipToPrevious": "new_shot_preserve_continuity",
+      "cameraIntent": "After the opening anchor, cut almost immediately to a close side view of Subject 1 carrying the yellow object.",
+      "visualHandoff": {
+        "strategy": "auto",
+        "tailSeconds": 1.5,
+        "immediateCutMilliseconds": 100
+      }
+    },
+    "inputContains": [
+      "exact predecessor endpoint",
+      "100 ms",
+      "Do not linger"
+    ],
+    "inputAbsent": []
+  },
+  "humanReview": [
+    "Does the opening match the predecessor endpoint state?",
+    "Does the camera change almost immediately without lingering in the old composition?",
+    "Do appearance, environment and object state survive the cut? Timing is requested intent, not guaranteed milliseconds."
+  ]
+}

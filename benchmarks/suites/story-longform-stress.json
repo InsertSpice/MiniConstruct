@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform-stress",
+  "title": "Opt-in stateful Story long-form stress benchmark (expensive)",
+  "cases": ["story-longform-stress"]
+}

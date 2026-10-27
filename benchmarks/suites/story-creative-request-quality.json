@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "story-creative-request-quality",
+  "title": "Story-aware scene planning quality",
+  "cases": [
+    "story-creative-quality-mystery",
+    "story-creative-quality-interpersonal",
+    "story-creative-quality-quiet"
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "story-character-profile-current-state-authority",
+  "version": "1",
+  "title": "Character Profile yields to current Story Memory",
+  "description": "Alice normally walks unaided in her stable Profile, while current Story Memory records a fractured ankle and crutches.",
+  "tags": ["story", "character-profile", "story-memory", "authority"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea": "Alice must retrieve a ledger from the municipal archive office.",
+    "sequenceContext": "The archive is quiet after a storm, and the ledger remains in the office.",
+    "storyMemory": {"recentSummary": "Alice has reached the archive office.", "durableFacts": [
+      {"id": "77777777-7777-4777-8777-777777777777", "text": "Alice fractured her ankle and currently uses crutches.", "relatedSubjectIds": ["alice"]}
+    ], "openThreads": []},
+    "narrativeSubjects": [
+      {"subjectId": "alice", "narrativeName": "Alice", "characterProfile": {
+        "roleBackground": "Senior conservator at a municipal archive.",
+        "personality": "Calm, methodical and observant.",
+        "appearance": "Silver-streaked braid and narrow rectangular glasses.",
+        "speechMannerisms": "Measured, concise sentences.",
+        "notes": "Alice normally walks unaided."
+      }}
+    ],
+    "generations": [
+      {"workspacePath": "workspace.json", "scenePlan": "Alice has reached the municipal archive office to retrieve a ledger.", "planning": {"relationshipToPrevious": null}}
+    ],
+    "next": {"requestedCount": 2, "instruction": "Continue naturally as Alice retrieves the ledger."}
+  },
+  "expectations": {"checks": [
+    {"kind": "story_item_count_equals", "value": 2},
+    {"kind": "story_new_items_have_no_existing_generation_id"},
+    {"kind": "story_relevant_subject_ids_equals", "value": ["alice"]},
+    {"kind": "story_character_profile_present", "value": "alice"}
+  ]},
+  "behavioralChecks": [
+    {"id": "current-injury-memory-transmitted", "description": "The current ankle injury is present in the authoritative Story Memory supplied to Plan Next.", "kind": "request_memory_contains", "text": "fractured her ankle"},
+    {"id": "current-crutches-memory-transmitted", "description": "The current crutches state is present in the authoritative Story Memory supplied to Plan Next.", "kind": "request_memory_contains", "text": "uses crutches"},
+    {"id": "current-state-authority", "description": "Review whether current Story Memory overrides the stable Profile only for present physical state while leaving characterization intact.", "expectedConcepts": ["Alice"]}
+  ],
+  "humanReview": [
+    "Does the plan honor Alice's current crutches and injury rather than making her walk normally because the Profile says she usually does?",
+    "May the plan still use Alice's stable methodical characterization and relevant archive expertise?",
+    "Does it avoid rewriting or reinterpreting the stored Profile?"
+  ]
+}

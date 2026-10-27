@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 
-from miniconstruct.h3.builder import assemble_prompt, build_h3_input_map, build_reference_manifest, numbered_assets
+import pytest
+
+from miniconstruct.h3.builder import assemble_prompt, build_h3_input_map, build_reference_manifest, numbered_assets, media_reference_allowlist
 from miniconstruct.models.workspace import ReferenceLayout, SubjectIdentityFocus
 
 
@@ -11,6 +13,20 @@ def test_t2va_uses_base_guide_only(workspace_factory):
     assert "integrated_multimodal_description" in result.inspector_text
     assert "six-section full-reference grammar" not in result.inspector_text
     assert "Shot count: auto" in result.inspector_text
+    assert "There are no Audio references in this Generation" in result.inspector_text
+    assert "Do not write any <Audio N> reference" in result.inspector_text
+
+
+def test_closed_world_media_allowlist_uses_only_mode_active_numbered_assets(workspace_factory, image_asset_factory):
+    picture = image_asset_factory("only-picture")
+    audio = {"id": "voice", "kind": "audio", "filename": "voice.wav", "mimeType": "audio/wav", "role": "voice_timbre"}
+    only_picture = media_reference_allowlist(workspace_factory(mode="Ref2VA", assets=[picture]))
+    assert "Allowed Picture references: <Picture 1>." in only_picture
+    assert "<Picture 2>" not in only_picture
+    assert "Allowed Audio references: none." in only_picture
+    with_audio = media_reference_allowlist(workspace_factory(mode="Ref2VA", assets=[picture, audio]))
+    assert "Allowed Audio references: <Audio 1>." in with_audio
+    assert "Do not write any <Audio N>" not in with_audio
 
 
 def test_keyframe_mode_guidance(workspace_factory, image_asset_factory):
@@ -138,20 +154,19 @@ def test_normal_continuation(workspace_factory):
     assert "without forcing a replay" in text
 
 
-def test_seamless_overlap_known_duration_and_camera_handoff(workspace_factory):
-    video = {"id": "v", "kind": "video", "filename": "tail.mp4", "mimeType": "video/mp4", "durationSeconds": 1.72, "role": "seamless_overlap_continuation"}
+def test_tail_reference_continues_from_source_end_without_prefix_claim(workspace_factory):
+    video = {"id": "v", "kind": "video", "filename": "tail.mp4", "mimeType": "video/mp4", "durationSeconds": 1.72, "role": "tail_reference_continuation"}
     text = assemble_prompt(workspace_factory(mode="Ref2VA", assets=[video]), False).inspector_text
-    assert "00:00.000–00:01.720" in text
-    assert "continues monotonically forward" in text
-    assert "overlap remains within Shot 1" in text
-    assert "0.5–1.0 seconds" in text
+    assert "actual final segment of the predecessor" in text
+    assert "from the END" in text
+    assert "not a demand that target frames duplicate" in text
 
 
-def test_seamless_overlap_missing_duration(workspace_factory):
-    video = {"id": "v", "kind": "video", "filename": "tail.mp4", "mimeType": "video/mp4", "role": "seamless_overlap_continuation"}
+def test_tail_reference_does_not_require_a_source_duration(workspace_factory):
+    video = {"id": "v", "kind": "video", "filename": "tail.mp4", "mimeType": "video/mp4", "role": "tail_reference_continuation"}
     text = assemble_prompt(workspace_factory(mode="Ref2VA", assets=[video]), False).inspector_text
-    assert "complete duration of <Video 1>" in text
-    assert "00:00.000–" not in text
+    assert "<Video 1> is the actual final segment" in text
+    assert "frame-identical" not in text
 
 
 def test_audio_roles_and_no_implicit_audio_from_video(workspace_factory):
@@ -175,3 +190,29 @@ def test_dialogue_verbatim_and_speaker_mapping_instruction(workspace_factory):
     text = assemble_prompt(workspace, False).inspector_text
     assert "Don't touch that!" in text and "I won't." in text
     assert "actual speech order" in text
+
+
+@pytest.mark.parametrize("language,spoken,authority,tag", [
+    ("ja", "いつ出発するの？", "Japanese", "[Japanese]"),
+    ("en", "Hello there.", "English", "[English]"),
+])
+def test_concrete_sequence_dialogue_language_is_explicit_for_main_and_story_h3(
+    workspace_factory, language, spoken, authority, tag,
+):
+    workspace = workspace_factory(dialogueLanguage=language, dialogue=spoken)
+    story = {
+        "currentGeneration": {"scenePlan": "A character speaks."},
+        "currentH3SetupShots": 1,
+    }
+    for assembled in (assemble_prompt(workspace, False), assemble_prompt(workspace, False, story_context=story)):
+        user = assembled.messages[-1]["content"]
+        assert f"EFFECTIVE SEQUENCE DIALOGUE LANGUAGE: {authority}." in user
+        assert f"prefix every H3 dialogue block with {tag}" in user
+
+
+def test_as_written_dialogue_language_is_explicit_and_allows_supported_tag_choice(workspace_factory):
+    assembled = assemble_prompt(workspace_factory(dialogueLanguage="as_written", dialogue="Hello there."), False)
+    user = assembled.messages[-1]["content"]
+    assert "EFFECTIVE SEQUENCE DIALOGUE LANGUAGE: As Written." in user
+    assert "Choose one supported official H3 language tag appropriate to the supplied spoken text" in user
+    assert "MiniConstruct does not detect or validate language identity" in user

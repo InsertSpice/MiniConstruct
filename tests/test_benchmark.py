@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import hashlib
+import io
 from pathlib import Path
 import shutil
 
 import httpx
 import pytest
+from PIL import Image
 
 from miniconstruct.benchmark.runner import (
     BenchmarkProfile,
@@ -26,7 +28,7 @@ from miniconstruct.h3.builder import assemble_prompt
 ROOT = Path(__file__).resolve().parents[1] / "benchmarks"
 
 VALID_PROMPT = """integrated_multimodal_description:
-[Shot 1] A cyclist crosses the wet street. <d>Don't touch that!</d>
+[Shot 1] A cyclist crosses the wet street. <d>[English] Don't touch that!</d>
 overall_soundscape:
 Rain and distant traffic.
 non_diegetic_music:
@@ -89,6 +91,21 @@ class EffectivePayloadClient(FakeClient):
         return VALID_PROMPT
 
 
+class DialogueResolverBenchmarkClient(FakeClient):
+    resolver_calls = 0
+    h3_calls = 0
+
+    async def generate(self, messages, *, response_instruction=None):
+        self.messages = messages
+        if response_instruction is not None:
+            type(self).resolver_calls += 1
+            return "Kent: 早く逃げよう。\nMira: すぐ後ろにいる。"
+        type(self).h3_calls += 1
+        assert "Kent: 早く逃げよう。" in json.dumps(messages, ensure_ascii=False)
+        assert "We need to get out before the tunnel collapses." not in json.dumps(messages, ensure_ascii=False)
+        return "integrated_multimodal_description:\n[Shot 1] Kent and Mira run, <d>[Japanese] Kent: 早く逃げよう。 Mira: すぐ後ろにいる。</d>\noverall_soundscape:\nQuiet.\nnon_diegetic_music:\nNone.\n"
+
+
 def profile(*, vision: bool = False) -> BenchmarkProfile:
     return BenchmarkProfile.model_validate({
         "id": "fake", "displayName": "Fake", "modelId": "writer", "supportsVision": vision,
@@ -139,6 +156,28 @@ async def test_benchmark_uses_production_assembly_and_records_provenance():
 
 
 @pytest.mark.asyncio
+async def test_manual_dialogue_benchmark_uses_production_resolver_and_cache():
+    DialogueResolverBenchmarkClient.resolver_calls = 0
+    DialogueResolverBenchmarkClient.h3_calls = 0
+    result = await BenchmarkRunner(ROOT, DialogueResolverBenchmarkClient).run(
+        profile(), ["dialogue-language-manual-en-ja"],
+    )
+    item = result["cases"][0]
+    evidence = item["dialogueResolution"]
+    assert evidence == {
+        "sourceDialogue": "Kent: We need to get out before the tunnel collapses.\nMira: I'm right behind you.",
+        "resolvedDialogue": "Kent: 早く逃げよう。\nMira: すぐ後ろにいる。",
+        "targetLanguage": "ja",
+        "resolverInvoked": True,
+        "cacheReused": True,
+    }
+    assert DialogueResolverBenchmarkClient.resolver_calls == 1
+    assert DialogueResolverBenchmarkClient.h3_calls == 1
+    assert "Kent: 早く逃げよう。" in item["modelInput"]["user"]
+    assert "We need to get out before the tunnel collapses." not in item["modelInput"]["user"]
+
+
+@pytest.mark.asyncio
 async def test_mocked_benchmark_path_includes_creative_policy_and_controls():
     FakeClient.instances.clear()
     result = await BenchmarkRunner(ROOT, FakeClient).run(
@@ -181,7 +220,9 @@ async def test_actual_transmitted_image_hashes_are_ordered_and_unsent_assets_are
     root = tmp_path / "benchmarks"
     case_dir = root / "cases" / "vision-input"
     (case_dir / "assets").mkdir(parents=True)
-    image_bytes = b"exact image fixture bytes"
+    output = io.BytesIO()
+    Image.new("RGB", (1536, 1536), (40, 80, 120)).save(output, "PNG")
+    image_bytes = output.getvalue()
     (case_dir / "assets" / "reference.png").write_bytes(image_bytes)
     (case_dir / "case.json").write_text(json.dumps({
         "schemaVersion": 1, "id": "vision-input", "title": "Vision input",
@@ -194,7 +235,10 @@ async def test_actual_transmitted_image_hashes_are_ordered_and_unsent_assets_are
     }), encoding="utf-8")
     sent = (await BenchmarkRunner(root, FakeClient).run(profile(vision=True), ["vision-input"]))["cases"][0]
     image = sent["modelInput"]["images"][0]
-    assert image == {"index": 1, "sha256": hashlib.sha256(image_bytes).hexdigest(), "mimeType": "image/png", "assetId": "image-1", "filename": "reference.png", "fixturePath": "assets/reference.png"}
+    assert image["index"] == 1 and image["mimeType"] == "image/jpeg"
+    assert image["sha256"] != hashlib.sha256(image_bytes).hexdigest()
+    assert {key: image[key] for key in ("assetId", "filename", "fixturePath")} == {
+        "assetId": "image-1", "filename": "reference.png", "fixturePath": "assets/reference.png"}
     assert "data:image/" not in json.dumps(sent)
     unsent = (await BenchmarkRunner(root, FakeClient).run(profile(vision=False), ["vision-input"]))["cases"][0]
     assert unsent["referenceInputs"] and unsent["modelInput"]["images"] == []

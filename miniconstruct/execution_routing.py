@@ -33,6 +33,8 @@ def effective_references(workspace, routing=None):
     result, counts = [], {"Picture": 0, "Video": 0, "Audio": 0}
     for asset, _ in numbered_assets(workspace):
         preference = routing.assets.get(asset.id, AssetRouting())
+        if getattr(asset, "options", {}).get("visualHandoff"):
+            preference = AssetRouting()  # Visual policy owns this video-only transient input.
         if asset.kind == "video" and preference.use_embedded_audio and not preference.use_frames:
             raise ValueError("Embedded video audio requires video frames to be enabled.")
         channels = {"image": [("image", "Picture")], "video": [("embedded_audio", "Audio"), ("video_frames", "Video")],

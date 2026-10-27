@@ -14,6 +14,7 @@ from miniconstruct.models.api import (
 from miniconstruct.models.planning import GenerationPlanning, RecommendationSource
 from miniconstruct.models.workspace import AssetKind, Workspace
 from miniconstruct.project_store import GenerationDocument
+from miniconstruct.dialogue_language import story_dialogue_policy
 
 
 PLANNER_MEDIA_POLICY = """Never fabricate facts about media that was not content-analysed. Video and Audio are
@@ -37,6 +38,7 @@ BASE_PLANNER_SYSTEM = """You are MiniConstruct's optional one-Generation plannin
 Return exactly one JSON object, with no Markdown fences or commentary, using these keys:
 creativeRequest, incomingState, intendedOutgoingState, relationshipToPrevious,
 cameraIntent, referenceRecommendations.
+When a Revision includes dialogue in editableScopes, include its exact value as dialogue.
 The first five values must be strings except relationshipToPrevious, which is either
 null or one of: continue_previous_shot, new_shot_preserve_continuity,
 match_previous_ending_frame, independent. referenceRecommendations is an array of
@@ -57,6 +59,10 @@ The explicit revision instruction is authoritative for fields in editableScopes,
 including non-empty fields. Fields outside editableScopes are authoritative and must
 remain exactly unchanged. Sequence Context is read-only. Recommendations may mention
 only current-generation source/asset pairs present in context.
+When dialogue is an editableScope, return its exact replacement in the dialogue key.
+Dialogue is exact spoken or sung wording, not speech direction or sound design. Preserve
+all punctuation and line breaks; an explicit empty string means deliberate silence and
+is valid. Do not omit dialogue when it is selected.
 """
 
 RELATIONSHIP_SEMANTICS = """Relationship semantics:
@@ -84,7 +90,7 @@ class PlanningAssembly:
 def _asset_metadata(workspace: Workspace) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for asset in workspace.ordered_assets():
-        entry = asset.model_dump(mode="json", by_alias=True, exclude={"image", "media_payload"})
+        entry = asset.model_dump(mode="json", by_alias=True, exclude={"image", "media_payload", "payload_availability", "payload_sha256"})
         entry["imageAvailableForVision"] = asset.kind == AssetKind.IMAGE and asset.image is not None
         if asset.kind in {AssetKind.VIDEO, AssetKind.AUDIO}:
             entry["contentAnalysis"] = None
@@ -92,12 +98,21 @@ def _asset_metadata(workspace: Workspace) -> list[dict[str, Any]]:
     return entries
 
 
-def _workspace_context(workspace: Workspace, *, planning: GenerationPlanning, incoming: str, outgoing: str) -> dict[str, Any]:
+def _workspace_context(
+    workspace: Workspace,
+    *,
+    planning: GenerationPlanning,
+    incoming: str,
+    outgoing: str,
+    narrative_subjects=(),
+) -> dict[str, Any]:
+    from miniconstruct.models.sequence_subject import narrative_mapping
     return {
         "mode": workspace.mode,
         "durationSeconds": workspace.duration_seconds,
         "shots": workspace.shots,
         "subjects": [subject.model_dump(mode="json") for subject in workspace.subjects],
+        "narrativeSubjects": narrative_mapping(narrative_subjects),
         "creativeControls": workspace.creative_controls.model_dump(mode="json", by_alias=True),
         "creativeRequest": workspace.creative_request,
         "dialogue": workspace.dialogue,
@@ -110,13 +125,16 @@ def _workspace_context(workspace: Workspace, *, planning: GenerationPlanning, in
 
 
 def _image_parts(workspace: Workspace, label: str) -> list[dict[str, Any]]:
+    from miniconstruct.h3.vision_input import prompt_writer_image
     parts: list[dict[str, Any]] = []
     for asset in workspace.ordered_assets():
-        if asset.kind != AssetKind.IMAGE or asset.image is None:
+        if asset.kind != AssetKind.IMAGE:
             continue
+        if asset.image is None:
+            raise ValueError("Picture payload unavailable; Replace Picture before Story Planner Vision")
         parts.extend([
             {"type": "text", "text": f"Visual input for {label} asset {asset.id} ({asset.filename}), role {asset.role}:"},
-            {"type": "image_url", "image_url": {"url": asset.image.data_url}},
+            {"type": "image_url", "image_url": {"url": prompt_writer_image(asset.image.data_url)[0]}},
         ])
     return parts
 
@@ -132,6 +150,7 @@ def assemble_inference_prompt(
         planning=request.planning,
         incoming=request.continuity.incoming_state or "",
         outgoing=request.continuity.intended_outgoing_state or "",
+        narrative_subjects=request.narrative_subjects,
     )
     predecessor = _workspace_context(
         previous.workspace,
@@ -154,7 +173,7 @@ def assemble_inference_prompt(
     if supports_vision is True:
         content.extend(_image_parts(previous.workspace, "previous-generation") )
         content.extend(_image_parts(request.workspace, "current-generation") )
-    messages = [{"role": "system", "content": PLANNER_SYSTEM}, {"role": "user", "content": content if supports_vision is True else text}]
+    messages = [{"role": "system", "content": PLANNER_SYSTEM + "\n" + story_dialogue_policy(request.workspace.dialogue_language)}, {"role": "user", "content": content if supports_vision is True else text}]
     allowed = {
         (RecommendationSource.PREVIOUS_GENERATION.value, asset.id) for asset in previous.workspace.assets
     } | {
@@ -169,6 +188,7 @@ def assemble_revision_plan_prompt(request: PlanningRevisionRequest) -> PlanningA
         planning=request.planning,
         incoming=request.continuity.incoming_state or "",
         outgoing=request.continuity.intended_outgoing_state or "",
+        narrative_subjects=request.narrative_subjects,
     )
     context = {
         "sequenceContext": request.continuity.sequence_context or "",
@@ -178,9 +198,9 @@ def assemble_revision_plan_prompt(request: PlanningRevisionRequest) -> PlanningA
     }
     text = "Revise only the selected planning scopes. Preserve all other values exactly. Do not revise Sequence Context.\n" + json.dumps(context, ensure_ascii=False, indent=2, default=str)
     content: list[dict[str, Any]] = [{"type": "text", "text": text}]
-    if request.llm.supports_vision is True:
+    if request.llm.story_vision_enabled:
         content.extend(_image_parts(request.workspace, "current-generation"))
-    messages = [{"role": "system", "content": BASE_PLANNER_SYSTEM + REVISION_AUTHORITY + RELATIONSHIP_SEMANTICS}, {"role": "user", "content": content if request.llm.supports_vision is True else text}]
+    messages = [{"role": "system", "content": BASE_PLANNER_SYSTEM + REVISION_AUTHORITY + RELATIONSHIP_SEMANTICS + "\n" + story_dialogue_policy(request.workspace.dialogue_language)}, {"role": "user", "content": content if request.llm.story_vision_enabled else text}]
     allowed = frozenset((RecommendationSource.CURRENT_GENERATION.value, asset.id) for asset in request.workspace.assets)
     return PlanningAssembly(messages, f"{BASE_PLANNER_SYSTEM}\n{REVISION_AUTHORITY}\n{RELATIONSHIP_SEMANTICS}\n{text}", allowed)
 
@@ -213,11 +233,14 @@ async def infer_plan(
     request: PlanningInferenceRequest,
     client_factory: Callable[[Any], Any] = OpenAICompatibleClient,
 ) -> AssistedGenerationPlan:
-    return await _generate_plan(
-        assemble_inference_prompt(previous, request, supports_vision=request.llm.supports_vision),
+    plan = await _generate_plan(
+        assemble_inference_prompt(previous, request, supports_vision=request.llm.story_vision_enabled),
         request.llm,
         client_factory,
     )
+    # Infer from Previous only fills planning metadata. Keep dialogue read-only
+    # at the backend boundary even if an inference model returns a dialogue key.
+    return plan.model_copy(update={"dialogue": request.workspace.dialogue})
 
 
 def validate_revision_result(
@@ -225,8 +248,11 @@ def validate_revision_result(
     plan: AssistedGenerationPlan,
 ) -> None:
     selected = set(request.scopes)
+    if PlanningRevisionScope.DIALOGUE in selected and "dialogue" not in plan.model_fields_set:
+        raise LLMBackendError("The planning model omitted selected field 'dialogue'.", 502)
     current = {
         PlanningRevisionScope.MAIN_PROMPT: request.workspace.creative_request,
+        PlanningRevisionScope.DIALOGUE: request.workspace.dialogue,
         PlanningRevisionScope.INCOMING_STATE: request.continuity.incoming_state or "",
         PlanningRevisionScope.INTENDED_OUTGOING_STATE: request.continuity.intended_outgoing_state or "",
         PlanningRevisionScope.RELATIONSHIP_TO_PREVIOUS: request.planning.relationship_to_previous,
@@ -234,6 +260,7 @@ def validate_revision_result(
     }
     proposed = {
         PlanningRevisionScope.MAIN_PROMPT: plan.creative_request,
+        PlanningRevisionScope.DIALOGUE: plan.dialogue if "dialogue" in plan.model_fields_set else request.workspace.dialogue,
         PlanningRevisionScope.INCOMING_STATE: plan.incoming_state,
         PlanningRevisionScope.INTENDED_OUTGOING_STATE: plan.intended_outgoing_state,
         PlanningRevisionScope.RELATIONSHIP_TO_PREVIOUS: plan.relationship_to_previous,
@@ -251,4 +278,6 @@ async def revise_plan(
     assembly = assemble_revision_plan_prompt(request)
     plan = await _generate_plan(assembly, request.llm, client_factory)
     validate_revision_result(request, plan)
+    if PlanningRevisionScope.DIALOGUE not in request.scopes and "dialogue" not in plan.model_fields_set:
+        plan = plan.model_copy(update={"dialogue": request.workspace.dialogue})
     return plan

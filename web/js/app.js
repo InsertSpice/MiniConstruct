@@ -1,14 +1,19 @@
+import { freshVisualHandoff, renderVisualHandoff, visiblePromptWarnings } from "./visual-handoff.js";
 import { readMediaReference, mediaPayloadStatus, metadataOnlyWorkspace, adoptSavedMedia } from "./media-assets.js";
+import { createReferenceAuthority, replacePicture } from "./reference-authority.js";
 import { api } from "./api.js";
+import { H3_ASPECT_RATIO_CHOICES } from "./aspect-ratios.js";
 import {
-  addHistory, clearHistory as clearHistoryDb, deleteProject as deleteLegacyProject, getProject as getLegacyProject,
-  listHistory, listProjects as listLegacyProjects,
+  deleteProject as deleteLegacyProject, getProject as getLegacyProject,
+  listProjects as listLegacyProjects,
 } from "./db.js";
-import { snapshotGenerationRequest } from "./streaming.js";
-import { fullHistoryPrompt, historyPreview } from "./history-preview.js";
+import { snapshotGenerationRequest, generationClickIntent } from "./streaming.js";
+import { currentFormatAudit } from "./history-preview.js";
+import { markOutputManuallyEdited } from "./manual-edit.js";
+import { createSavedPrompts } from "./saved-prompts.js";
 import { highlightPrompt } from "./highlighter.js";
 import {
-  defaultCreativeControls, renderCreativeControls,
+  defaultCreativeControls, renderCreativeControls, renderH3PromptDetailControl, selectH3PromptDetail,
   resetCameraControls, resetCreativeControls, resetTonePerformance,
   PERFORMANCE_ENERGY_LEVELS, PERFORMANCE_STYLE_LEVELS, TONE_LEVELS, semanticFromRange, semanticLabel,
 } from "./creative-controls.js";
@@ -21,30 +26,61 @@ import {
   selectionFromHighlighted, selectionFromTextarea,
 } from "./revision.js";
 import {
-  createSubject, defaultSubjectIdentity, IDENTITY_FOCUS_OPTIONS, IDENTITY_VIEW_OPTIONS, REFERENCE_LAYOUT_OPTIONS,
+  adoptNarrativeResponse, subjectDeleteConfirmation, subjectDisplayLabel, availableSubjects, materializeSubject, subjectSelectorOptions, createSubject, defaultSubjectIdentity, IDENTITY_FOCUS_OPTIONS, IDENTITY_VIEW_OPTIONS, REFERENCE_LAYOUT_OPTIONS,
   isComparisonAsset, isSubjectIdentityAsset, normalizeSubjectIdentity, normalizeSubjectRegistry, normalizedComparisonSubjects,
   subjectIdentityHelperText, subjectIdentityNotesGuidance, subjectIdentityNotesPlaceholder, subjectLabel,
 } from "./subject-identity.js";
+import { groupReferenceAssets, subjectIdentityPresentation } from "./reference-asset-groups.js";
 import { normalizeSeedSettings, resolveSeed } from "./seed.js";
 import { canEjectModel } from "./eject.js";
 import { resolveProjectSave, resolveProjectSaveRoute } from "./project-save.js";
+import { createProjectGeneratedState } from "./project-generated-state.js";
 import { ephemeralSequence, generationLabel, movedGenerationIds, sequenceFromProject, shouldMarkWorkspaceDirty, structuralOperationAllowed } from "./sequence-workflow.js";
+import { createSequenceRenderAction } from "./sequence-render-next.js";
+import { storyGenerationFeedback } from "./story-generation-feedback.js";
 import { createStoryPlanner } from "./story-planning.js";
-import { applyScopedPlan, fillMissingPlan, mergeRecommendations, PLAN_SCOPES, planningFromProject, RELATIONSHIP_OPTIONS, safeRecommendations, freshPlanning, recommendationAssetLabel } from "./planning-workflow.js";
+import { applyScopedPlan, fillMissingPlan, mergeRecommendations, PLAN_SCOPES, planningFromProject, RELATIONSHIP_OPTIONS, safeRecommendations, freshPlanning, recommendationAssetLabel, renderStoryShotMismatch as renderStoryShotMismatchAdvisory } from "./planning-workflow.js";
 import { migrateLegacyProject } from "./project-migration.js";
 import {
   continuityFromProject, freshUnsavedContinuity, freshUnsavedWorkspace, openFilesystemProjectSafely, openLegacyProjectSafely, persistFilesystemProject,
   deleteFilesystemProjectAndReset, deleteLegacyProjectAndReset, loadProjectSources, prepareImportedWorkspace,
-  resetUnsavedProjectState, projectIdFromLocation, projectLocation,
+  importedSequenceMetadata, clearImportedSequenceMetadata, resetUnsavedProjectState, projectIdFromLocation, projectLocation,
 } from "./project-workflow.js";
 import { canStartRepair, repairUiState } from "./repair-state.js";
-import { migrateStoredSettings, parseStoredSettings, serializeEndpointProfile } from "./settings-persistence.js";
-import { createWorkflowPreparation } from "./workflow-preparation.js";
+import { migrateStoredSettings, parseStoredSettings, serializeEndpointProfile, validateSettingsDraft, modelSelectionEndpoint } from "./settings-persistence.js";
+import { createRenderedTakes } from "./rendered-takes.js";
+import { createTakeContinuation } from "./continue-selected-take.js";
+import { mountContinuationDrafting } from "./continuation-drafting.js";
+import { createWorkflowPreparation, currentExecutionOutput } from "./workflow-preparation.js";
 import { createExecutionConfig } from "./execution-config.js";
 import { groupInputMapEntries, inputMapEmptyMessage, inputMapLabelForAsset, inputMapRefreshStatus } from "./input-map.js";
+import { effectiveDialogueLanguage, dialogueResolutionIsCurrent, dialogueResolutionNeedsProvider, staleDialogueResolution, editedDialogueResolution } from "./dialogue-language-state.js";
+import { buildGenerationRequest } from "./generation-request.js";
+import { requestFactLines } from "./generation-diagnostics.js";
+import { beginProviderActivity, createProviderActivity, mountProviderActivity } from "./provider-activity.js";
+import { createNavigationAuthority } from "./navigation-authority.js";
 
 let storyPlanner = null;
+const providerActivity = createProviderActivity();
+const navigationAuthority = createNavigationAuthority();
+let continuationDrafting = null;
+let providerContextEpoch = 0;
+function providerAttempt(id, label, status, cancel, options = {}) {
+  return beginProviderActivity(providerActivity, { id, label, owner: "app", cancel, ...options }, status);
+}
+function providerContextCurrent(epoch) { return epoch === providerContextEpoch; }
+function invalidateProviderContext() {
+  providerContextEpoch++;
+  if (providerActivity.active()) providerActivity.cancelActive();
+}
 let workflowPreparation = null;
+let savedPrompts = null;
+let renderedTakes = null;
+let sequenceRenderAction = null;
+let committedSettings = null;
+let committedPersistKey = false;
+let apiKeyEdited = false;
+let apiKeyClearRequested = false;
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -65,7 +101,7 @@ const roleCatalog = {
     ["general_visual", "General visual reference"],
   ],
   video: [
-    ["continuation_source", "Continuation source"], ["seamless_overlap_continuation", "Seamless overlap continuation"],
+    ["continuation_source", "Continuation source"], ["tail_reference_continuation", "Tail continuation reference"],
     ["editing_source", "Editing source"], ["motion_action", "Motion / action reference"],
     ["camera_movement", "Camera movement reference"], ["cut_pacing_rhythm", "Cut / pacing / rhythm"],
     ["general_video", "General video reference"],
@@ -81,6 +117,9 @@ const state = {
   mode: "T2VA",
   assets: [],
   subjects: [],
+  projectSequence: null,
+  importedSequenceSubjects: null,
+  importedSequenceNextSubjectNumber: null,
   nextSubjectNumber: 1,
   outputs: [],
   outputIndex: 0,
@@ -91,15 +130,21 @@ const state = {
   sequenceGenerations: [],
   activeGenerationId: null,
   sequenceContext: "",
+  scenePlan: "",
+  savedScenePlan: "",
   incomingState: "",
   intendedOutgoingState: "",
+  visualHandoff: freshVisualHandoff(),
   relationshipToPrevious: null,
   cameraIntent: "",
+  plannedShotCount: null,
+  hasSavedPlanning: false,
   planningRecommendations: [],
   filesystemProjects: [],
   legacyProjects: [],
   dirty: true,
   pendingAssetKind: null,
+  pendingAssetSubjectId: null,
   reattachId: null,
   endpoint: {
     id: "manual-endpoint",
@@ -110,8 +155,8 @@ const state = {
   discoveredEndpoints: new Map(),
   discoveredModelCatalog: new Map(),
   connectionState: "unverified",
-  dragDepth: 0,
   generation: null,
+  generationStarting: false,
   revisionSelection: null,
   revision: null,
   ejecting: false,
@@ -120,7 +165,14 @@ const state = {
   creativeInterpretation: DEFAULT_CREATIVE_INTERPRETATION,
   creativeControls: defaultCreativeControls(),
   referenceManifest: null,
+  promptWarnings: [],
   referenceManifestStatus: "pending",
+  storyPlannerTimeoutSeconds: 600,
+  storyPlannerReasoning: true,
+  storyPlannerVision: false,
+  dialogueLanguage: "as_written",
+  dialogueResolution: null,
+  contextReplacing: false,
 };
 
 let referenceManifestRequest = 0;
@@ -140,6 +192,7 @@ function toast(message) {
 function setDirty(value = true) {
   state.dirty = value;
   workflowPreparation?.sync();
+  renderedTakes?.sync();
   const indicator = $("#dirty-indicator");
   indicator.textContent = value ? "Unsaved" : "Saved";
   indicator.classList.toggle("saved", !value);
@@ -157,16 +210,34 @@ function captureContinuity() {
 
 function capturePlanning() {
   return {
+    scenePlan: state.scenePlan,
     relationshipToPrevious: state.sequenceGenerations[0]?.generationId === state.activeGenerationId ? null : state.relationshipToPrevious,
     cameraIntent: state.cameraIntent,
+    visualHandoff: { ...state.visualHandoff },
   };
 }
 
 function restorePlanning(planning = freshPlanning()) {
   const normalized = planningFromProject({ planning });
+  state.scenePlan = normalized.scenePlan;
+  state.savedScenePlan = normalized.scenePlan;
+  storyPlanner?.restoreScenePlan(state.scenePlan);
   state.relationshipToPrevious = normalized.relationshipToPrevious;
   state.cameraIntent = normalized.cameraIntent;
+  state.plannedShotCount = planning.shotCount ?? null;
+  state.hasSavedPlanning = Boolean(normalized.scenePlan.trim()) && planning.shotCount != null;
+  state.visualHandoff = normalized.visualHandoff;
   renderContinuityUi();
+}
+
+function renderStoryShotMismatch() {
+  const advisory = $("#story-shot-mismatch");
+  if (!advisory) return;
+  renderStoryShotMismatchAdvisory(advisory, {
+    hasSavedPlanning: state.hasSavedPlanning,
+    plannedShotCount: state.plannedShotCount,
+    actualShotCount: $("#shots").value,
+  });
 }
 
 function restoreContinuity(continuity = freshUnsavedContinuity()) {
@@ -199,11 +270,28 @@ function renderContinuityUi() {
   }
   const camera = $("#camera-intent");
   if (camera) camera.value = state.cameraIntent;
-  const infer = $("#infer-from-previous");
-  if (infer) infer.disabled = state.activeProjectType !== "filesystem" || activeIndex <= 0 || Boolean(state.generation) || Boolean(state.revision?.running);
+  renderStoryShotMismatch();
   const revise = $("#revise-plan");
   if (revise) revise.disabled = state.activeProjectType !== "filesystem" || Boolean(state.generation) || Boolean(state.revision?.running);
   renderPlanningRecommendations();
+  renderHandoffUi();
+}
+
+function renderHandoffUi() {
+  const nativeOnly = state.mode === "I2VA" && state.visualHandoff.strategy === "native_i2va_continuation";
+  if (nativeOnly) {
+    $("#mode-description").textContent = "Native-only continuation of an accepted I2VA execution. No new first-frame Picture; a verified successor Profile is required.";
+    $("#reference-helper").textContent = "No new Picture is expected for native-only I2VA. Existing references must be removed explicitly before authoring or execution.";
+  } else if (state.mode === "I2VA") {
+    $("#mode-description").textContent = modeDescriptions.I2VA;
+    $("#reference-helper").textContent = "Add the exact first-frame Picture required by ordinary I2VA.";
+  }
+  renderVisualHandoff($("#visual-handoff"), {
+    policy: state.visualHandoff, relationship: state.relationshipToPrevious,
+    summary: state.referenceManifest?.visualHandoff, dirty: state.dirty,
+    previewUrl: state.activeProjectType === "filesystem" ? `/api/projects/${encodeURIComponent(state.currentProjectId)}/generations/${encodeURIComponent(state.activeGenerationId)}/visual-handoff/preview` : null,
+    onChange: value => { state.visualHandoff = value; setDirty(); renderHandoffUi(); },
+  });
 }
 
 function renderPlanningRecommendations() {
@@ -252,11 +340,12 @@ function endpointProfile() {
     id: isManual ? manualEndpointId(baseUrl) : state.endpoint.id,
     displayName: $("#endpoint-display-name").value.trim() || "Manual endpoint",
     baseUrl,
-    apiKey: $("#api-key").value || null,
+    apiKey: apiKeyClearRequested ? null : apiKeyEdited && $("#api-key").value
+      ? $("#api-key").value : (state.endpoint.apiKey || null),
   });
 }
 
-function settings() {
+function readSettingsDraft() {
   const seed = normalizeSeedSettings({
     seedMode: $("#seed-mode").value,
     fixedSeed: $("#fixed-seed").value,
@@ -264,13 +353,18 @@ function settings() {
   return {
     endpoint: endpointProfile(),
     modelId: $("#model-id").value.trim(),
-    temperature: Number($("#temperature").value),
-    maxTokens: Number($("#max-tokens").value),
+    temperature: $("#temperature").value.trim() ? Number($("#temperature").value) : NaN,
+    maxTokens: $("#max-tokens").value.trim() ? Number($("#max-tokens").value) : NaN,
+    contextWindow: $("#context-window").value.trim() ? Number($("#context-window").value) : null,
     timeoutSeconds: 120,
     supportsVision: $("#vision-support").checked,
     reasoningMode: $("#reasoning-mode").value,
     ...seed,
   };
+}
+
+function settings() {
+  return structuredClone(committedSettings || validateSettingsDraft(readSettingsDraft()));
 }
 
 function renderSeedSettings() {
@@ -281,30 +375,80 @@ function renderSeedSettings() {
 }
 
 function persistSettings() {
-  const value = migrateStoredSettings({ ...settings(), persistKey: $("#persist-key").checked }, state.endpoint);
+  if (!committedSettings) return;
+  const value = migrateStoredSettings({ ...committedSettings, persistKey: committedPersistKey,
+    storyPlannerTimeoutSeconds: state.storyPlannerTimeoutSeconds, storyPlannerReasoning: state.storyPlannerReasoning,
+    storyPlannerVision: state.storyPlannerVision }, state.endpoint);
   if (!value.persistKey) delete value.endpoint.apiKey;
   localStorage.setItem("miniconstruct-settings", JSON.stringify(value));
 }
 
-function restoreSettings() {
-  try {
-    const value = parseStoredSettings(localStorage.getItem("miniconstruct-settings"), state.endpoint);
-    state.endpoint = value.endpoint;
-    $("#endpoint-display-name").value = state.endpoint.displayName;
-    $("#base-url").value = state.endpoint.baseUrl;
-    if (value.modelId) $("#model-id").value = value.modelId;
-    if (value.temperature !== undefined) $("#temperature").value = value.temperature;
-    if (value.maxTokens) $("#max-tokens").value = value.maxTokens;
-    if (["off", "default", "on"].includes(value.reasoningMode)) $("#reasoning-mode").value = value.reasoningMode;
-    const seed = normalizeSeedSettings(value);
-    $("#seed-mode").value = seed.seedMode;
-    if (seed.fixedSeed !== null) $("#fixed-seed").value = seed.fixedSeed;
-    $("#vision-support").checked = value.supportsVision === true;
-    $("#persist-key").checked = value.persistKey === true;
-    if (value.persistKey && value.endpoint.apiKey) $("#api-key").value = value.endpoint.apiKey;
-  } catch { /* ignore malformed local preference */ }
+function renderCommittedSettings() {
+  const value = committedSettings;
+  if (!value) return;
+  state.endpoint = value.endpoint;
+  $("#endpoint-display-name").value = value.endpoint.displayName;
+  $("#base-url").value = value.endpoint.baseUrl;
+  $("#model-id").value = value.modelId;
+  $("#temperature").value = value.temperature;
+  $("#max-tokens").value = value.maxTokens;
+  $("#context-window").value = value.contextWindow ?? "";
+  $("#reasoning-mode").value = value.reasoningMode;
+  const seed = normalizeSeedSettings(value);
+  $("#seed-mode").value = seed.seedMode;
+  $("#fixed-seed").value = seed.fixedSeed ?? "";
+  $("#vision-support").checked = value.supportsVision === true;
+  $("#persist-key").checked = committedPersistKey;
+  $("#api-key").value = value.endpoint.apiKey || "";
+  apiKeyEdited = false;
+  apiKeyClearRequested = false;
   renderSeedSettings();
   setActiveModelStatus();
+}
+
+function validatedSettingsDraft() {
+  if (!$("#endpoint-display-name").value.trim()) throw new Error("Enter an Endpoint name.");
+  if (!$("#base-url").value.trim()) throw new Error("Enter a Base URL.");
+  return validateSettingsDraft(readSettingsDraft());
+}
+
+function commitSettingsFromUi() {
+  const candidate = validatedSettingsDraft();
+  committedSettings = candidate;
+  committedPersistKey = $("#persist-key").checked;
+  state.endpoint = candidate.endpoint;
+  persistSettings();
+  apiKeyEdited = false;
+  apiKeyClearRequested = false;
+  setActiveModelStatus();
+  return candidate;
+}
+
+function restoreSettings() {
+  let warning = "";
+  try {
+    const raw = localStorage.getItem("miniconstruct-settings");
+    let stored;
+    try { stored = JSON.parse(raw || "{}"); } catch { stored = {}; }
+    if (stored && typeof stored === "object" && Object.hasOwn(stored, "maxTokens") && (!Number.isInteger(stored.maxTokens)
+      || stored.maxTokens < 128 || stored.maxTokens > 65536))
+      warning = "Saved Max output tokens was invalid and reset to 4096. Review Settings.";
+    const value = parseStoredSettings(raw, state.endpoint);
+    committedSettings = validateSettingsDraft({
+      endpoint: value.endpoint, modelId: value.modelId, temperature: value.temperature,
+      maxTokens: value.maxTokens, contextWindow: value.contextWindow, timeoutSeconds: 120,
+      supportsVision: value.supportsVision, reasoningMode: value.reasoningMode,
+      seedMode: value.seedMode, fixedSeed: value.fixedSeed,
+    });
+    committedPersistKey = value.persistKey;
+    state.storyPlannerTimeoutSeconds = value.storyPlannerTimeoutSeconds;
+    state.storyPlannerReasoning = value.storyPlannerReasoning;
+    state.storyPlannerVision = value.storyPlannerVision;
+    storyPlanner?.restorePreferences({ timeoutSeconds: state.storyPlannerTimeoutSeconds, reasoning: state.storyPlannerReasoning,
+      vision: state.storyPlannerVision });
+  } catch { /* ignore malformed local preference */ }
+  renderCommittedSettings();
+  if (warning) $("#connection-message").textContent = warning;
 }
 
 function setActiveModelStatus() {
@@ -345,11 +489,15 @@ async function ejectSelectedModel() {
 }
 
 function markManualEndpoint() {
+  const nextUrl = $("#base-url").value;
+  const changedUrl = normalizeEndpointUrl(nextUrl) !== normalizeEndpointUrl(state.endpoint.baseUrl);
   state.endpoint = {
     ...state.endpoint,
-    id: manualEndpointId($("#base-url").value),
+    id: manualEndpointId(nextUrl),
     source: "manual",
+    apiKey: changedUrl ? null : state.endpoint.apiKey,
   };
+  if (changedUrl) { $("#api-key").value = ""; apiKeyEdited = false; apiKeyClearRequested = false; }
   setActiveModelStatus();
 }
 
@@ -376,11 +524,12 @@ function selectPooledModel(value) {
   const modelId = value.slice(separator + 2);
   const endpoint = state.discoveredEndpoints.get(endpointId);
   if (!endpoint) return;
-  state.endpoint = { ...endpoint, apiKey: endpoint.apiKey || null };
+  state.endpoint = modelSelectionEndpoint(committedSettings?.endpoint || state.endpoint, endpoint);
   $("#endpoint-display-name").value = state.endpoint.displayName;
   $("#base-url").value = state.endpoint.baseUrl;
   $("#api-key").value = state.endpoint.apiKey || "";
   $("#model-id").value = modelId;
+  if (committedSettings) committedSettings = validateSettingsDraft({ ...committedSettings, endpoint: state.endpoint, modelId });
   state.connectionState = "connected";
   setActiveModelStatus();
   persistSettings();
@@ -412,10 +561,12 @@ export function captureWorkspace() {
     mode: state.mode,
     durationSeconds: Number($("#duration").value),
     shots: shotsValue === "" ? null : Number(shotsValue),
-    aspectRatio: ratio || "auto",
+    aspectRatio: ratio || "4:3",
     variations: Number($("#variations").value),
     creativeRequest: $("#creative-request").value,
     dialogue: $("#dialogue").value,
+    dialogueLanguage: state.dialogueLanguage,
+    dialogueResolution: state.dialogueResolution,
     referenceLabels: $("#reference-labels").value,
     assets: structuredClone(state.assets),
     subjects: structuredClone(state.subjects),
@@ -430,13 +581,19 @@ function renderCreativeControlsUi() {
     state.creativeControls,
     visibleAssets().some(asset => asset.kind === "image" && asset.role === "subject_identity"),
   );
+  renderH3PromptDetailUi();
 }
 
 function renderCreativeInterpretationUi() {
   renderCreativeInterpretation($(".author-panel"), state.creativeInterpretation);
 }
 
-export function restoreWorkspace(workspace) {
+function renderH3PromptDetailUi() {
+  renderH3PromptDetailControl($(".author-panel"), state.creativeControls);
+}
+
+export function restoreWorkspace(workspace, sequence = null, dialogueLanguage = null) {
+  state.projectSequence = sequence;
   markRevisionStale("A different workspace was loaded.");
   restoreContinuity();
   restorePlanning();
@@ -448,20 +605,26 @@ export function restoreWorkspace(workspace) {
     subjectIdentity: normalizeSubjectIdentity(asset.subjectIdentity),
     attached: asset.kind === "image" ? true : false,
   }));
-  const registry = normalizeSubjectRegistry(workspace.subjects, state.assets, workspace.nextSubjectNumber);
+  const registry = normalizeSubjectRegistry(workspace.subjects, state.assets, workspace.nextSubjectNumber, state.projectSequence);
   state.subjects = registry.subjects;
   state.nextSubjectNumber = registry.nextSubjectNumber;
   $("#project-name").value = workspace.projectName || "Untitled Project";
   $("#duration").value = workspace.durationSeconds ?? 6;
   $("#shots").value = workspace.shots ?? "";
-  const commonRatios = ["auto", "16:9", "9:16", "1:1", "4:3", "3:4"];
-  const ratio = workspace.aspectRatio || "auto";
+  renderStoryShotMismatch();
+  const commonRatios = ["auto", ...H3_ASPECT_RATIO_CHOICES];
+  const ratio = workspace.aspectRatio || "4:3";
   $("#aspect-ratio").value = commonRatios.includes(ratio) ? ratio : "custom";
   $("#custom-ratio").value = commonRatios.includes(ratio) ? "" : ratio;
   $("#custom-ratio-wrap").classList.toggle("hidden", $("#aspect-ratio").value !== "custom");
   $("#variations").value = workspace.variations ?? 1;
   $("#creative-request").value = workspace.creativeRequest || "";
   $("#dialogue").value = workspace.dialogue || "";
+  // A saved Project's canonical Sequence value wins; Workspace is only an
+  // effective projection for standalone authoring and transport compatibility.
+  state.dialogueLanguage = effectiveDialogueLanguage(dialogueLanguage, workspace.dialogueLanguage);
+  state.dialogueResolution = workspace.dialogueResolution || null;
+  renderDialogueLanguageUi();
   $("#reference-labels").value = workspace.referenceLabels || "";
   Object.assign(state, restoreWorkspaceCreativeState(workspace));
   state.referenceManifest = null;
@@ -471,13 +634,18 @@ export function restoreWorkspace(workspace) {
   renderCreativeControlsUi();
   updateCharCount();
   state.outputs = [];
+  renderWarnings([]);
   renderOutput();
   setDirty(false);
 }
 
-export function buildGenerateRequest() {
+export function buildGenerateRequest(authoringPath = "one_shot") {
   if (workflowPreparation && !workflowPreparation.routingReady) throw new Error("Wait for this Generation's reference routing to load, then try again.");
-  return { workspace: captureWorkspace(), llm: settings(), executionRouting: workflowPreparation?.routing || { assets: {} } };
+  return buildGenerationRequest({ workspace: captureWorkspace(), llm: settings(),
+    authoringPath,
+    filesystemProjectId: state.activeProjectType === "filesystem" ? state.currentProjectId : null,
+    generationId: state.activeProjectType === "filesystem" ? state.activeGenerationId : null,
+    sequenceDialogueLanguage: state.dialogueLanguage, executionRouting: workflowPreparation?.routing || { assets: {} } });
 }
 
 function setMode(mode, dirty = true) {
@@ -490,6 +658,7 @@ function setMode(mode, dirty = true) {
   $("#mode-description").textContent = modeDescriptions[mode];
   $("#references-panel").classList.toggle("hidden", mode === "T2VA");
   $("#reference-labels-wrap").classList.toggle("hidden", mode !== "Ref2VA");
+  $("#reference-order-helper").classList.toggle("hidden", mode !== "Ref2VA");
   renderAssetActions();
   renderAssets();
   if (dirty) setDirty();
@@ -502,12 +671,13 @@ function renderAssetActions() {
   for (const kind of kinds) {
     const button = document.createElement("button");
     button.className = "quiet";
-    button.textContent = `+ ${kind[0].toUpperCase()}${kind.slice(1)}`;
+    button.textContent = state.mode === "Ref2VA" && kind === "image"
+      ? "+ New Subject Picture" : `+ ${kind[0].toUpperCase()}${kind.slice(1)}`;
     button.addEventListener("click", () => chooseAsset(kind));
     container.append(button);
   }
   $("#reference-helper").textContent = state.mode === "Ref2VA"
-    ? "Pictures may be sent as vision inputs. Video and Audio stay metadata-only; attach the real media separately in H3 / ComfyUI."
+    ? "New Subject Picture creates a new identity. Use Add identity Picture within a Subject to attach another view to that identity. Pictures may be sent as vision inputs. Video and Audio stay metadata-only; attach the real media separately in H3 / ComfyUI."
     : "Add the exact frame image required by this mode. The browser processes it for the prompt-writing model.";
 }
 
@@ -521,6 +691,7 @@ function visibleAssets() {
 
 function manifestRequestBody() {
   return {
+    ...(state.activeProjectType === "filesystem" && !state.contextReplacing ? { filesystemProjectId: state.currentProjectId, generationId: state.activeGenerationId } : {}),
     executionRouting: workflowPreparation?.routing || { assets: {} },
     mode: state.mode,
     assets: state.assets.map(asset => ({
@@ -595,6 +766,8 @@ async function refreshReferenceManifest() {
     if (requestId !== referenceManifestRequest) return;
     state.referenceManifest = result;
     state.referenceManifestStatus = "loaded";
+    renderHandoffUi();
+    renderWarnings(state.promptWarnings);
     applyCanonicalAssetLabels(result.entries);
     renderInputMap();
   } catch {
@@ -616,10 +789,112 @@ function requestReferenceManifestRefresh() {
 }
 
 function renderAssets({ refreshManifest = true } = {}) {
+  state.clearAssetDrop?.();
   const container = $("#asset-list");
   container.replaceChildren();
   const assets = visibleAssets().sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
-  if (!assets.length) {
+  const renderGroup = (label, groupAssets, className = "") => {
+    const group = document.createElement("section");
+    group.className = `reference-asset-group ${className}`.trim();
+    const heading = document.createElement("h3"); heading.textContent = label;
+    const cards = document.createElement("div"); cards.className = "reference-group-cards";
+    for (const asset of groupAssets) cards.append(assetCard(asset, assetManifestEntry(asset)?.h3Label || ""));
+    group.append(heading, cards);
+    return group;
+  };
+  const renderGroupedReferenceAssets = () => {
+    const subjectContext = state.projectSequence
+      ? availableSubjects(state.subjects, state.projectSequence)
+      : state.subjects;
+    const grouping = groupReferenceAssets({ assets, subjects: subjectContext });
+    let rendered = false;
+    for (const subjectGroup of grouping.subjectGroups) {
+      const section = document.createElement("details");
+      section.className = "reference-subject-group";
+      section.dataset.subjectId = subjectGroup.subject.id;
+      section.open = subjectGroup.groups.length > 0;
+      const summary = document.createElement("summary"); summary.textContent = subjectGroup.label;
+      section.append(summary);
+      const attach = document.createElement("button"); attach.type = "button"; attach.className = "quiet";
+      attach.textContent = "Add identity Picture";
+      attach.title = `Attach a Picture to ${subjectGroup.label}, preserving its identity`;
+      attach.addEventListener("click", () => chooseAsset("image", null, subjectGroup.subject.id));
+      section.append(attach);
+      if (state.activeProjectType === "filesystem") {
+        const nameLabel = document.createElement("label"); nameLabel.className = "subject-narrative-name";
+        nameLabel.textContent = "Narrative name";
+        const name = document.createElement("input"); name.type = "text"; name.maxLength = 80;
+        name.name = `mc-subject-narrative-${subjectGroup.subject.id}`;
+        name.autocomplete = "off";
+        name.setAttribute("data-1p-ignore", "");
+        name.setAttribute("data-lpignore", "true");
+        name.value = subjectGroup.subject.narrativeName || "";
+        name.placeholder = subjectGroup.subject.narrativeName ? "Enter a replacement name" : "Optional name, e.g. Alice";
+        const save = document.createElement("button"); save.type = "button"; save.className = "quiet";
+        save.textContent = subjectGroup.subject.narrativeName ? "Rename" : "Set name";
+        save.disabled = !name.value.trim();
+        name.addEventListener("input", () => { save.disabled = !name.value.trim(); });
+        save.addEventListener("click", () => renameSequenceSubject(subjectGroup.subject, name.value));
+        nameLabel.append(name, save); section.append(nameLabel);
+        const nameHelp = document.createElement("p"); nameHelp.className = "helper";
+        nameHelp.textContent = subjectGroup.subject.narrativeName
+          ? "Enter a replacement to rename. Saved names cannot be cleared."
+          : "Naming is optional. You can keep using the technical Subject label.";
+        section.append(nameHelp);
+        const profile = subjectGroup.subject.characterProfile || {};
+        const profileDetails = document.createElement("details"); profileDetails.className = "character-profile";
+        const profileSummary = document.createElement("summary"); profileSummary.textContent = "Character Profile";
+        const profileHelp = document.createElement("p"); profileHelp.className = "helper";
+        profileHelp.textContent = "Stable character notes for Story Planner—not current plot state, location, possessions, or temporary conditions.";
+        profileDetails.append(profileSummary, profileHelp);
+        const fieldLabel = document.createElement("label"); fieldLabel.textContent = "Character Profile";
+        const textarea = document.createElement("textarea"); textarea.rows = 5; textarea.maxLength = 4000;
+        textarea.name = `mc-subject-profile-${subjectGroup.subject.id}`; textarea.autocomplete = "off";
+        textarea.value = profile.notes || "";
+        textarea.addEventListener("input", () => {
+          const canonical = state.projectSequence?.subjects?.find(item => item.id === subjectGroup.subject.id);
+          if (!canonical) return;
+          canonical.characterProfile = { roleBackground: "", personality: "", appearance: "", speechMannerisms: "", notes: "", ...(canonical.characterProfile || {}) };
+          canonical.characterProfile.notes = textarea.value;
+          if (typeof setDirty === "function") setDirty();
+        });
+        fieldLabel.append(textarea); profileDetails.append(fieldLabel);
+        section.append(profileDetails);
+      }
+      if (subjectGroup.groups.length) {
+        for (const group of subjectGroup.groups) section.append(renderGroup(group.label, group.assets, "reference-identity-group"));
+      } else {
+        const empty = document.createElement("p"); empty.className = "muted reference-subject-empty";
+        empty.textContent = subjectGroup.structuralUse
+          ? "Participates through a Shared / Scene reference (Character Comparison / Scale)."
+          : "No references in this Generation.";
+        section.append(empty);
+        if (state.activeProjectType === "filesystem" && !subjectGroup.structuralUse) {
+          const removeSubject = document.createElement("button");
+          removeSubject.className = "quiet danger";
+          removeSubject.textContent = "Delete Subject from Sequence";
+          removeSubject.title = `Delete ${subjectGroup.label} from the entire Sequence`;
+          removeSubject.addEventListener("click", () => deleteSequenceSubject(subjectGroup.subject));
+          section.append(removeSubject);
+        }
+      }
+      container.append(section); rendered = true;
+    }
+    if (grouping.environment.assets.length) {
+      container.append(renderGroup(grouping.environment.label, grouping.environment.assets, "reference-environment-group"));
+      rendered = true;
+    }
+    if (grouping.sharedGroups.length) {
+      const shared = document.createElement("details"); shared.className = "reference-shared-group"; shared.open = true;
+      const summary = document.createElement("summary"); summary.textContent = "Shared / Scene References"; shared.append(summary);
+      for (const group of grouping.sharedGroups) shared.append(renderGroup(group.label, group.assets, "reference-shared-subgroup"));
+      container.append(shared); rendered = true;
+    }
+    return rendered;
+  };
+  const usesGroupedRendering = state.mode === "Ref2VA";
+  const rendered = usesGroupedRendering ? renderGroupedReferenceAssets() : assets.length > 0;
+  if (!rendered) {
     const empty = document.createElement("p");
     empty.className = "muted";
     empty.textContent = state.mode === "FL2VA" ? "Add first- and last-frame images." : "No references added for this mode.";
@@ -628,36 +903,134 @@ function renderAssets({ refreshManifest = true } = {}) {
     if (refreshManifest) requestReferenceManifestRefresh();
     return;
   }
-  for (const asset of assets) container.append(assetCard(asset, assetManifestEntry(asset)?.h3Label || ""));
+  if (!usesGroupedRendering) {
+    for (const asset of assets) container.append(assetCard(asset, assetManifestEntry(asset)?.h3Label || ""));
+  }
   renderCreativeControlsUi();
   applyCanonicalAssetLabels();
   if (refreshManifest) requestReferenceManifestRefresh();
 }
 
 function normalizeSubjectsInState() {
-  const registry = normalizeSubjectRegistry(state.subjects, state.assets, state.nextSubjectNumber);
+  const registry = normalizeSubjectRegistry(state.subjects, state.assets, state.nextSubjectNumber, state.projectSequence);
   state.subjects = registry.subjects;
   state.nextSubjectNumber = registry.nextSubjectNumber;
 }
 
-function rerenderAssetCard(assetId) {
-  const asset = state.assets.find(item => item.id === assetId);
-  const current = $$(".asset-card[data-asset-id]").find(card => card.dataset.assetId === assetId);
-  if (!asset || !current) return;
-  current.replaceWith(assetCard(asset, assetManifestEntry(asset)?.h3Label || ""));
+function dialogueLanguageLabel() {
+  return $("#dialogue-language").selectedOptions[0]?.textContent || "Spoken Output";
 }
 
-function updateEditedAsset(assetId, { refreshComparisonCards = false } = {}) {
-  rerenderAssetCard(assetId);
-  if (refreshComparisonCards) {
-    state.assets.filter(asset => isComparisonAsset(asset) && asset.id !== assetId).forEach(asset => rerenderAssetCard(asset.id));
-  }
-  renderCreativeControlsUi();
-  requestReferenceManifestRefresh();
+function dialogueResolutionCurrent() {
+  return dialogueResolutionIsCurrent({ dialogueLanguage: state.dialogueLanguage, dialogue: $("#dialogue").value, resolution: state.dialogueResolution });
 }
+
+function renderDialogueLanguageUi() {
+  const translated = state.dialogueLanguage !== "as_written";
+  $("#dialogue-language").value = state.dialogueLanguage;
+  $("#resolved-dialogue-wrap").classList.toggle("hidden", !translated);
+  $("#dialogue-source-label").firstChild.textContent = translated ? "Dialogue / Lyrics — Source" : "Dialogue / Lyrics — Exact";
+  $("#resolved-dialogue-label").firstChild.textContent = `Spoken Output — ${dialogueLanguageLabel()}`;
+  $("#resolved-dialogue").value = state.dialogueResolution?.resolvedText || "";
+  const status = $("#dialogue-resolution-status");
+  status.textContent = !translated ? "" : dialogueResolutionCurrent()
+    ? (state.dialogueResolution.status === "user_edited" ? "User edited" : "Current")
+    : "Stale / needs translation";
+}
+
+function markDialogueResolutionStale() {
+  if (state.dialogueLanguage === "as_written" || !state.dialogueResolution) return renderDialogueLanguageUi();
+  state.dialogueResolution = staleDialogueResolution(state.dialogueResolution);
+  renderDialogueLanguageUi();
+}
+
+async function refreshDialogueResolution(authoringPath = state.activeProjectType === "filesystem" ? "story" : "one_shot", forGeneration = false, generationSignal) {
+  if (state.dialogueLanguage === "as_written") return;
+  const controller = new AbortController();
+  let cancelled = false, activityToken = null;
+  if (!forGeneration) {
+    const label = `Spoken Output — ${state.dialogueLanguage}`;
+    activityToken = providerAttempt("dialogue-translation", label, message => $("#dialogue-resolution-status").textContent = message,
+      () => { cancelled = true; controller.abort(); $("#dialogue-resolution-status").textContent = "Translation cancelled."; providerActivity.finish(activityToken); },
+      { verb: "Translating", requestLabel: `Translate / Refresh — ${state.dialogueLanguage}` });
+    if (!activityToken) return;
+  }
+  const epoch = providerContextEpoch;
+  const sourceText = $("#dialogue").value, targetLanguage = state.dialogueLanguage;
+  $("#dialogue-resolution-status").textContent = "Translating…";
+  try {
+    const nativeSource = state.activeProjectType === "filesystem" && state.visualHandoff.strategy === "native_i2va_continuation"
+      ? { filesystemProjectId: state.currentProjectId, generationId: state.activeGenerationId } : {};
+    const result = await api.resolveDialogue({ authoringPath, workspace: captureWorkspace(), llm: settings(), ...nativeSource }, forGeneration ? generationSignal : controller.signal);
+    if (cancelled || generationSignal?.aborted || !providerContextCurrent(epoch)
+        || sourceText !== $("#dialogue").value || targetLanguage !== state.dialogueLanguage) return;
+    state.dialogueResolution = result.resolution;
+    renderDialogueLanguageUi(); setDirty();
+  } catch (error) {
+    if (cancelled || error.name === "AbortError") { $("#dialogue-resolution-status").textContent = "Translation cancelled."; return; }
+    throw error;
+  } finally { providerActivity.finish(activityToken); }
+}
+
+async function ensureDialogueResolution(authoringPath, signal) {
+  if (state.dialogueLanguage === "as_written" || dialogueResolutionCurrent()) return;
+  await refreshDialogueResolution(authoringPath, true, signal);
+}
+
+function characterProfileUpdates() {
+  return (state.projectSequence?.subjects || []).map(subject => ({
+    subjectId: subject.id,
+    characterProfile: {
+      roleBackground: "", personality: "", appearance: "", speechMannerisms: "", notes: "",
+      ...(subject.characterProfile || {}),
+    },
+  }));
+}
+
+let referenceAuthority = null, referenceMutation = null;
+async function syncReferenceAuthority() {
+  if (referenceMutation) await referenceMutation;
+  return referenceAuthority?.sync();
+}
+
+async function changeReferenceAssets(change, dirtyOnFailure = false) {
+  if (referenceMutation) return;
+  const context = [state.currentProjectId, state.activeGenerationId];
+  const previous = structuredClone({ assets: state.assets, subjects: state.subjects, nextSubjectNumber: state.nextSubjectNumber });
+  const dirty = state.dirty;
+  // Keep the canonical cards visible until the server accepts the proposed edit.
+  for (const control of $$("#asset-list button, #asset-list input, #asset-list select, #asset-list textarea, #asset-actions button")) control.disabled = true;
+  const operation = (async () => {
+    try {
+      await change();
+      if (context[0] !== state.currentProjectId || context[1] !== state.activeGenerationId)
+        throw new Error("The active Generation changed before the Reference Assets could be saved.");
+      normalizeSubjectsInState();
+      await referenceAuthority?.sync();
+      if (context[0] !== state.currentProjectId || context[1] !== state.activeGenerationId) return;
+      if (state.activeProjectType !== "filesystem") setDirty();
+    } catch (error) {
+      if (context[0] === state.currentProjectId && context[1] === state.activeGenerationId) {
+        Object.assign(state, previous);
+        // Reference errors cannot discard concurrent Main Prompt edits.
+        setDirty(dirtyOnFailure || dirty || state.dirty);
+      }
+      toast(`Could not save Reference Assets: ${error.message}`);
+      throw error;
+    } finally {
+      if (context[0] === state.currentProjectId && context[1] === state.activeGenerationId) {
+        renderAssetActions(); renderAssets();
+      }
+    }
+  })();
+  referenceMutation = operation;
+  try { await operation; } finally { if (referenceMutation === operation) referenceMutation = null; }
+}
+
+function editReferenceAssets(change, dirtyOnFailure = false) { void changeReferenceAssets(change, dirtyOnFailure).catch(() => {}); }
 
 function assignNewSubject(asset) {
-  const created = createSubject({ nextSubjectNumber: state.nextSubjectNumber });
+  const created = createSubject({ subjects: state.subjects, nextSubjectNumber: state.nextSubjectNumber }, state.projectSequence);
   state.subjects.push(created.subject);
   state.nextSubjectNumber = created.nextSubjectNumber;
   asset.subjectIdentity = { ...normalizeSubjectIdentity(asset.subjectIdentity), subjectId: created.subject.id };
@@ -669,12 +1042,12 @@ function assetCard(asset, label) {
   card.dataset.assetId = asset.id;
   const preview = document.createElement("div");
   preview.className = "asset-preview";
-  if (asset.kind === "image") {
+  if (asset.kind === "image" && asset.image?.data_url) {
     const img = document.createElement("img");
     img.src = asset.image.data_url;
     img.alt = `Preview of ${asset.filename}`;
     preview.append(img);
-  } else preview.textContent = asset.kind === "video" ? "▶" : "♫";
+  } else preview.textContent = asset.kind === "image" ? "Picture unavailable" : asset.kind === "video" ? "▶" : "♫";
 
   const content = document.createElement("div");
   const title = document.createElement("div");
@@ -685,8 +1058,14 @@ function assetCard(asset, label) {
   title.append(strong, labelEl);
   const meta = document.createElement("p"); meta.className = "asset-meta";
   const duration = asset.durationSeconds == null ? "" : ` · ${asset.durationSeconds.toFixed(3)}s`;
-  meta.textContent = `${asset.mimeType}${duration}`;
-  if (asset.kind !== "image") {
+  const dimensions = asset.kind === "image" && asset.image?.width && asset.image?.height ? ` · ${asset.image.width} × ${asset.image.height}` : "";
+  meta.textContent = `${asset.mimeType}${dimensions}${duration}`;
+  if (isSubjectIdentityAsset(asset)) {
+    const semanticMeta = document.createElement("span"); semanticMeta.className = "asset-semantic-meta";
+    semanticMeta.textContent = ` · ${subjectIdentityPresentation(asset.subjectIdentity).metadata}`;
+    meta.append(semanticMeta);
+  }
+  if (asset.kind !== "image" || asset.payloadAvailability) {
     const payloadStatus = document.createElement("span");
     payloadStatus.className = asset.mediaPayload ? "" : "media-missing";
     payloadStatus.textContent = ` - ${mediaPayloadStatus(asset)}`;
@@ -700,12 +1079,11 @@ function assetCard(asset, label) {
     const option = new Option(text, value, false, value === asset.role); role.append(option);
   }
   role.disabled = state.mode !== "Ref2VA";
-  role.addEventListener("change", () => {
+  role.addEventListener("change", () => editReferenceAssets(() => {
     asset.role = role.value;
-    if (isSubjectIdentityAsset(asset)) normalizeSubjectsInState();
+    normalizeSubjectsInState();
     if (isComparisonAsset(asset)) asset.comparisonSubjects = normalizedComparisonSubjects(asset, state.subjects);
-    updateEditedAsset(asset.id, { refreshComparisonCards: true }); setDirty();
-  });
+  }));
   roleLabel.append(role);
   const notesLabel = document.createElement("label"); notesLabel.textContent = "Notes";
   const notes = document.createElement("textarea"); notes.rows = 2;
@@ -713,7 +1091,11 @@ function assetCard(asset, label) {
     : isComparisonAsset(asset) ? "Optional: describe the intended relative scale, e.g. Subject 2's head reaches Subject 1's upper chest."
       : "Asset-specific facts or constraints";
   notes.value = asset.notes || "";
-  notes.addEventListener("input", () => { asset.notes = notes.value; setDirty(); });
+  notes.addEventListener("input", () => {
+    asset.notes = notes.value;
+    if (state.activeProjectType !== "filesystem") setDirty();
+  });
+  notes.addEventListener("change", () => editReferenceAssets(() => {}, true));
   notesLabel.append(notes);
   if (isSubjectIdentityAsset(asset)) {
     fields.classList.add("subject-identity-fields");
@@ -727,14 +1109,16 @@ function assetCard(asset, label) {
     notesLabel.insertBefore(notesInfo, notes);
     const subjectSetLabel = document.createElement("label"); subjectSetLabel.textContent = "Identity set";
     const subjectSet = document.createElement("select"); subjectSet.title = "Stable character grouping; it does not depend on Picture order.";
-    for (const subject of state.subjects) subjectSet.append(new Option(subjectLabel(state.subjects, subject.id), subject.id, false, identity.subjectId === subject.id));
-    subjectSet.append(new Option("+ New Subject", "__new_subject__"));
+    for (const option of subjectSelectorOptions(state.subjects, state.projectSequence)) subjectSet.append(new Option(option.label, option.value, false, identity.subjectId === option.value));
     subjectSet.disabled = state.mode !== "Ref2VA";
-    subjectSet.addEventListener("change", () => {
+    subjectSet.addEventListener("change", () => editReferenceAssets(() => {
       if (subjectSet.value === "__new_subject__") assignNewSubject(asset);
-      else asset.subjectIdentity.subjectId = subjectSet.value;
-      updateEditedAsset(asset.id, { refreshComparisonCards: true }); setDirty();
-    });
+      else {
+        materializeSubject(state.subjects, subjectSet.value, state.projectSequence);
+        asset.subjectIdentity.subjectId = subjectSet.value;
+      }
+      normalizeSubjectsInState();
+    }));
     subjectSetLabel.append(subjectSet);
     const focusLabel = document.createElement("label"); focusLabel.textContent = "Identity focus";
     const focus = document.createElement("select");
@@ -743,7 +1127,7 @@ function assetCard(asset, label) {
       const option = new Option(text, value, false, value === identity.focus); option.title = guidance; focus.append(option);
     }
     focus.disabled = state.mode !== "Ref2VA";
-    focus.addEventListener("change", () => { asset.subjectIdentity.focus = focus.value; updateEditedAsset(asset.id); setDirty(); });
+    focus.addEventListener("change", () => editReferenceAssets(() => { asset.subjectIdentity.focus = focus.value; }));
     focusLabel.append(focus);
     const viewLabel = document.createElement("label"); viewLabel.textContent = "View";
     const view = document.createElement("select");
@@ -752,7 +1136,7 @@ function assetCard(asset, label) {
       const option = new Option(text, value, false, value === identity.view); option.title = guidance; view.append(option);
     }
     view.disabled = state.mode !== "Ref2VA";
-    view.addEventListener("change", () => { asset.subjectIdentity.view = view.value; updateEditedAsset(asset.id); setDirty(); });
+    view.addEventListener("change", () => editReferenceAssets(() => { asset.subjectIdentity.view = view.value; }));
     viewLabel.append(view);
     const layoutLabel = document.createElement("label"); layoutLabel.textContent = "Reference layout";
     const layout = document.createElement("select"); layout.title = "How this reference is arranged, separate from the identity information it provides.";
@@ -760,7 +1144,7 @@ function assetCard(asset, label) {
       const option = new Option(text, value, false, value === identity.layout); option.title = guidance; layout.append(option);
     }
     layout.disabled = state.mode !== "Ref2VA";
-    layout.addEventListener("change", () => { asset.subjectIdentity.layout = layout.value; updateEditedAsset(asset.id); setDirty(); });
+    layout.addEventListener("change", () => editReferenceAssets(() => { asset.subjectIdentity.layout = layout.value; }));
     layoutLabel.append(layout);
     if (identity.layout === "reference_sheet") {
       view.disabled = true;
@@ -771,18 +1155,23 @@ function assetCard(asset, label) {
     fields.append(roleLabel, subjectSetLabel, focusLabel, viewLabel, layoutLabel, notesLabel, helper);
   } else if (isComparisonAsset(asset)) {
     fields.classList.add("comparison-fields");
-    asset.comparisonSubjects = normalizedComparisonSubjects(asset, state.subjects);
+    const comparisonSubjects = state.projectSequence ? availableSubjects(state.subjects, state.projectSequence) : state.subjects;
+    asset.comparisonSubjects = normalizedComparisonSubjects(asset, comparisonSubjects);
     const comparisonLabel = document.createElement("fieldset"); comparisonLabel.className = "comparison-subjects";
     const legend = document.createElement("legend"); legend.textContent = "Subjects (choose at least two)"; comparisonLabel.append(legend);
-    for (const subject of state.subjects) {
+    for (const subject of comparisonSubjects) {
       const option = document.createElement("label"); option.className = "check";
       const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = asset.comparisonSubjects.includes(subject.id); checkbox.disabled = state.mode !== "Ref2VA";
-      checkbox.addEventListener("change", () => {
+      checkbox.addEventListener("change", () => editReferenceAssets(() => {
         const selected = new Set(asset.comparisonSubjects);
-        checkbox.checked ? selected.add(subject.id) : selected.delete(subject.id);
-        asset.comparisonSubjects = [...selected]; updateEditedAsset(asset.id); setDirty();
-      });
-      option.append(checkbox, ` ${subjectLabel(state.subjects, subject.id)}`); comparisonLabel.append(option);
+        if (checkbox.checked) {
+          materializeSubject(state.subjects, subject.id, state.projectSequence);
+          selected.add(subject.id);
+        } else selected.delete(subject.id);
+        asset.comparisonSubjects = [...selected];
+        normalizeSubjectsInState();
+      }));
+      option.append(checkbox, ` ${subjectLabel(comparisonSubjects, subject.id)}`); comparisonLabel.append(option);
     }
     const helper = document.createElement("p"); helper.className = "subject-identity-helper";
     helper.textContent = asset.comparisonSubjects.length >= 2
@@ -794,26 +1183,32 @@ function assetCard(asset, label) {
   if (asset.kind === "audio" && asset.role === "music_beat_rhythm") {
     const sync = document.createElement("label"); sync.className = "check";
     const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = asset.options?.syncChoreography === true;
-    checkbox.addEventListener("change", () => { asset.options.syncChoreography = checkbox.checked; setDirty(); });
+    checkbox.addEventListener("change", () => editReferenceAssets(() => { asset.options.syncChoreography = checkbox.checked; }));
     sync.append(checkbox, " Synchronize choreography to beat / rhythm"); content.append(title, meta, fields, sync);
   } else content.append(title, meta, fields);
 
-  if (asset.kind === "video" && asset.role === "seamless_overlap_continuation") {
+  if (asset.kind === "video" && asset.role === "tail_reference_continuation") {
     const help = document.createElement("p"); help.className = "helper";
-    help.textContent = "Use the complete clip as the target opening overlap; approximately 1–2 seconds is recommended, not required.";
+    help.textContent = "Use a bounded recent tail as continuation evidence. Start the new action from its ending state; it is not a frame-identical opening.";
     content.append(help);
   }
   const actions = document.createElement("div"); actions.className = "asset-actions";
+  const orderKind = { image: "Picture", video: "Video", audio: "Audio" }[asset.kind];
   for (const [text, direction] of [["↑", -1], ["↓", 1]]) {
-    const button = document.createElement("button"); button.className = "quiet"; button.textContent = text; button.title = direction < 0 ? "Move up" : "Move down";
+    const button = document.createElement("button"); button.className = "quiet"; button.textContent = text;
+    button.title = direction < 0 ? `Move earlier in canonical ${orderKind} order` : `Move later in canonical ${orderKind} order`;
+    button.setAttribute("aria-label", button.title);
     button.addEventListener("click", () => moveAsset(asset.id, direction)); actions.append(button);
   }
-  if (asset.kind !== "image") {
+  if (asset.kind === "image") {
+    const replace = document.createElement("button"); replace.className = "quiet"; replace.textContent = "Replace Picture";
+    replace.addEventListener("click", () => chooseAsset("image", asset.id)); actions.append(replace);
+  } else {
     const reattach = document.createElement("button"); reattach.className = "quiet"; reattach.textContent = "Reattach";
     reattach.addEventListener("click", () => chooseAsset(asset.kind, asset.id)); actions.append(reattach);
   }
   const remove = document.createElement("button"); remove.className = "quiet danger"; remove.textContent = "Remove";
-  remove.addEventListener("click", () => { state.assets = state.assets.filter(item => item.id !== asset.id); normalizeOrders(asset.kind); renderAssets(); setDirty(); });
+  remove.addEventListener("click", () => editReferenceAssets(() => { state.assets = state.assets.filter(item => item.id !== asset.id); normalizeOrders(asset.kind); }));
   actions.append(remove); content.append(actions); card.append(preview, content); return card;
 }
 
@@ -828,12 +1223,11 @@ function moveAsset(id, direction) {
   const current = siblings.findIndex(item => item.id === id);
   const target = current + direction;
   if (target < 0 || target >= siblings.length) return;
-  [siblings[current].order, siblings[target].order] = [siblings[target].order, siblings[current].order];
-  renderAssets(); setDirty();
+  editReferenceAssets(() => { [siblings[current].order, siblings[target].order] = [siblings[target].order, siblings[current].order]; });
 }
 
-function chooseAsset(kind, reattachId = null) {
-  state.pendingAssetKind = kind; state.reattachId = reattachId;
+function chooseAsset(kind, reattachId = null, subjectId = null) {
+  state.pendingAssetKind = kind; state.reattachId = reattachId; state.pendingAssetSubjectId = subjectId;
   const input = $("#asset-file-input");
   input.accept = { image: "image/*", video: "video/*", audio: "audio/*" }[kind];
   input.multiple = !reattachId;
@@ -899,33 +1293,58 @@ function defaultImageRole() {
   return "subject_identity";
 }
 
-async function createAssetFromFile(file, kind, reattachId = null) {
+async function createAssetFromFile(file, kind, reattachId = null, subjectId = null, dropSubjectId = null) {
+  const context = [state.currentProjectId, state.activeGenerationId];
+  const requireContext = () => {
+    if (context[0] !== state.currentProjectId || context[1] !== state.activeGenerationId)
+      throw new Error("The active Generation changed while reading the reference file.");
+  };
   if (reattachId) {
     const asset = state.assets.find(item => item.id === reattachId);
     if (!asset) return null;
-    Object.assign(asset, await readMediaReference(file, kind, readDuration));
+    const replacement = kind === "image" ? replacePicture(asset, file, await processImage(file))
+      : await readMediaReference(file, kind, readDuration);
+    requireContext(); Object.assign(asset, replacement, { payloadAvailability: null, payloadSha256: null });
     asset.attached = true;
-    return `${asset.filename} reattached`;
+    return `${asset.filename} ${kind === "image" ? "replaced" : "reattached"}`;
   }
   const asset = {
     id: uid(), kind, filename: file.name, mimeType: file.type || `${kind}/unknown`,
-    durationSeconds: null, role: kind === "image" ? defaultImageRole() : roleCatalog[kind][0][0],
-    notes: "", options: {}, subjectIdentity: defaultSubjectIdentity(), order: state.assets.filter(item => item.kind === kind).length, attached: true, image: null,
+    durationSeconds: null, role: kind === "image"
+      ? (state.mode === "Ref2VA" && dropSubjectId === "" ? "general_visual" : defaultImageRole())
+      : roleCatalog[kind][0][0],
+    notes: "", options: {}, subjectIdentity: defaultSubjectIdentity(state.projectSequence), order: state.assets.filter(item => item.kind === kind).length, attached: true, image: null,
   };
-  if (kind === "image") asset.image = await processImage(file);
+  if (kind === "image") {
+    asset.image = await processImage(file);
+    asset.mimeType = asset.image.data_url.slice(5).split(";")[0];
+  }
   else {
     Object.assign(asset, await readMediaReference(file, kind, readDuration));
+  }
+  requireContext();
+  if (kind === "image" && state.mode === "Ref2VA" && dropSubjectId && dropSubjectId !== "") {
+    const subjects = state.projectSequence ? availableSubjects(state.subjects, state.projectSequence) : state.subjects;
+    if (!subjects.some(subject => subject.id === dropSubjectId))
+      throw new Error("The Subject drop target is no longer available in this Generation.");
   }
   if (kind === "image" && state.mode !== "Ref2VA") {
     state.assets.filter(item => item.kind === "image" && item.role === asset.role)
       .forEach(item => { item.role = "general_visual"; });
   }
   state.assets.push(asset);
-  if (isSubjectIdentityAsset(asset)) normalizeSubjectsInState();
+  if (isSubjectIdentityAsset(asset)) {
+    if (subjectId === null) assignNewSubject(asset);
+    else {
+      materializeSubject(state.subjects, subjectId, state.projectSequence);
+      asset.subjectIdentity.subjectId = subjectId;
+    }
+    normalizeSubjectsInState();
+  }
   return asset.filename;
 }
 
-async function ingestAssetFiles(files, forcedKind = null, reattachId = null) {
+async function ingestAssetFiles(files, forcedKind = null, reattachId = null, subjectId = null, dropSubjectId = null) {
   const isReattach = Boolean(reattachId);
   const accepted = [], rejected = [];
   for (const file of [...files]) {
@@ -937,7 +1356,9 @@ async function ingestAssetFiles(files, forcedKind = null, reattachId = null) {
       rejected.push(`${file.name} (Video/Audio are available in Ref2VA)`); continue;
     }
     try {
-      const result = await createAssetFromFile(file, forcedKind || classified, reattachId);
+      let result;
+      const contextualSubjectId = classified === "image" && state.mode === "Ref2VA" && dropSubjectId ? dropSubjectId : subjectId;
+      await changeReferenceAssets(async () => { result = await createAssetFromFile(file, forcedKind || classified, reattachId, contextualSubjectId, dropSubjectId); });
       if (result) accepted.push(result);
       if (reattachId) break;
     } catch {
@@ -945,21 +1366,21 @@ async function ingestAssetFiles(files, forcedKind = null, reattachId = null) {
     }
   }
   if (accepted.length) {
-    renderAssets(); setDirty();
+    renderAssets();
     toast(isReattach ? accepted[0] : accepted.length === 1 ? `${accepted[0]} added` : `${accepted.length} reference assets added`);
   }
   if (rejected.length) toast(`Unsupported or incompatible: ${rejected.join(", ")}`);
-  state.pendingAssetKind = null; state.reattachId = null;
+  state.pendingAssetKind = null; state.reattachId = null; state.pendingAssetSubjectId = null;
 }
 
 async function runConnection(action) {
-  persistSettings();
   const message = $("#connection-message");
   message.textContent = action === "models" ? "Discovering models…" : "Testing connection…";
   try {
-    const result = action === "models" ? await api.models(settings()) : await api.test(settings());
+    const candidate = validatedSettingsDraft();
+    const result = action === "models" ? await api.models(candidate) : await api.test(candidate);
     const models = result.models || [];
-    const endpoint = endpointProfile();
+    const endpoint = candidate.endpoint;
     state.endpoint = { ...endpoint };
     updateDiscoveredCatalog(endpoint, models);
     message.textContent = result.message || `Discovered ${models.length} model(s). Manual model IDs are always accepted.`;
@@ -973,11 +1394,11 @@ async function runConnection(action) {
 }
 
 async function discoverLocalEndpoints() {
-  persistSettings();
   const message = $("#connection-message");
   message.textContent = "Checking known local servers…";
   try {
-    const response = await api.discoverEndpoints({ manualEndpoint: endpointProfile() });
+    const candidate = validatedSettingsDraft();
+    const response = await api.discoverEndpoints({ manualEndpoint: candidate.endpoint });
     for (const result of response.endpoints || []) {
       const canReplaceCatalog = result.discoveryState === "catalog_available" || result.connected;
       updateDiscoveredCatalog(result.endpoint, result.models || [], { replace: canReplaceCatalog });
@@ -1008,10 +1429,15 @@ function setGenerationStatus(text, stateName = "idle") {
 
 function setGenerationControls(active) {
   const button = $("#generate");
-  button.querySelector("span").textContent = active ? "Stop" : "Generate prompt";
-  button.querySelector("kbd").classList.toggle("hidden", active);
-  button.classList.toggle("stop", active);
-  button.setAttribute("aria-pressed", String(active));
+  const mainActive = active && state.generation?.authoringPath === "one_shot";
+  const storyActive = active && state.generation?.authoringPath === "story";
+  button.querySelector("span").textContent = mainActive ? "Stop" : "Generate from Main Prompt";
+  $("#generate-story").querySelector("span").textContent = storyActive ? "Stop" : "Generate from Story";
+  button.querySelector("kbd").classList.toggle("hidden", mainActive);
+  button.classList.toggle("stop", mainActive);
+  button.setAttribute("aria-pressed", String(mainActive));
+  $("#generate-story").classList.toggle("stop", storyActive);
+  $("#generate-story").setAttribute("aria-pressed", String(storyActive));
   renderOutput();
 }
 
@@ -1065,10 +1491,10 @@ function renderPerformance(session, metrics = null) {
   const diagnostic = session.diagnostics || {};
   const lines = [
     `Generate clicked: ${session.clickedAt}`,
+    ...requestFactLines(session),
     `Request assembly: ${diagnostic.assemblyMs ?? "—"} ms`,
-    `Assembled text: ${(diagnostic.assembledTextChars ?? 0).toLocaleString()} characters`,
-    `Images: ${diagnostic.imageCount ?? 0}${diagnostic.imageDimensions?.length ? ` (${diagnostic.imageDimensions.map(item => `${item.width}×${item.height}`).join(", ")})` : ""}`,
-    `Reasoning mode: ${diagnostic.reasoningMode || session.requestSnapshot.llm.reasoningMode}`,
+    `Estimated output room: ${diagnostic.estimatedCompletionHeadroom?.toLocaleString() ?? "unknown"} tokens${diagnostic.completionBudgetFits === false ? " · full requested budget may not fit" : ""}`,
+    `Vision images: ${diagnostic.sentVisionImages?.length ?? 0}${diagnostic.imageDimensions?.length ? ` · Canonical: ${diagnostic.imageDimensions.map(item => `${item.width}×${item.height}`).join(", ")}` : ""}${diagnostic.sentVisionImages?.length ? ` · Sent to prompt writer: ${diagnostic.sentVisionImages.map(item => `${item.width}×${item.height}`).join(", ")} (${(diagnostic.sentVisionEncodedBytes / 1024).toFixed(1)} KiB encoded)` : ""}`,
     `Backend/model: ${diagnostic.backend || "—"} / ${diagnostic.model || "—"}`,
     `Seed used: ${effectiveSeed ?? "backend default"}`,
     `Cache-input fingerprint: ${diagnostic.fingerprint || "waiting"}`,
@@ -1089,37 +1515,51 @@ function renderPerformance(session, metrics = null) {
   $("#performance-diagnostics").textContent = lines.join("\n");
 }
 
-async function saveCompletedGenerationHistory(session) {
-  if (!session.completed.size || session.historySaved) return;
-  session.historySaved = true;
-  const snapshot = session.requestSnapshot.workspace;
-  for (const index of session.completed) {
-    const variation = session.outputs[index];
-    await addHistory({
-      createdAt: new Date().toISOString(), mode: snapshot.mode,
-      projectId: snapshot.projectId, projectName: snapshot.projectName,
-      prompt: variation.prompt, validation: variation.validation,
-      seed: variation.seed ?? null,
-    });
-  }
-  await renderHistory();
-}
-
-async function generate() {
-  if (state.generation) { stopGeneration(); return; }
-  markRevisionStale("The source prompt was replaced by a new generation.");
-  persistSettings();
-  const requestSnapshot = snapshotGenerationRequest(buildGenerateRequest());
+async function generate(authoringPath = "one_shot") {
+  if (authoringPath === "story") $("#story-generation-feedback").textContent = "";
+  const id = authoringPath === "story" ? "h3-story" : "h3-main";
+  const label = authoringPath === "story" ? "Generate from Story" : "Generate from Main Prompt";
+  const intent = generationClickIntent(state.generation, state.generationStarting);
+  if (intent === "stop" && providerActivity.active()?.id === id) { providerActivity.cancelActive(); setGenerationStatus(`${label} is already running. Stopping…`, "stopping"); return; }
+  if (providerActivity.active()) { setGenerationStatus(providerActivity.conflict(id, label), "error"); return; }
+  if (intent === "already-starting") { setGenerationStatus(`${label} is already running.`, "preparing"); return; }
   const controller = new AbortController();
-  const outputs = Array.from({ length: requestSnapshot.workspace.variations }, () => ({
-    prompt: "", validation: null, generationStatus: "pending",
-  }));
-  const session = {
-    controller, requestSnapshot, stopping: false, renderQueued: false,
-    completed: new Set(), streamError: null, historySaved: false, outputs,
-    clickedAt: new Date().toISOString(), metrics: new Map(), diagnostics: null,
-  };
-  state.generation = session;
+  const activityToken = providerAttempt(id, label, message => setGenerationStatus(message, "error"), () => {
+    if (state.generation?.controller === controller) stopGeneration();
+    else controller.abort();
+  });
+  if (!activityToken) return;
+  const contextEpoch = providerContextEpoch;
+  state.generationStarting = true;
+  let requestSnapshot, outputs, session;
+  try {
+    markRevisionStale("The source prompt was replaced by a new generation.");
+    if (authoringPath === "story" && (state.activeProjectType !== "filesystem" || state.dirty || !state.scenePlan.trim())) {
+      const message = storyGenerationFeedback({ visibleScenePlan: state.scenePlan, savedScenePlan: state.savedScenePlan });
+      $("#story-generation-feedback").textContent = message;
+      throw new Error(message);
+    }
+    await syncReferenceAuthority();
+    persistSettings();
+    await ensureDialogueResolution(authoringPath, controller.signal);
+    if (controller.signal.aborted || !providerContextCurrent(contextEpoch)) return;
+    requestSnapshot = snapshotGenerationRequest(buildGenerateRequest(authoringPath));
+    outputs = Array.from({ length: requestSnapshot.workspace.variations }, () => ({
+      prompt: "", validation: null, generationStatus: "pending",
+    }));
+    session = {
+      controller, requestSnapshot, authoringPath, stopping: false, renderQueued: false,
+      completed: new Set(), streamError: null, outputs,
+      clickedAt: new Date().toISOString(), metrics: new Map(), diagnostics: null,
+    };
+    state.generation = session;
+  } catch (error) {
+    if (error.name !== "AbortError") toast(error.message);
+    return;
+  } finally {
+    state.generationStarting = false;
+    if (!session) providerActivity.finish(activityToken);
+  }
   updateEjectButton();
   state.outputs = outputs;
   state.outputIndex = 0;
@@ -1132,7 +1572,7 @@ async function generate() {
     await api.streamGenerate(requestSnapshot, {
       signal: controller.signal,
       onEvent: ({ event, data }) => {
-        if (state.generation !== session) return;
+        if (state.generation !== session || !providerContextCurrent(contextEpoch) || controller.signal.aborted) return;
         if (event === "start") {
           renderWarnings(data.warnings || []);
           session.diagnostics = data.diagnostics || null;
@@ -1165,6 +1605,7 @@ async function generate() {
         } else if (event === "complete") {
           session.outputs[data.variation] = {
             prompt: data.prompt, validation: data.validation, sourceFingerprint: data.sourceFingerprint,
+            authoringPath: data.authoringPath || authoringPath,
             referenceMap: data.referenceMap, executionRouting: requestSnapshot.executionRouting,
             generationStatus: "complete", seed: data.seed ?? null,
           };
@@ -1179,6 +1620,8 @@ async function generate() {
         }
       },
     });
+    if (!providerContextCurrent(contextEpoch)) return;
+    if (controller.signal.aborted) { setGenerationStatus("Stopped", "stopped"); return; }
     if (session.streamError) {
       const suffix = session.streamError.partial ? " — partial output preserved" : "";
       setGenerationStatus(`Error${suffix}`, "error");
@@ -1187,6 +1630,7 @@ async function generate() {
       setGenerationStatus("Complete", "complete");
     }
   } catch (error) {
+    if (!providerContextCurrent(contextEpoch)) return;
     if (error.name === "AbortError") {
       for (const output of session.outputs) {
         if (output.generationStatus !== "complete") {
@@ -1204,25 +1648,29 @@ async function generate() {
       renderWarnings([error.message]);
     }
   } finally {
-    try { await saveCompletedGenerationHistory(session); }
-    catch (historyError) { toast(`Prompt completed, but History could not be updated: ${historyError.message}`); }
+    providerActivity.finish(activityToken);
     if (state.generation === session) {
       state.generation = null;
       setGenerationControls(false);
       workflowPreparation?.sync();
+      renderedTakes?.sync();
       updateEjectButton();
     }
   }
 }
 
 function renderWarnings(warnings = []) {
+  state.promptWarnings = warnings;
+  const visible = visiblePromptWarnings(warnings);
   const banner = $("#warning-banner");
-  banner.classList.toggle("hidden", !warnings.length); banner.textContent = warnings.join(" ");
+  banner.classList.toggle("hidden", !visible.length); banner.textContent = visible.join(" ");
 }
 
 function renderOutput() {
   workflowPreparation?.sync();
+  renderedTakes?.sync();
   const current = state.outputs[state.outputIndex];
+  savedPrompts?.sync();
   const generating = Boolean(state.generation);
   $("#empty-output").classList.toggle("hidden", Boolean(current));
   $("#output-view-controls").classList.toggle("hidden", !current);
@@ -1244,14 +1692,15 @@ function renderOutput() {
   repairButton.setAttribute("aria-busy", String(repairUi.busy));
   updateReviseSelectionButton();
   const tabs = $("#variation-tabs"); tabs.replaceChildren(); tabs.classList.toggle("hidden", state.outputs.length < 2);
-  state.outputs.forEach((_, index) => {
-    const button = document.createElement("button"); button.textContent = `Variation ${index + 1}`; button.classList.toggle("active", index === state.outputIndex);
+  state.outputs.forEach((output, index) => {
+    const button = document.createElement("button"); button.textContent = output.origin === "history" ? "History item" : `Variation ${index + 1}`; button.classList.toggle("active", index === state.outputIndex);
     button.addEventListener("click", () => {
       if (index !== state.outputIndex) markRevisionStale("The active output variation changed.");
       state.outputIndex = index; state.revisionSelection = null; renderOutput();
     }); tabs.append(button);
   });
-  renderValidation(current?.validation);
+  renderValidation(current?.currentAudit || current?.validation,
+    current?.currentAudit ? "Current Format Audit" : current?.validation ? "Validation recorded when generated" : null);
 }
 
 function setOutputView(raw) {
@@ -1360,7 +1809,6 @@ function updateRevisionApplyActions(revision) {
 
 function setRevisionRunning(running) {
   if (state.revision) state.revision.running = running;
-  $("#generate-revision").classList.toggle("hidden", running);
   $("#stop-revision").classList.toggle("hidden", !running);
   $("#revision-instruction").disabled = running;
   updateEjectButton();
@@ -1369,12 +1817,19 @@ function setRevisionRunning(running) {
 
 async function generateRevision() {
   const revision = state.revision;
-  if (!revision || revision.running) return;
+  const label = "Revising H3 Prompt", id = "h3-revision";
+  if (providerActivity.active()) { $("#revision-status").textContent = providerActivity.conflict(id, label); return; }
+  if (!revision) { $("#revision-status").textContent = "Choose an output excerpt before Generate Revision."; return; }
+  if (revisionStale()) { $("#revision-status").textContent = "Reference or prompt authority changed. Reopen Revision against the current Workspace."; return; }
+  if (revision.running) { $("#revision-status").textContent = "Revision is already in progress."; return; }
   const instruction = $("#revision-instruction").value;
   if (!instruction.trim()) { $("#revision-status").textContent = "Enter a revision request first."; return; }
   revision.instruction = instruction;
   revision.preview = ""; revision.complete = false; revision.candidatePrompt = null; revision.validation = null; revision.assessment = null;
   revision.controller = new AbortController();
+  const activityToken = providerAttempt(id, label, message => $("#revision-status").textContent = message, () => stopRevision());
+  if (!activityToken) return;
+  const contextEpoch = providerContextEpoch;
   $("#revision-preview").textContent = "";
   $("#revision-preview-wrap").classList.remove("hidden");
   $("#apply-revision").disabled = true;
@@ -1385,6 +1840,9 @@ async function generateRevision() {
   setRevisionRunning(true);
   const request = {
     workspace: revision.workspace,
+    authoringPath: revision.authoringPath,
+    filesystemProjectId: state.activeProjectType === "filesystem" ? state.currentProjectId : null,
+    generationId: state.activeProjectType === "filesystem" ? state.activeGenerationId : null,
     executionRouting: state.outputs[revision.originIndex]?.executionRouting || { assets: {} },
     llm: { ...revision.llm, seed: resolveSeed(revision.llm) },
     outputIndex: revision.originIndex,
@@ -1397,11 +1855,14 @@ async function generateRevision() {
     instruction,
   };
   try {
+    await syncReferenceAuthority();
+    if (revisionStale()) throw new Error("Reference Assets changed. Reopen Revision against the current Workspace.");
     await api.streamRevision(request, {
       signal: revision.controller.signal,
       onEvent: ({ event, data }) => {
-        if (state.revision !== revision) return;
-        if (event === "reasoning" && !revisionStale()) $("#revision-status").textContent = "Reasoning about the selected excerpt…";
+        if (state.revision !== revision || !providerContextCurrent(contextEpoch) || revision.controller.signal.aborted) return;
+        if (event === "start") renderWarnings(data.warnings || []);
+        else if (event === "reasoning" && !revisionStale()) $("#revision-status").textContent = "Reasoning about the selected excerpt…";
         else if (event === "compatibility_fallback" && !revisionStale()) $("#revision-status").textContent = "Retrying with backend-default compatibility…";
         else if (event === "seed_unsupported" && !revisionStale()) $("#revision-status").textContent = "Seed is unsupported here; continuing with backend defaults…";
         else if (event === "delta") {
@@ -1430,10 +1891,11 @@ async function generateRevision() {
       },
     });
   } catch (error) {
-    $("#revision-status").textContent = error.name === "AbortError"
+    if (providerContextCurrent(contextEpoch)) $("#revision-status").textContent = error.name === "AbortError"
       ? "Revision stopped. The original prompt is unchanged; partial preview cannot be applied."
       : error.message;
   } finally {
+    providerActivity.finish(activityToken);
     if (state.revision === revision) {
       setRevisionRunning(false);
       $("#retry-revision").classList.remove("hidden");
@@ -1447,6 +1909,9 @@ async function generateRevision() {
 }
 
 function stopRevision() {
+  if (providerActivity.active()?.id === "h3-revision" && !providerActivity.active().cancelling) {
+    providerActivity.cancelActive(); return;
+  }
   if (state.revision?.running) state.revision.controller.abort();
 }
 
@@ -1469,7 +1934,7 @@ function applyRevision(anyway = false) {
   renderOutput(); toast(anyway ? "Revision applied despite structural findings" : "Revision applied to the selected excerpt");
 }
 
-function renderValidation(validation) {
+function renderValidation(validation, label = null) {
   const summary = $("#validation-summary"), list = $("#validation-list");
   if (!validation) {
     summary.className = "validation-summary neutral"; summary.innerHTML = '<span class="status-dot"></span><span>Not validated</span>';
@@ -1480,7 +1945,9 @@ function renderValidation(validation) {
   const status = errors ? "bad" : warnings ? "warn" : "ok";
   summary.className = `validation-summary ${status}`;
   summary.innerHTML = `<span class="status-dot ${status === "ok" ? "ok" : status === "bad" ? "bad" : ""}"></span><span>${errors ? `${errors} error(s)` : warnings ? `Valid with ${warnings} warning(s)` : "Structurally valid"}</span>`;
-  list.replaceChildren(...validation.findings.map(item => {
+  list.replaceChildren();
+  if (label) { const heading = document.createElement("p"); heading.textContent = label; list.append(heading); }
+  list.append(...validation.findings.map(item => {
     const row = document.createElement("div"); row.className = `finding ${item.severity}`;
     const badge = document.createElement("span"); badge.className = "badge"; badge.textContent = item.severity;
     const message = document.createElement("span"); message.textContent = item.message; row.append(badge, message); return row;
@@ -1488,40 +1955,84 @@ function renderValidation(validation) {
 }
 
 async function validateCurrent() {
-  const current = state.outputs[state.outputIndex]; if (!current) return;
+  const index = state.outputIndex, current = state.outputs[index]; if (!current) return;
   current.prompt = $("#output").value;
   try {
-    current.validation = await api.validate({
+    const audit = await api.validate({
+      ...(state.activeProjectType === "filesystem" ? { filesystemProjectId: state.currentProjectId, generationId: state.activeGenerationId } : {}),
       prompt: current.prompt, mode: state.mode, durationSeconds: Number($("#duration").value),
       shots: $("#shots").value.trim() === "" ? null : Number($("#shots").value),
       assets: state.assets, dialogue: $("#dialogue").value,
+      dialogueLanguage: state.dialogueLanguage, dialogueResolution: state.dialogueResolution,
       executionRouting: current.executionRouting || { assets: {} },
     });
-    renderValidation(current.validation);
+    if (state.outputIndex !== index || state.outputs[index] !== current) return;
+    state.outputs[index] = currentFormatAudit(current, audit);
+    renderValidation(audit, "Current Format Audit");
+    workflowPreparation?.sync();
   } catch (error) { toast(error.message); }
 }
 
 async function repairCurrent() {
+  const id = "h3-repair", label = "Repairing H3 Format";
+  if (providerActivity.active()) { toast(providerActivity.conflict(id, label)); return; }
   if (!canStartRepair(state.repairRunning)) return;
   const current = state.outputs[state.outputIndex]; if (!current) return;
+  const controller = new AbortController();
+  let cancelled = false, adopted = false, activityToken;
+  activityToken = providerAttempt(id, label, toast, () => {
+    cancelled = true; controller.abort(); state.repairRunning = false; renderOutput(); updateEjectButton();
+    toast("Format repair cancelled."); providerActivity.finish(activityToken);
+  });
+  if (!activityToken) return;
+  const contextEpoch = providerContextEpoch, outputIndex = state.outputIndex;
   state.repairRunning = true; renderOutput(); updateEjectButton();
   try {
+    await syncReferenceAuthority();
+    if (cancelled || !providerContextCurrent(contextEpoch)) return;
+    const result = await api.repair({ ...buildGenerateRequest(current.authoringPath || "one_shot"), executionRouting: current.executionRouting || { assets: {} }, prompt: $("#output").value, findings: (current.currentAudit || current.validation)?.findings || [] }, controller.signal);
+    if (cancelled || !providerContextCurrent(contextEpoch) || state.outputs[outputIndex] !== current) return;
     markRevisionStale("The source prompt was replaced by format repair.");
-    const result = await api.repair({ ...buildGenerateRequest(), executionRouting: current.executionRouting || { assets: {} }, prompt: $("#output").value, findings: current.validation?.findings || [] });
     result.executionRouting = current.executionRouting;
-    state.outputs[state.outputIndex] = result; renderOutput(); toast("One repair pass completed");
-    await addHistory({ createdAt: new Date().toISOString(), mode: state.mode, projectId: state.currentProjectId, projectName: $("#project-name").value, prompt: result.prompt, validation: result.validation, repaired: true });
-    await renderHistory();
-  } catch (error) { toast(error.message); }
-  finally { state.repairRunning = false; renderOutput(); updateEjectButton(); }
+    result.savedPromptTarget = current.savedPromptTarget;
+    state.outputs[outputIndex] = result; renderOutput(); renderWarnings(result.warnings || []); toast("One repair pass completed");
+    adopted = true; state.repairRunning = false; renderOutput(); updateEjectButton(); providerActivity.finish(activityToken);
+  } catch (error) { if (!cancelled && error.name !== "AbortError" && providerContextCurrent(contextEpoch)) toast(error.message); }
+  finally { providerActivity.finish(activityToken); if (!cancelled && !adopted) { state.repairRunning = false; renderOutput(); updateEjectButton(); } }
 }
 
 async function showInstructions() {
+  const current = state.outputs[state.outputIndex];
+  const authoringPath = current?.authoringPath || "one_shot";
+  $("#instructions-path").value = authoringPath;
+  $("#instructions-dialog").showModal();
+  await loadInstructions(authoringPath);
+}
+
+async function loadInstructions(authoringPath) {
   try {
-    const result = await api.assemble(buildGenerateRequest());
+    await syncReferenceAuthority();
+    if (!await ensureInstructionsDialogue(authoringPath)) return;
+    const result = await api.assemble(buildGenerateRequest(authoringPath));
     $("#instructions-output").textContent = result.instructions;
-    $("#instructions-dialog").showModal(); renderWarnings(result.warnings);
+    renderWarnings([...(result.warnings || []), ...(result.capacity?.completionBudgetWarning ? [result.capacity.completionBudgetWarning] : [])]);
   } catch (error) { toast(error.message); }
+}
+
+async function ensureInstructionsDialogue(authoringPath) {
+  while (true) {
+    const snapshot = { dialogueLanguage: state.dialogueLanguage, dialogue: $("#dialogue").value, resolution: state.dialogueResolution };
+    const needsProvider = await dialogueResolutionNeedsProvider(snapshot);
+    const current = { dialogueLanguage: state.dialogueLanguage, dialogue: $("#dialogue").value, resolution: state.dialogueResolution };
+    if (snapshot.dialogueLanguage !== current.dialogueLanguage || snapshot.dialogue !== current.dialogue || snapshot.resolution !== current.resolution) continue;
+    if (!needsProvider) return true;
+    await refreshDialogueResolution(authoringPath);
+    const after = { dialogueLanguage: state.dialogueLanguage, dialogue: $("#dialogue").value, resolution: state.dialogueResolution };
+    if (snapshot.dialogueLanguage !== after.dialogueLanguage || snapshot.dialogue !== after.dialogue) continue;
+    const stillNeedsProvider = await dialogueResolutionNeedsProvider(after);
+    if (after.dialogueLanguage !== state.dialogueLanguage || after.dialogue !== $("#dialogue").value || after.resolution !== state.dialogueResolution) continue;
+    if (stillNeedsProvider) return false;
+  }
 }
 
 function persistenceWorkspace() {
@@ -1531,6 +2042,7 @@ function persistenceWorkspace() {
 }
 
 function setEphemeralSequence() {
+  state.projectSequence = null;
   const sequence = ephemeralSequence();
   state.sequenceGenerations = sequence.generations;
   state.activeGenerationId = sequence.activeGenerationId;
@@ -1542,27 +2054,52 @@ function rememberProjectLocation(projectId) {
   window.history.replaceState(null, "", projectLocation(window.location.href, projectId));
 }
 
-function adoptProjectResponse(project, { dirty = false } = {}) {
-  rememberProjectLocation(project.id);
-  restoreWorkspace(project.workspace);
-  state.currentProjectId = project.id;
-  state.currentProjectSavedName = project.name;
-  state.currentLegacyProjectId = null;
-  state.activeProjectType = "filesystem";
-  const sequence = sequenceFromProject(project);
-  state.sequenceGenerations = sequence.generations;
-  state.activeGenerationId = sequence.activeGenerationId;
-  restoreContinuity(project.continuity);
-  restorePlanning(project.planning);
-  storyPlanner?.restoreStoryIdea(project.storyIdea);
-  setDirty(dirty);
-  workflowPreparation?.refreshSelection();
-  renderProjectOptions(state.filesystemProjects, state.legacyProjects);
-  renderSequenceControls();
-  renderContinuityUi();
+function adoptProjectResponse(project, { dirty = false, generatedReset = false } = {}) {
+  navigationAuthority.invalidate();
+  if (generatedReset) {
+    sequenceRenderAction?.reset();
+    renderedTakes?.reset(); workflowPreparation?.reset(); savedPrompts?.reset();
+  } else savedPrompts?.rememberCurrent();
+  invalidateProviderContext();
+  // Component syncs run from restoreWorkspace/setDirty. Mark the old context
+  // unavailable first so those intermediate renders cannot read a mixed
+  // Project/new-Generation pair while the authoritative response is adopted.
+  state.contextReplacing = true;
+  workflowPreparation?.sync(); renderedTakes?.sync();
+  try {
+    rememberProjectLocation(project.id);
+    restoreWorkspace(project.workspace, project.sequence, project.dialogueLanguage);
+    state.projectFingerprint = project.projectFingerprint;
+    state.projectEditFingerprint = project.projectEditFingerprint;
+    state.projectUpdatedAt = project.updatedAt;
+    state.currentProjectId = project.id;
+    state.currentProjectSavedName = project.name;
+    state.currentLegacyProjectId = null;
+    state.activeProjectType = "filesystem";
+    const sequence = sequenceFromProject(project);
+    state.sequenceGenerations = sequence.generations;
+    state.activeGenerationId = sequence.activeGenerationId;
+    restoreContinuity(project.continuity);
+    restorePlanning(project.planning);
+    storyPlanner?.restoreStoryIdea(project.storyIdea);
+    storyPlanner?.restoreScenePlan(state.scenePlan);
+    storyPlanner?.restoreStoryCreativeDirection(project.storyCreativeDirection);
+    storyPlanner?.restoreStoryPlanningStyle(project.storyPlanningStyle);
+    storyPlanner?.restoreStoryMemory(project.storyMemoryAfter);
+    setDirty(dirty);
+    renderProjectOptions(state.filesystemProjects, state.legacyProjects);
+    renderSequenceControls();
+    renderContinuityUi();
+  } finally {
+    state.contextReplacing = false;
+    workflowPreparation?.sync(); renderedTakes?.sync();
+    requestReferenceManifestRefresh();
+    savedPrompts?.load({ restore: !generatedReset });
+  }
 }
 
 function renderSequenceControls() {
+  continuationDrafting?.sync();
   const select = $("#generation-select");
   if (!select) return;
   const saved = state.activeProjectType === "filesystem" && Boolean(state.currentProjectId) && state.sequenceGenerations.length > 0;
@@ -1590,6 +2127,7 @@ function renderSequenceControls() {
 function currentPlanningDraft() {
   return {
     creativeRequest: $("#creative-request").value,
+    dialogue: $("#dialogue").value,
     incomingState: state.incomingState,
     intendedOutgoingState: state.intendedOutgoingState,
     planning: capturePlanning(),
@@ -1598,6 +2136,7 @@ function currentPlanningDraft() {
 
 function applyPlanningDraft(next) {
   $("#creative-request").value = next.creativeRequest;
+  $("#dialogue").value = next.dialogue ?? "";
   state.incomingState = next.incomingState;
   state.intendedOutgoingState = next.intendedOutgoingState;
   state.relationshipToPrevious = next.planning.relationshipToPrevious;
@@ -1617,22 +2156,37 @@ function planningRequestBody() {
 
 async function inferFromPrevious() {
   const activeIndex = state.sequenceGenerations.findIndex(item => item.generationId === state.activeGenerationId);
-  if (state.activeProjectType !== "filesystem" || !state.currentProjectId || activeIndex <= 0) return;
   const status = $("#planning-status");
+  const id = "infer-plan", label = "Inferring Plan from Previous";
+  if (providerActivity.active()) { status.textContent = providerActivity.conflict(id, label); return; }
+  if (state.activeProjectType !== "filesystem" || !state.currentProjectId || activeIndex <= 0) {
+    status.textContent = "Select a saved Generation after Generation 1 before inferring a plan."; return;
+  }
+  const controller = new AbortController(); let cancelled = false, activityToken;
+  activityToken = providerAttempt(id, label, message => status.textContent = message, () => {
+    cancelled = true; controller.abort(); state.inferRunning = false;
+    status.textContent = "Inference cancelled."; providerActivity.finish(activityToken);
+  });
+  if (!activityToken) return;
+  const contextEpoch = providerContextEpoch, projectId = state.currentProjectId, generationId = state.activeGenerationId;
+  state.inferRunning = true;
   status.textContent = "Preparing a proposal from the committed predecessor…";
-  $("#infer-from-previous").disabled = true;
   try {
-    const proposal = await api.inferPlan(state.currentProjectId, state.activeGenerationId, planningRequestBody());
+    const proposal = await api.inferPlan(projectId, generationId, planningRequestBody(), controller.signal);
+    if (cancelled || !providerContextCurrent(contextEpoch)) return;
     const next = fillMissingPlan(currentPlanningDraft(), proposal);
     applyPlanningDraft(next);
     state.planningRecommendations = safeRecommendations(proposal.referenceRecommendations);
     setDirty();
     status.textContent = "Proposal applied to missing fields. Review it and Save when ready.";
   } catch (error) {
-    status.textContent = `Inference failed: ${error.message}`;
-    toast(`Inference failed: ${error.message}`);
+    if (!cancelled && error.name !== "AbortError" && providerContextCurrent(contextEpoch)) {
+      status.textContent = `Inference failed: ${error.message}`;
+      toast(`Inference failed: ${error.message}`);
+    }
   } finally {
-    renderContinuityUi();
+    providerActivity.finish(activityToken);
+    if (!cancelled) { state.inferRunning = false; renderContinuityUi(); }
   }
 }
 
@@ -1664,41 +2218,69 @@ async function revisePlan() {
   const instruction = $("#plan-revision-instruction").value;
   const scopes = $$("#plan-revision-scopes input:checked").map(input => input.value);
   const status = $("#plan-revision-status");
+  const id = "plan-revision", label = "Generating Plan Revision";
+  if (providerActivity.active()) { status.textContent = providerActivity.conflict(id, label); return; }
   if (!instruction.trim()) { status.textContent = "Enter a revision request first."; return; }
   if (!scopes.length) { status.textContent = "Select at least one editable field."; return; }
+  const controller = new AbortController(); let cancelled = false, activityToken;
+  activityToken = providerAttempt(id, label, message => status.textContent = message, () => {
+    cancelled = true; controller.abort(); state.planRevisionRunning = false;
+    status.textContent = "Plan revision cancelled."; providerActivity.finish(activityToken);
+  });
+  if (!activityToken) return;
+  const contextEpoch = providerContextEpoch, projectId = state.currentProjectId, generationId = state.activeGenerationId;
   status.textContent = "Generating a scoped planning proposal…";
-  $("#generate-plan-revision").disabled = true;
+  state.planRevisionRunning = true;
   try {
-    const proposal = await api.revisePlan(state.currentProjectId, state.activeGenerationId, {
+    const proposal = await api.revisePlan(projectId, generationId, {
       ...planningRequestBody(), instruction, scopes,
-    });
+    }, controller.signal);
+    if (cancelled || !providerContextCurrent(contextEpoch)) return;
     applyPlanningDraft(applyScopedPlan(currentPlanningDraft(), proposal, scopes));
     state.planningRecommendations = mergeRecommendations(state.planningRecommendations, proposal.referenceRecommendations);
     setDirty();
     status.textContent = "Selected fields updated in the draft. Review it and Save when ready.";
   } catch (error) {
-    status.textContent = `Plan revision failed: ${error.message}`;
-    toast(`Plan revision failed: ${error.message}`);
+    if (!cancelled && error.name !== "AbortError" && providerContextCurrent(contextEpoch)) {
+      status.textContent = `Plan revision failed: ${error.message}`;
+      toast(`Plan revision failed: ${error.message}`);
+    }
   } finally {
-    $("#generate-plan-revision").disabled = false;
-    renderContinuityUi();
+    providerActivity.finish(activityToken);
+    if (!cancelled) { state.planRevisionRunning = false; renderContinuityUi(); }
   }
 }
 
 async function switchGeneration(generationId) {
-  if (state.activeProjectType !== "filesystem" || !state.currentProjectId) return;
-  if (generationId === state.activeGenerationId) return;
-  if (!storyPlanner.confirmContextChange({ dirty: state.dirty, message: "Switch Generation?" })) {
+  if (state.activeProjectType !== "filesystem" || !state.currentProjectId) return false;
+  if (generationId === state.activeGenerationId) return true;
+  if (!storyPlanner.confirmContextChange({ dirty: state.dirty, message: "Switch Generation?", allowPendingSelection: true })) {
     renderSequenceControls();
-    return;
+    return false;
   }
+  const projectId = state.currentProjectId, originatingGenerationId = state.activeGenerationId;
+  const ticket = navigationAuthority.begin(projectId, originatingGenerationId);
+  invalidateProviderContext();
   try {
-    const project = await api.activateGeneration(state.currentProjectId, generationId);
-    storyPlanner.clearDraft();
+    let project;
+    try {
+      project = await api.activateGeneration(projectId, generationId, state.projectFingerprint);
+    } catch (error) {
+      if (error.status !== 409 || !navigationAuthority.ownsContext(ticket, state.currentProjectId, originatingGenerationId)) throw error;
+      const latest = await api.loadProject(projectId);
+      if (!navigationAuthority.ownsContext(ticket, state.currentProjectId, originatingGenerationId)) return false;
+      if (!latest.sequence?.generations?.some(item => item.generationId === generationId)) throw error;
+      project = await api.activateGeneration(projectId, generationId, latest.projectFingerprint);
+    }
+    if (!navigationAuthority.ownsContext(ticket, state.currentProjectId, originatingGenerationId)) return false;
+    if (!storyPlanner.hasPendingRequest) storyPlanner.clearDraft();
     adoptProjectResponse(project);
+    return state.activeGenerationId === generationId;
   } catch (error) {
+    if (!navigationAuthority.ownsContext(ticket, state.currentProjectId, originatingGenerationId)) return false;
     renderSequenceControls();
     toast(`Could not switch Generation: ${error.message}`);
+    return false;
   }
 }
 
@@ -1717,12 +2299,15 @@ function structuralSequenceReady() {
 async function runSequenceOperation(operation, successMessage) {
   if (!structuralSequenceReady()) return;
   if (!storyPlanner.confirmContextChange({ message: "Change the canonical Sequence?" })) return;
+  const projectId = state.currentProjectId, generationId = state.activeGenerationId;
+  const ticket = navigationAuthority.begin(projectId, generationId);
   try {
     const project = await operation();
+    if (!navigationAuthority.ownsContext(ticket, state.currentProjectId, generationId)) return;
     storyPlanner.clearDraft();
     adoptProjectResponse(project);
     toast(successMessage);
-  } catch (error) { toast(`Sequence operation failed: ${error.message}`); }
+  } catch (error) { if (navigationAuthority.ownsContext(ticket, state.currentProjectId, generationId)) toast(`Sequence operation failed: ${error.message}`); }
 }
 
 function addGeneration() {
@@ -1765,6 +2350,34 @@ function deleteGeneration() {
   );
 }
 
+async function renameSequenceSubject(subject, name) {
+  if (!structuralSequenceReady()) return;
+  if (!name.trim()) { toast("Enter a name. Saved names cannot be cleared."); return; }
+  if (!storyPlanner.confirmContextChange({ message: "Rename this Subject and invalidate the Story Planner snapshot?" })) return;
+  const context = { projectId: state.currentProjectId, generationId: state.activeGenerationId };
+  const ticket = navigationAuthority.begin(context.projectId, context.generationId);
+  try {
+    const project = await api.nameSequenceSubject(context.projectId, subject.id, name);
+    if (!navigationAuthority.ownsContext(ticket, state.currentProjectId, context.generationId)) return;
+    navigationAuthority.invalidate();
+    if (!adoptNarrativeResponse(state, project, context)) return;
+    storyPlanner.clearDraft();
+    if (state.subjects.some(item => item.id === subject.id)) markRevisionStale("The Subject narrative identity changed.");
+    renderAssets();
+    await workflowPreparation?.refreshSelection();
+    toast("Narrative name saved.");
+  } catch (error) { toast(`Sequence operation failed: ${error.message}`); }
+}
+
+function deleteSequenceSubject(subject) {
+  if (!structuralSequenceReady()) return;
+  if (!confirm(subjectDeleteConfirmation(subject))) return;
+  runSequenceOperation(
+    () => api.deleteSequenceSubject(state.currentProjectId, subject.id),
+    `${subjectDisplayLabel(subject)} deleted from Sequence`,
+  );
+}
+
 function projectSelectionValue() {
   if (state.activeProjectType === "filesystem") return state.currentProjectId || "";
   if (state.activeProjectType === "legacy") return `legacy:${state.currentLegacyProjectId}`;
@@ -1797,14 +2410,44 @@ async function refreshProjects() {
   return result;
 }
 
-async function saveProject(asNew = false, renameInPlace = false) {
+async function clearGeneratedState(clearSavedPrompts) {
+  if (!structuralSequenceReady() || state.projectSaving) return false;
+  if (!storyPlanner.confirmContextChange({ message: "Clear generated state and discard the Story Planner proposal?" })) return false;
+  invalidateProviderContext();
+  renderedTakes.reset(); workflowPreparation.reset();
+  sequenceRenderAction?.reset();
+  const savedInert = [...document.querySelectorAll(".left-rail, .project-bar, .right-stage")].map(element => [element, element.inert]);
+  state.projectSaving = true;
+  for (const [element] of savedInert) element.inert = true;
+  try {
+    const project = await api.clearGeneratedState(state.currentProjectId, state.projectFingerprint, clearSavedPrompts);
+    storyPlanner.resetProjectContext();
+    adoptProjectResponse(project, { generatedReset: true });
+    try { await refreshProjects(); } catch (error) { toast(error.message); }
+    toast("Generated state cleared. Busy media files may remain as unreferenced files; external ComfyUI outputs are unchanged.");
+    return true;
+  } catch (error) {
+    toast(`Could not clear generated state: ${error.message}`);
+    void renderedTakes.refresh(); void workflowPreparation.refresh();
+    return false;
+  } finally {
+    state.projectSaving = false;
+    for (const [element, inert] of savedInert) element.inert = inert;
+  }
+}
+
+async function saveProject(asNew = false, renameInPlace = false, copyOptions = {}) {
+  if (referenceMutation) { try { await referenceMutation; } catch { return { saved: false, created: false }; } }
+  if (state.projectSaving) return { saved: false, created: false };
   if (state.activeProjectType === "legacy" && !asNew && !renameInPlace) {
     toast("Import this legacy Project before saving it as a filesystem Project.");
     return { saved: false, created: false };
   }
   const workspace = persistenceWorkspace();
+  if (asNew && copyOptions.name) workspace.projectName = copyOptions.name;
   const continuity = captureContinuity();
   const planning = capturePlanning();
+  const characterProfiles = characterProfileUpdates();
   const projects = state.filesystemProjects;
   const decision = resolveProjectSave({
     currentProjectId: state.activeProjectType === "filesystem" ? state.currentProjectId : null,
@@ -1828,33 +2471,66 @@ async function saveProject(asNew = false, renameInPlace = false) {
   if (!storyPlanner.confirmContextChange({ message: "Save the Project and invalidate its Story Planner snapshot?" })) {
     return { saved: false, created: false };
   }
+  invalidateProviderContext();
   workspace.projectId = saveRoute === "save" ? state.currentProjectId : null;
+  // Keep the selected editor stable until its Save response has been adopted.
+  const savedInert = [...document.querySelectorAll(".left-rail, .project-bar, .right-stage")].map(element => [element, element.inert]);
+  state.projectSaving = true;
+  for (const [element] of savedInert) element.inert = true;
   try {
     if (saveRoute === "fork") {
-      const response = await api.saveProjectAs(state.currentProjectId, workspace.projectName, workspace, continuity, planning, storyPlanner.storyIdea);
+      const response = await api.saveProjectAs(state.currentProjectId, workspace.projectName, workspace, continuity, planning,
+        storyPlanner.storyIdea, storyPlanner.memoryEdited ? storyPlanner.storyMemoryForSave : undefined,
+        { storyMemoryGenerationId: state.activeGenerationId, expectedProjectFingerprint: state.projectFingerprint },
+      storyPlanner.storyCreativeDirection, characterProfiles, state.dialogueLanguage, storyPlanner.storyPlanningStyle,
+      { copyMode: copyOptions.copyMode || "full", keepSavedPrompts: copyOptions.keepSavedPrompts === true });
       storyPlanner.resetProjectContext();
-      adoptProjectResponse(response);
+      adoptProjectResponse(response, { generatedReset: copyOptions.copyMode === "fresh" });
       try { await refreshProjects(); } catch (error) { toast(error.message); }
       toast("Project saved as a new filesystem Project");
       return { saved: true, created: true };
     }
+    const hasImportedSequence = Array.isArray(state.importedSequenceSubjects);
     const saved = await persistFilesystemProject({
       projectId: create ? null : state.currentProjectId,
       workspace,
       continuity,
       planning,
       storyIdea: storyPlanner.storyIdea,
+      storyCreativeDirection: storyPlanner.storyCreativeDirection,
+      storyPlanningStyle: storyPlanner.storyPlanningStyle,
+      storyMemory: create || storyPlanner.memoryEdited ? storyPlanner.storyMemoryForSave : undefined,
+      memoryAuthority: { storyMemoryGenerationId: state.activeGenerationId, expectedProjectFingerprint: state.projectFingerprint },
+      sequenceSubjects: create && hasImportedSequence ? state.importedSequenceSubjects : undefined,
+      sequenceNextSubjectNumber: create && hasImportedSequence ? state.importedSequenceNextSubjectNumber || undefined : undefined,
+      characterProfiles,
+      dialogueLanguage: state.dialogueLanguage,
       createProject: api.createProject,
       saveProject: api.saveProject,
     });
     if (create) storyPlanner.resetProjectContext();
-    adoptSavedMedia(state.assets, saved.response.workspace);
-    renderAssets();
+    if (create && copyOptions.copyMode === "fresh") {
+      clearImportedSequenceMetadata(state);
+      adoptProjectResponse(saved.response, { generatedReset: true });
+      try { await refreshProjects(); } catch (error) { toast(error.message); }
+      toast("Fresh filesystem Project saved");
+      return { saved: true, created: true };
+    }
+    state.projectSequence = saved.response.sequence;
+    state.savedScenePlan = saved.response.planning?.scenePlan || "";
+    await adoptSavedMedia(state.assets, saved.response.workspace);
     storyPlanner.restoreStoryIdea(saved.response.storyIdea);
+    storyPlanner.restoreStoryCreativeDirection(saved.response.storyCreativeDirection);
+    storyPlanner.restoreStoryPlanningStyle(saved.response.storyPlanningStyle);
+    state.projectFingerprint = saved.response.projectFingerprint;
+    state.projectEditFingerprint = saved.response.projectEditFingerprint;
+    state.projectUpdatedAt = saved.response.updatedAt;
+    storyPlanner.restoreStoryMemory(saved.response.storyMemoryAfter);
     rememberProjectLocation(saved.projectId);
     state.currentProjectId = saved.projectId;
     state.currentProjectSavedName = saved.name;
     state.activeProjectType = "filesystem";
+    clearImportedSequenceMetadata(state);
     state.currentLegacyProjectId = null;
     $("#project-name").value = saved.name;
     if (saved.sequence) {
@@ -1864,17 +2540,25 @@ async function saveProject(asNew = false, renameInPlace = false) {
     } else {
       setEphemeralSequence();
     }
+    renderAssets();
     setDirty(false);
+    savedPrompts?.ensureLoaded();
     try { await refreshProjects(); } catch (error) { toast(error.message); }
     toast(create ? "Filesystem Project saved" : "Filesystem Project updated");
     return { saved: true, created: create };
   } catch (error) {
     toast(`Project save failed: ${error.message}`);
     return { saved: false, created: false };
+  } finally {
+    state.projectSaving = false;
+    for (const [element, inert] of savedInert) element.inert = inert;
   }
 }
 
 function applyFreshUnsavedWorkspace() {
+  navigationAuthority.invalidate();
+  invalidateProviderContext();
+  clearImportedSequenceMetadata(state);
   rememberProjectLocation(null);
   storyPlanner?.resetProjectContext();
   restoreWorkspace(freshUnsavedWorkspace());
@@ -1886,6 +2570,7 @@ function applyFreshUnsavedWorkspace() {
 
 async function newProject() {
   if (!storyPlanner.confirmContextChange({ dirty: state.dirty, message: "Create a new Project?" })) return;
+  navigationAuthority.invalidate();
   applyFreshUnsavedWorkspace();
 }
 
@@ -1893,15 +2578,18 @@ async function loadSelectedProject() {
   const selection = $("#project-select").value;
   if (!selection) return;
   if (!storyPlanner.confirmContextChange({ dirty: state.dirty, message: "Open this Project?" })) { $("#project-select").value = projectSelectionValue(); return; }
+  const ticket = navigationAuthority.begin(state.currentProjectId, state.activeGenerationId);
   if (selection.startsWith("legacy:")) {
     const legacyId = selection.slice("legacy:".length);
     const result = await openLegacyProjectSafely({ id: legacyId, currentWorkspace: captureWorkspace(), loadProject: getLegacyProject });
+    if (!navigationAuthority.current(ticket)) return;
     if (!result.ok) {
       $("#project-select").value = projectSelectionValue();
       toast(`Could not load legacy Project: ${result.error.message}`);
       return;
     }
     const project = result.project;
+    invalidateProviderContext();
     storyPlanner.resetProjectContext();
     restoreWorkspace({ ...project.workspace, projectId: null, projectName: project.name || project.workspace.projectName });
     state.currentProjectId = null; state.currentProjectSavedName = null;
@@ -1916,6 +2604,7 @@ async function loadSelectedProject() {
     currentWorkspace: captureWorkspace(),
     loadProject: api.loadProject,
   });
+  if (!navigationAuthority.current(ticket)) return;
   if (!result.ok) { toast(`Could not load Project: ${result.error.message}`); $("#project-select").value = projectSelectionValue(); return; }
   const project = result.project;
   storyPlanner.resetProjectContext();
@@ -1927,27 +2616,34 @@ async function removeCurrentProject() {
     const projectId = state.currentProjectId;
     if (!projectId || !confirm(`Delete “${$("#project-name").value}” permanently?`)) return;
     if (!storyPlanner.confirmContextChange({ message: "Delete this Project?" })) return;
+    const generationId = state.activeGenerationId;
+    const ticket = navigationAuthority.begin(projectId, generationId);
+    let reset = false;
     try {
       await deleteFilesystemProjectAndReset({
         id: projectId,
         deleteProject: api.deleteProject,
         filesystemProjects: state.filesystemProjects,
-        reset: applyFreshUnsavedWorkspace,
+        reset: () => {
+          if (navigationAuthority.ownsContext(ticket, state.currentProjectId, generationId)) { reset = true; applyFreshUnsavedWorkspace(); }
+        },
       });
-      toast("Filesystem Project deleted");
-    } catch (error) { toast(`Could not delete Project: ${error.message}`); }
+      if (reset) toast("Filesystem Project deleted");
+    } catch (error) { if (navigationAuthority.ownsContext(ticket, state.currentProjectId, generationId)) toast(`Could not delete Project: ${error.message}`); }
     return;
   }
   if (state.activeProjectType !== "legacy" || !confirm(`Delete legacy Project “${$("#project-name").value}”?`)) return;
+  const legacyId = state.currentLegacyProjectId;
+  const ticket = navigationAuthority.begin(state.currentProjectId, state.activeGenerationId);
   try {
     await deleteLegacyProjectAndReset({
-      id: state.currentLegacyProjectId,
+      id: legacyId,
       deleteProject: deleteLegacyProject,
       legacyProjects: state.legacyProjects,
-      reset: applyFreshUnsavedWorkspace,
+      reset: () => { if (navigationAuthority.current(ticket) && state.currentLegacyProjectId === legacyId) applyFreshUnsavedWorkspace(); },
     });
-    toast("Legacy browser Project deleted");
-  } catch (error) { toast(`Could not delete legacy Project: ${error.message}`); }
+    if (navigationAuthority.current(ticket) && state.currentLegacyProjectId === legacyId) toast("Legacy browser Project deleted");
+  } catch (error) { if (navigationAuthority.current(ticket) && state.currentLegacyProjectId === legacyId) toast(`Could not delete legacy Project: ${error.message}`); }
 }
 
 async function renameCurrentProject() {
@@ -1959,12 +2655,21 @@ async function renameCurrentProject() {
 
 async function migrateCurrentLegacyProject() {
   if (state.activeProjectType !== "legacy") return;
+  const legacyId = state.currentLegacyProjectId;
+  const ticket = navigationAuthority.begin(state.currentProjectId, state.activeGenerationId);
   try {
-    const legacy = await getLegacyProject(state.currentLegacyProjectId);
+    const legacy = await getLegacyProject(legacyId);
+    if (!navigationAuthority.current(ticket) || state.currentLegacyProjectId !== legacyId) return;
     if (!legacy) throw new Error("Legacy Project was not found in this browser.");
     const migration = await migrateLegacyProject(legacy, api.createProject);
+    if (!navigationAuthority.current(ticket) || state.currentLegacyProjectId !== legacyId) return;
+    navigationAuthority.invalidate();
+    invalidateProviderContext();
     storyPlanner.resetProjectContext();
-    restoreWorkspace(migration.created.workspace);
+    state.projectFingerprint = migration.created.projectFingerprint;
+    state.projectEditFingerprint = migration.created.projectEditFingerprint;
+    state.projectUpdatedAt = migration.created.updatedAt;
+    restoreWorkspace(migration.created.workspace, migration.created.sequence);
     rememberProjectLocation(migration.created.id);
     state.currentProjectId = migration.created.id;
     state.currentProjectSavedName = migration.created.name;
@@ -1972,10 +2677,12 @@ async function migrateCurrentLegacyProject() {
     const sequence = sequenceFromProject(migration.created);
     state.sequenceGenerations = sequence.generations;
     state.activeGenerationId = sequence.activeGenerationId;
+    renderAssets();
     setDirty(false);
+    savedPrompts?.ensureLoaded();
     try { await refreshProjects(); } catch (error) { toast(error.message); }
     toast("Legacy Project imported as a filesystem Project");
-  } catch (error) { toast(`Legacy Project import failed: ${error.message}`); }
+  } catch (error) { if (navigationAuthority.current(ticket) && state.currentLegacyProjectId === legacyId) toast(`Legacy Project import failed: ${error.message}`); }
 }
 
 function download(content, filename, type) {
@@ -1987,7 +2694,11 @@ function download(content, filename, type) {
 function exportProject() {
   const workspace = metadataOnlyWorkspace(persistenceWorkspace());
   toast("Workspace JSON includes Audio/Video metadata only. Use Save As or copy the Project folder to preserve files.");
-  const envelope = { format: "MiniConstruct Project", schemaVersion: 1, exportedAt: new Date().toISOString(), storyIdea: storyPlanner.storyIdea, workspace };
+  const envelope = { format: "MiniConstruct Project", schemaVersion: 1, exportedAt: new Date().toISOString(),
+    storyIdea: storyPlanner.storyIdea, storyCreativeDirection: storyPlanner.storyCreativeDirection,
+    storyPlanningStyle: storyPlanner.storyPlanningStyle,
+    sequenceSubjects: structuredClone(state.projectSequence?.subjects || []),
+    sequenceNextSubjectNumber: state.projectSequence?.nextSubjectNumber ?? undefined, workspace };
   download(JSON.stringify(envelope, null, 2), `${safeFilename(workspace.projectName)}.miniconstruct-project.json`, "application/json");
 }
 
@@ -1998,29 +2709,20 @@ async function importProject(file) {
     if (payload.workspace) payload.workspace = metadataOnlyWorkspace(payload.workspace);
     const validated = await api.validateProject(payload);
     if (!storyPlanner.confirmContextChange({ dirty: state.dirty, message: "Import this Project?" })) return;
+    invalidateProviderContext();
     storyPlanner.resetProjectContext();
     storyPlanner.restoreStoryIdea(validated.storyIdea);
+    storyPlanner.restoreStoryCreativeDirection(validated.storyCreativeDirection);
+    storyPlanner.restoreStoryPlanningStyle(validated.storyPlanningStyle);
+    const importedSequence = importedSequenceMetadata(payload, validated);
+    state.importedSequenceSubjects = importedSequence.sequenceSubjects;
+    state.importedSequenceNextSubjectNumber = importedSequence.sequenceNextSubjectNumber;
     const workspace = prepareImportedWorkspace(validated.workspace);
     workspace.projectName = workspace.projectName || file.name.replace(/\.miniconstruct.*$/i, "");
     restoreWorkspace(workspace); resetUnsavedProjectState(state); rememberProjectLocation(null); setEphemeralSequence(); setDirty(true);
     const saved = await saveProject(false);
     toast(saved.saved ? "Project imported" : "Project imported but not saved; choose a different name.");
   } catch (error) { toast(`Import failed: ${error.message}`); }
-}
-
-async function renderHistory() {
-  const entries = await listHistory(), container = $("#history-list"); container.replaceChildren();
-  if (!entries.length) { const p = document.createElement("p"); p.className = "muted"; p.textContent = "No generated prompts yet."; container.append(p); return; }
-  for (const entry of entries) {
-    const item = document.createElement("article"); item.className = "history-item"; item.tabIndex = 0;
-    const title = document.createElement("strong"); title.textContent = `${entry.mode} · ${entry.projectName || "Unsaved"}`;
-    const time = document.createElement("span"); time.textContent = new Date(entry.createdAt).toLocaleString();
-    const seed = document.createElement("span"); seed.className = "muted"; seed.textContent = entry.seed == null ? "Seed: backend default" : `Seed: ${entry.seed}`;
-    const preview = document.createElement("p"); preview.textContent = historyPreview(entry.prompt);
-    item.append(title, time, seed, preview);
-    const restore = () => { markRevisionStale("A History prompt was loaded."); state.outputs = [{ prompt: fullHistoryPrompt(entry), validation: entry.validation }]; state.outputIndex = 0; renderOutput(); };
-    item.addEventListener("click", restore); item.addEventListener("keydown", event => { if (event.key === "Enter") restore(); }); container.append(item);
-  }
 }
 
 function updateCharCount() { $("#char-count").textContent = `${$("#creative-request").value.length.toLocaleString()} chars`; }
@@ -2031,27 +2733,50 @@ function hasFiles(event) {
 
 function setupAssetDropTarget() {
   const panel = $("#references-panel");
-  const clearDrop = () => { state.dragDepth = 0; panel.classList.remove("drop-active"); };
+  const hint = $("#asset-drop-hint");
+  let activeGroup = null;
+  const clearDrop = () => {
+    panel.classList.remove("drop-active");
+    activeGroup?.classList.remove("drop-target"); activeGroup = null;
+    hint.textContent = state.mode === "Ref2VA" ? "Images become General Visual References; video/audio stay shared" : "Drop image references here";
+  };
+  state.clearAssetDrop = clearDrop;
+  const subjectGroupAt = target => state.mode === "Ref2VA" ? target?.closest?.(".reference-subject-group[data-subject-id]") || null : null;
+  const updateDropTarget = target => {
+    const group = subjectGroupAt(target);
+    if (group !== activeGroup) {
+      activeGroup?.classList.remove("drop-target");
+      activeGroup = group;
+      activeGroup?.classList.add("drop-target");
+    }
+    const subjectNumber = group && state.subjects.find(subject => subject.id === group.dataset.subjectId)?.number;
+    hint.textContent = subjectNumber
+      ? `Drop images to attach to existing Subject ${subjectNumber}; video/audio stay shared`
+      : state.mode === "Ref2VA" ? "Images become General Visual References; video/audio stay shared" : "Drop image references here";
+  };
   panel.addEventListener("dragenter", event => {
     if (!hasFiles(event)) return;
     event.preventDefault();
-    state.dragDepth += 1;
     panel.classList.add("drop-active");
+    updateDropTarget(event.target);
   });
   panel.addEventListener("dragover", event => {
     if (!hasFiles(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
+    updateDropTarget(event.target);
   });
   panel.addEventListener("dragleave", event => {
     if (!hasFiles(event)) return;
-    state.dragDepth -= 1;
-    if (state.dragDepth <= 0) clearDrop();
+    if (event.relatedTarget && panel.contains(event.relatedTarget)) updateDropTarget(event.relatedTarget);
+    else clearDrop();
   });
   panel.addEventListener("drop", event => {
     if (!hasFiles(event)) return;
+    const targetSubjectGroup = subjectGroupAt(event.target);
+    const dropSubjectId = targetSubjectGroup?.dataset.subjectId || "";
     event.preventDefault(); event.stopPropagation(); clearDrop();
-    ingestAssetFiles(event.dataTransfer.files).catch(error => toast(error.message));
+    ingestAssetFiles(event.dataTransfer.files, null, null, null, dropSubjectId).catch(error => toast(error.message));
   });
   document.addEventListener("dragover", event => { if (hasFiles(event)) event.preventDefault(); });
   document.addEventListener("drop", event => {
@@ -2059,20 +2784,34 @@ function setupAssetDropTarget() {
     event.preventDefault();
     if (!panel.contains(event.target)) clearDrop();
   });
+  document.addEventListener("dragend", clearDrop);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) clearDrop(); });
 }
 
 function bindEvents() {
   $$("[data-mode]").forEach(button => button.addEventListener("click", () => setMode(button.dataset.mode)));
-  $("#asset-file-input").addEventListener("change", event => ingestAssetFiles(event.target.files, state.pendingAssetKind, state.reattachId).catch(error => toast(error.message)));
+  $("#asset-file-input").addEventListener("change", event => ingestAssetFiles(event.target.files, state.pendingAssetKind, state.reattachId, state.pendingAssetSubjectId).catch(error => toast(error.message)));
   $("#discover-models").addEventListener("click", () => runConnection("models"));
   $("#eject-model").addEventListener("click", ejectSelectedModel);
   $("#test-connection").addEventListener("click", () => runConnection("test"));
   $("#discover-local-endpoints").addEventListener("click", discoverLocalEndpoints);
-  $("#open-settings").addEventListener("click", () => $("#settings-dialog").showModal());
+  $("#open-settings").addEventListener("click", () => { renderCommittedSettings(); $("#settings-dialog").showModal(); });
   $$('[data-close-settings]').forEach(button => button.addEventListener("click", () => $("#settings-dialog").close()));
-  $("#settings-dialog").addEventListener("close", persistSettings);
+  $("#save-settings").addEventListener("click", () => {
+    try { commitSettingsFromUi(); $("#connection-message").textContent = "Settings saved."; $("#settings-dialog").close(); }
+    catch (error) { $("#connection-message").textContent = error.message; }
+  });
+  $("#settings-dialog").addEventListener("close", () => { renderCommittedSettings(); renderedTakes?.sync(); });
+  $("#api-key").addEventListener("input", () => { apiKeyEdited = true; apiKeyClearRequested = false; });
+  $("#clear-api-key").addEventListener("click", () => {
+    $("#api-key").value = ""; apiKeyClearRequested = true; apiKeyEdited = false;
+    $("#connection-message").textContent = "API key will be cleared when you save Settings.";
+  });
   $("#seed-mode").addEventListener("change", renderSeedSettings);
-  $("#model-selector").addEventListener("change", event => selectPooledModel(event.target.value));
+  $("#model-selector").addEventListener("change", event => {
+    try { selectPooledModel(event.target.value); }
+    catch (error) { $("#connection-message").textContent = error.message; }
+  });
   $("#model-id").addEventListener("input", () => { setActiveModelStatus(); renderPooledModels(); });
   $("#endpoint-display-name").addEventListener("input", markManualEndpoint);
   $("#base-url").addEventListener("input", markManualEndpoint);
@@ -2090,6 +2829,12 @@ function bindEvents() {
     if (!button) return;
     state.creativeInterpretation = normalizeCreativeInterpretation(button.dataset.creativeInterpretation);
     renderCreativeInterpretationUi(); setDirty();
+  });
+  $("#h3-prompt-detail-controls").addEventListener("click", event => {
+    const button = event.target.closest("[data-prompt-detail]");
+    if (!button) return;
+    state.creativeControls = selectH3PromptDetail(state.creativeControls, button.dataset.promptDetail);
+    renderH3PromptDetailUi(); setDirty();
   });
   $("#creative-controls").addEventListener("input", event => {
     const field = event.target.dataset.toneField;
@@ -2121,7 +2866,9 @@ function bindEvents() {
     state.creativeControls = resetCreativeControls(state.creativeControls); renderCreativeControlsUi(); setDirty();
   });
   setupAssetDropTarget();
-  $("#generate").addEventListener("click", generate); $("#regenerate").addEventListener("click", generate);
+  $("#generate").addEventListener("click", () => generate("one_shot"));
+  $("#generate-story").addEventListener("click", () => generate("story"));
+  $("#regenerate").addEventListener("click", () => generate(state.outputs[state.outputIndex]?.authoringPath || "one_shot"));
   $("#validate-output").addEventListener("click", validateCurrent); $("#repair-output").addEventListener("click", repairCurrent);
   $("#revise-selection").addEventListener("click", openRevisionPanel);
   $("#generate-revision").addEventListener("click", generateRevision);
@@ -2131,6 +2878,7 @@ function bindEvents() {
   $("#apply-revision").addEventListener("click", () => applyRevision());
   $("#apply-revision-anyway").addEventListener("click", () => applyRevision(true));
   $("#show-instructions").addEventListener("click", showInstructions);
+  $("#instructions-path").addEventListener("change", event => loadInstructions(event.target.value));
   $("#highlighted-view").addEventListener("click", () => setOutputView(false));
   $("#edit-raw").addEventListener("click", () => setOutputView(true));
   $$("[data-close-dialog]").forEach(button => button.addEventListener("click", () => $("#instructions-dialog").close()));
@@ -2139,7 +2887,18 @@ function bindEvents() {
   $("#download-output").addEventListener("click", () => download($("#output").value, `${safeFilename($("#project-name").value)}-${state.mode}.txt`, "text/plain"));
   $("#output").addEventListener("input", () => {
     const current = state.outputs[state.outputIndex];
-    if (current) { markRevisionStale("The source prompt was edited."); current.prompt = $("#output").value; current.sourceFingerprint = null; current.validation = null; workflowPreparation?.sync(); state.revisionSelection = null; renderValidation(null); updateReviseSelectionButton(); }
+    if (current) {
+      if (state.revision?.running) stopRevision();
+      state.revision = null;
+      $("#revision-panel").classList.add("hidden");
+      setRevisionRunning(false);
+      state.outputs[state.outputIndex] = markOutputManuallyEdited(current, $("#output").value);
+      savedPrompts?.sync();
+      workflowPreparation?.sync();
+      state.revisionSelection = null;
+      renderValidation(null);
+      updateReviseSelectionButton();
+    }
   });
   $("#output").addEventListener("select", captureActiveSelection);
   $("#output").addEventListener("keyup", captureActiveSelection);
@@ -2150,12 +2909,34 @@ function bindEvents() {
   $("#aspect-ratio").addEventListener("change", () => { $("#custom-ratio-wrap").classList.toggle("hidden", $("#aspect-ratio").value !== "custom"); setDirty(); });
   $("#creative-request").addEventListener("input", updateCharCount);
   $("#project-new").addEventListener("click", newProject); $("#project-save").addEventListener("click", () => saveProject(false));
-  $("#project-save-as").addEventListener("click", () => saveProject(true)); $("#project-delete").addEventListener("click", removeCurrentProject);
+  createProjectGeneratedState({ root: document,
+    getContext: () => ({ saved: state.activeProjectType === "filesystem" && Boolean(state.currentProjectId),
+      dirty: state.dirty, name: $("#project-name").value }),
+    saveAs: options => saveProject(true, false, options), clearGeneratedState, notify: toast });
+  $("#project-delete").addEventListener("click", removeCurrentProject);
   $("#project-migrate").addEventListener("click", migrateCurrentLegacyProject);
   $("#project-rename").addEventListener("click", renameCurrentProject);
   $("#project-select").addEventListener("change", loadSelectedProject); $("#project-export").addEventListener("click", exportProject);
   $("#project-import").addEventListener("change", event => { if (event.target.files[0]) importProject(event.target.files[0]); event.target.value = ""; });
   $("#generation-select").addEventListener("change", event => switchGeneration(event.target.value));
+  sequenceRenderAction = createSequenceRenderAction({ button: $("#sequence-render-next"), status: $("#sequence-render-next-status"), api,
+    getProjectId: () => state.activeProjectType === "filesystem" ? state.currentProjectId : null,
+    openAndPrepare: async next => {
+      if (!(await switchGeneration(next.generationId))) return;
+      const prepared = await workflowPreparation.prepareSavedSelection(next.profileId);
+      if (!prepared || prepared.generationId !== next.generationId)
+        throw new Error(`${next.generationLabel} changed before Prepare completed. Inspect the execution panel and Prepare again.`);
+      $("#workflow-preparation-primary").scrollIntoView({ block: "start", behavior: "smooth" });
+    } });
+  $("#dialogue-language").addEventListener("change", event => { state.dialogueLanguage = event.target.value; markDialogueResolutionStale(); setDirty(); });
+  $("#dialogue").addEventListener("input", () => { markDialogueResolutionStale(); });
+  $("#resolved-dialogue").addEventListener("input", event => {
+    if (state.dialogueLanguage === "as_written") return;
+    state.dialogueResolution = editedDialogueResolution({ dialogueLanguage: state.dialogueLanguage, dialogue: $("#dialogue").value,
+      resolution: state.dialogueResolution, resolvedText: event.target.value });
+    renderDialogueLanguageUi(); setDirty();
+  });
+  $("#refresh-dialogue-translation").addEventListener("click", () => refreshDialogueResolution().catch(error => { renderDialogueLanguageUi(); toast(error.message); }));
   $("#generation-add").addEventListener("click", addGeneration);
   $("#generation-before").addEventListener("click", () => insertGeneration(0));
   $("#generation-after").addEventListener("click", () => insertGeneration(1));
@@ -2166,54 +2947,174 @@ function bindEvents() {
   $("#sequence-context").addEventListener("input", event => { state.sequenceContext = event.target.value; setDirty(); });
   $("#incoming-state").addEventListener("input", event => { state.incomingState = event.target.value; setDirty(); });
   $("#intended-outgoing-state").addEventListener("input", event => { state.intendedOutgoingState = event.target.value; setDirty(); });
-  $("#relationship-to-previous").addEventListener("change", event => { state.relationshipToPrevious = event.target.value || null; setDirty(); });
+  $("#relationship-to-previous").addEventListener("change", event => { state.relationshipToPrevious = event.target.value || null; setDirty(); renderHandoffUi(); });
   $("#camera-intent").addEventListener("input", event => { state.cameraIntent = event.target.value; setDirty(); });
+  $("#shots").addEventListener("input", renderStoryShotMismatch);
   $("#infer-from-previous").addEventListener("click", inferFromPrevious);
   $("#revise-plan").addEventListener("click", openPlanRevision);
   $("#cancel-plan-revision").addEventListener("click", closePlanRevision);
   $("#cancel-plan-revision-secondary").addEventListener("click", closePlanRevision);
   $("#generate-plan-revision").addEventListener("click", revisePlan);
-  $("#clear-history").addEventListener("click", async () => { if (confirm("Clear local generated-prompt history?")) { await clearHistoryDb(); renderHistory(); } });
-  $("#load-history").addEventListener("click", () => renderHistory().catch(error => toast(error.message)));
   document.addEventListener("input", event => { if (shouldMarkWorkspaceDirty(event.target)) setDirty(); });
   document.addEventListener("keydown", event => {
-    if (event.target.closest?.("#story-planner")) return;
+    if (event.target.closest?.("#story-planner") || event.target.closest?.("#continuation-drafting")) return;
     if (event.key === "Escape" && !$("#revision-panel").classList.contains("hidden")) { cancelRevision(); return; }
-    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); if (!state.generation && !state.revision?.running) generate(); }
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); if (!state.generation && !state.revision?.running) generate("one_shot"); }
   });
   window.addEventListener("beforeunload", event => { if (state.dirty || storyPlanner?.hasDraft) { event.preventDefault(); event.returnValue = ""; } });
 }
 
+function projectMutationContext() {
+  return { navigationTicket: navigationAuthority.capture(state.currentProjectId, state.activeGenerationId) };
+}
+
 async function init() {
-  workflowPreparation = createWorkflowPreparation({ root: $("#workflow-preparation"), api,
-    onRoutingChanged: () => { void refreshReferenceManifest(); },
+  mountProviderActivity($("#provider-activity"), providerActivity);
+  const outputMutation = (response, context) => {
+    // A fingerprint is Project-wide, but its receipt belongs to the navigation
+    // that issued the request. A delayed old-Generation snapshot must not undo
+    // the fingerprint adopted by a newer Project/Generation load (including ABA).
+    if (state.contextReplacing || state.activeProjectType !== "filesystem"
+        || !navigationAuthority.current(context.navigationTicket)) return;
+    if (context.projectId === state.currentProjectId && response.projectFingerprint) {
+      // updatedAt is strictly ordered at the canonical write boundary. A response
+      // from an older commit must not roll back a newer same-navigation receipt.
+      if (response.projectUpdatedAt && state.projectUpdatedAt
+          && Date.parse(response.projectUpdatedAt) < Date.parse(state.projectUpdatedAt)) return;
+      if (state.projectEditFingerprint && response.projectEditFingerprint
+          && state.projectEditFingerprint !== response.projectEditFingerprint
+          && !context.projectEditMutation) return;
+      state.projectFingerprint = response.projectFingerprint;
+      if (response.projectEditFingerprint) state.projectEditFingerprint = response.projectEditFingerprint;
+      if (response.projectUpdatedAt) state.projectUpdatedAt = response.projectUpdatedAt;
+    }
+  };
+  referenceAuthority = createReferenceAuthority({ api,
     getContext: () => ({ saved: state.activeProjectType === "filesystem", projectId: state.currentProjectId,
-      generationId: state.activeGenerationId, mode: state.mode, dirty: state.dirty }),
-    getOutput: () => state.repairRunning || state.generation ? null : state.outputs[state.outputIndex] });
+      generationId: state.activeGenerationId, projectFingerprint: state.projectFingerprint,
+      projectEditFingerprint: state.projectEditFingerprint, ...projectMutationContext() }),
+    getReferences: () => ({ assets: state.assets, subjects: state.subjects }),
+    onMutation: async (response, context) => {
+      outputMutation(response, { ...context, projectEditMutation: true });
+      await adoptSavedMedia(state.assets, { assets: Object.entries(response.payloadStates || {}).map(([id, status]) =>
+        ({ id, ...status, mediaPayload: response.mediaPayloads?.[id] })) });
+      if (!navigationAuthority.current(context.navigationTicket) || context.projectId !== state.currentProjectId) return;
+      if (Object.values(response.payloadStates || {}).some(status => status.payloadAvailability)) renderAssets({ refreshManifest: false });
+      if (state.projectSequence) {
+        for (const subject of response.subjects || [])
+          if (!state.projectSequence.subjects.some(existing => existing.id === subject.id)) state.projectSequence.subjects.push(subject);
+        state.projectSequence.nextSubjectNumber = response.nextSubjectNumber;
+      }
+      if (response.changed) {
+        if (state.generation || state.inferRunning || state.planRevisionRunning || state.repairRunning || state.revision?.running) invalidateProviderContext();
+        state.planningRecommendations = state.planningRecommendations.filter(item => item.source !== "current_generation");
+        renderPlanningRecommendations();
+        const summary = state.sequenceGenerations.find(item => item.generationId === state.activeGenerationId);
+        if (summary) summary.referenceAssets = state.assets.map(({ id, kind, filename, role, subjectIdentity, comparisonSubjects }) =>
+          ({ id, kind, filename, role, subjectIdentity: structuredClone(subjectIdentity), comparisonSubjects: structuredClone(comparisonSubjects) }));
+        for (const output of state.outputs) output.validation = null;
+        markRevisionStale("Reference Assets changed. Generate a new H3 prompt.");
+        await workflowPreparation?.invalidateReferences();
+        storyPlanner?.invalidateReferences();
+        void savedPrompts?.load();
+        state.referenceManifest = null;
+        await refreshReferenceManifest();
+        renderOutput();
+      }
+    },
+  });
+  renderedTakes = createRenderedTakes({ root: $("#rendered-takes"), liveRoot: $("#render-live-preview"), api, providerActivity, getSettings: settings,
+    onContinue: createTakeContinuation({ api, navigationAuthority,
+      getContext: () => ({ projectId: state.currentProjectId, generationId: state.activeGenerationId,
+        generations: state.sequenceGenerations, projectFingerprint: state.projectFingerprint,
+        dirty: state.dirty, replacing: state.contextReplacing }),
+      ready: () => structuralSequenceReady(),
+      adopt: project => { storyPlanner.clearDraft(); adoptProjectResponse(project); },
+      notify: toast,
+      confirm: message => confirm(message) && storyPlanner.confirmContextChange({ message }),
+    }),
+    getContext: () => ({ saved: state.activeProjectType === "filesystem" && !state.contextReplacing, projectId: state.currentProjectId,
+      replacing: state.contextReplacing, generations: state.sequenceGenerations,
+      generationId: state.activeGenerationId, projectFingerprint: state.projectFingerprint, ...projectMutationContext() }),
+    canChangeObservedState: context => !storyPlanner?.pendingAffectsObservedGeneration(context.generationId),
+    onMutation: outputMutation,
+    onReconciled: () => { void workflowPreparation?.refreshContinuation(); } });
+  renderedTakes.sync();
+  continuationDrafting = mountContinuationDrafting({ root: $("#continuation-drafting"), api,
+    activity: providerActivity, navigationAuthority, getSettings: () => ({ ...settings(), seed: resolveSeed(settings()) }),
+    getContext: () => ({ projectId: state.currentProjectId, generationId: state.activeGenerationId,
+      projectFingerprint: state.projectFingerprint, replacing: state.contextReplacing,
+      projectEditFingerprint: state.projectEditFingerprint,
+      eligible: state.activeProjectType === "filesystem" && state.sequenceGenerations.findIndex(g => g.generationId === state.activeGenerationId) > 0
+        && ["continue_previous_shot", "new_shot_preserve_continuity", "match_previous_ending_frame"].includes(state.relationshipToPrevious) }),
+    getCreativeRequest: () => $("#creative-request").value,
+    applyCreativeRequest: text => { $("#creative-request").value = text; updateCharCount(); setDirty(); },
+    confirm: message => confirm(message), notify: toast });
+  continuationDrafting.sync();
+  workflowPreparation = createWorkflowPreparation({ root: $("#workflow-preparation-primary"),
+    primaryRoot: $("#workflow-preparation-primary"), detailsRoot: $("#workflow-preparation-details"), api,
+    onProjectMutation: (response, context) => outputMutation(response, { ...context, projectEditMutation: true }),
+    syncReferences: syncReferenceAuthority,
+    onSelectionChanged: () => renderedTakes.refresh(),
+    onSubmitted: (response, context) => { outputMutation(response, context); renderedTakes.watchSubmitted(response, context); },
+    onRoutingChanged: () => { void refreshReferenceManifest(); },
+    getContext: () => ({ saved: state.activeProjectType === "filesystem" && !state.contextReplacing, projectId: state.currentProjectId,
+      generationId: state.activeGenerationId, projectFingerprint: state.projectFingerprint,
+      projectEditFingerprint: state.projectEditFingerprint, ...projectMutationContext(),
+      mode: state.mode, durationSeconds: Number($("#duration").value),
+      aspectRatio: $("#aspect-ratio").value === "custom" ? $("#custom-ratio").value.trim() : $("#aspect-ratio").value, dirty: state.dirty }),
+    getOutput: () => currentExecutionOutput(state.outputs[state.outputIndex], state.generation, state.outputs, state.repairRunning) });
   workflowPreparation.refresh();
   const executionConfig = createExecutionConfig({ root: $("#execution-config"), api,
     onConnectionsChanged: () => workflowPreparation.refreshConnections(),
     onProfilesChanged: () => workflowPreparation.refreshProfiles() });
   $("#open-execution").addEventListener("click", () => { $("#execution-dialog").showModal(); executionConfig.refresh(); });
   $$('[data-close-execution]').forEach(button => button.addEventListener("click", () => $("#execution-dialog").close()));
+  $("#execution-dialog").addEventListener("close", () => executionConfig.discardDuplicateDraft());
   $("#execution-dialog").addEventListener("keydown", event => event.stopPropagation());
   window.addEventListener("beforeunload", event => { if (executionConfig.hasDraft) { event.preventDefault(); event.returnValue = ""; } });
   storyPlanner = createStoryPlanner({
-    root: $("#story-planner"), api,
+    root: $("#story-planner"), api, activity: providerActivity, generateStoryButton: $("#generate-story"),
     getContext: () => ({ saved: state.activeProjectType === "filesystem", projectId: state.currentProjectId,
-      dirty: state.dirty, generations: state.sequenceGenerations, activeGenerationId: state.activeGenerationId, assets: state.assets }),
+      dirty: state.dirty, generations: state.sequenceGenerations, activeGenerationId: state.activeGenerationId, assets: state.assets, subjects: state.projectSequence?.subjects || [] }),
     onIdeaChange: () => setDirty(true),
+    onScenePlanChange: value => { state.scenePlan = value; setDirty(true); },
+    onCreativeDirectionChange: () => setDirty(true),
+    onPlanningStyleChange: () => setDirty(true),
+    onMemoryChange: () => setDirty(true),
+    onConfirmMemory: () => saveProject(false),
+    onSelectGeneration: id => switchGeneration(id),
     getSettings: () => ({ ...settings(), seed: resolveSeed(settings()) }),
+    getPreferences: () => ({ timeoutSeconds: state.storyPlannerTimeoutSeconds, reasoning: state.storyPlannerReasoning,
+      vision: state.storyPlannerVision }),
+    onPreferencesChange: value => {
+      if (Number.isFinite(value.timeoutSeconds) && value.timeoutSeconds >= 1 && value.timeoutSeconds <= 3600) state.storyPlannerTimeoutSeconds = value.timeoutSeconds;
+      state.storyPlannerReasoning = value.reasoning !== false;
+      state.storyPlannerVision = value.vision === true;
+      persistSettings();
+    },
     adoptProject: project => { adoptProjectResponse(project); refreshProjects().catch(error => toast(error.message)); },
     onApplyBusy: value => { for (const element of document.querySelectorAll(".left-rail, .project-bar, .right-stage")) element.inert = value; },
+  });
+  savedPrompts = createSavedPrompts({ root: document, api,
+    getContext: () => ({ saved: state.activeProjectType === "filesystem", projectId: state.currentProjectId,
+      generationId: state.activeGenerationId, candidateBusy: Boolean(state.generation || state.repairRunning || state.revision?.running) }),
+    getOutput: () => state.outputs[state.outputIndex],
+    setOutput: output => { markRevisionStale("A saved H3 prompt was loaded."); state.outputs = [output]; state.outputIndex = 0; renderOutput(); },
+    notify: message => toast(message),
   });
   restoreSettings(); renderPooledModels(); bindEvents(); setMode("T2VA", false); renderCreativeInterpretationUi(); renderCreativeControlsUi(); updateCharCount(); setEphemeralSequence();
   try { await refreshProjects(); } catch (error) { toast(error.message); }
   setDirty(false);
   const projectId = projectIdFromLocation(window.location.href);
   if (projectId) {
-    try { adoptProjectResponse(await api.loadProject(projectId)); }
-    catch (error) { rememberProjectLocation(null); toast(`Could not reopen Project: ${error.message}`); }
+    const ticket = navigationAuthority.begin(state.currentProjectId, state.activeGenerationId);
+    try {
+      const project = await api.loadProject(projectId);
+      if (navigationAuthority.current(ticket)) adoptProjectResponse(project);
+    } catch (error) {
+      if (navigationAuthority.current(ticket)) { rememberProjectLocation(null); toast(`Could not reopen Project: ${error.message}`); }
+    }
   }
 }
 

@@ -69,6 +69,73 @@ def test_connection_crud_reload_and_independence(client, tmp_path):
     assert (tmp_path / "execution" / "execution.json").is_file()
 
 
+def test_local_input_configuration_persists_and_checks_without_http(client, tmp_path):
+    root = tmp_path / "input"
+    root.mkdir()
+    route = "/api/execution/connections"
+    saved = client.post(route, json={"name": "Mapped", "baseUrl": "http://never.test",
+        "localInputDirectory": str(root)}).json()
+    url = f"{route}/{saved['id']}"
+    assert client.get(url).json()["localInputDirectory"] == str(root)
+    assert client.get(url + "/local-input-status").json()["status"] == "local"
+    root.rmdir()
+    assert client.get(url + "/local-input-status").json()["status"] == "warning"
+    assert client.put(url, json={"name": "Remote", "baseUrl": "http://never.test"}).json()["localInputDirectory"] is None
+    assert client.get(url + "/local-input-status").json()["status"] == "http"
+    for invalid in ["relative/input", "C:relative", "bad\u0000path"]:
+        assert client.put(url, json={"name": "Bad", "baseUrl": "http://never.test",
+            "localInputDirectory": invalid}).status_code == 422
+
+
+@pytest.mark.parametrize("base_url", ["http://127.0.0.1:8188", "http://localhost:8188"])
+def test_connection_api_accepts_normal_local_comfyui_urls(client, base_url):
+    response = client.post("/api/execution/connections", json={"name": "Local ComfyUI", "baseUrl": base_url})
+    assert response.status_code == 201, response.text
+    assert response.json()["name"] == "Local ComfyUI"
+    assert response.json()["baseUrl"] == base_url
+
+
+def test_profile_api_persists_native_source_links_across_fresh_reads(client, graph, tmp_path):
+    graph = deepcopy(graph)
+    graph["native"] = {"class_type": "Native", "inputs": {
+        "enabled": False, "save": "", "load": "", "previous": ["source", 0],
+    }}
+    graph["source"] = {"class_type": "Source", "inputs": {}}
+    native = {
+        "kind": "native_h3_av", "version": 1, "compatibilityKey": "generic-v1",
+        "contextFrames": 1, "contextGrid": {"minimum": 1, "step": 1, "maximum": 4},
+        "inputs": {
+            "enable": {"nodeId": "native", "inputName": "enabled"},
+            "save_key": {"nodeId": "native", "inputName": "save"},
+            "load_key": {"nodeId": "native", "inputName": "load"},
+        },
+        "sourceLinks": [{"nodeId": "native", "inputName": "previous",
+                         "expectedSourceNodeId": "source", "expectedOutputIndex": 0}],
+    }
+    original_native = {**native, "sourceLinks": []}
+    created = client.post("/api/execution/profiles", json=profile_body(graph, nativeContinuation=original_native))
+    assert created.status_code == 201, created.text
+    profile_id = created.json()["id"]
+    assert created.json()["nativeContinuation"]["sourceLinks"] == []
+    updated = client.put(f"/api/execution/profiles/{profile_id}", json={
+        "name": "Ref2VA", "description": "Updated", "compatibleModes": ["Ref2VA"],
+        "bindings": [binding()], "nativeContinuation": native,
+    })
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["nativeContinuation"]["sourceLinks"] == native["sourceLinks"]
+    payload = json.loads((tmp_path / "execution" / "execution.json").read_bytes())
+    persisted = next(p for p in payload["profiles"] if p["id"] == profile_id)
+    assert persisted["nativeContinuation"]["sourceLinks"] == native["sourceLinks"]
+    fresh_store = ex.ExecutionStore()
+    assert fresh_store.get("profiles", UUID(profile_id)).model_dump(by_alias=True)["nativeContinuation"]["sourceLinks"] == native["sourceLinks"]
+    with TestClient(app) as fresh_client:
+        assert fresh_client.get(f"/api/execution/profiles/{profile_id}").json() == updated.json()
+        summary = fresh_client.get("/api/execution/profiles").json()[0]
+        assert "workflow" not in summary and "bindings" not in summary
+        assert summary["nativeContinuation"]["sourceLinks"] == native["sourceLinks"]
+    assert client.get(f"/api/execution/profiles/{profile_id}").json()["nativeContinuation"]["sourceLinks"] == native["sourceLinks"]
+
+
 @pytest.mark.parametrize("url,expected", [
     ("http://localhost/", "http://localhost"), ("http://192.168.1.20:1234///", "http://192.168.1.20:1234"),
     (" https://comfy.example.net/prefix/ ", "https://comfy.example.net/prefix"),

@@ -1,0 +1,166 @@
+{
+  "workflowJson": "{\n  \"1\": {\n    \"inputs\": {\n      \"unet_name\": \"example-h3.safetensors\",\n      \"weight_dtype\": \"default\"\n    },\n    \"class_type\": \"UNETLoader\",\n    \"_meta\": {\n      \"title\": \"Load Diffusion Model\"\n    }\n  },\n  \"2\": {\n    \"inputs\": {\n      \"clip_name\": \"example-minimax-clip.safetensors\",\n      \"type\": \"minimax\",\n      \"device\": \"default\"\n    },\n    \"class_type\": \"CLIPLoader\",\n    \"_meta\": {\n      \"title\": \"Load CLIP\"\n    }\n  },\n  \"4\": {\n    \"inputs\": {\n      \"vae_name\": \"example-video-vae.safetensors\"\n    },\n    \"class_type\": \"VAELoader\",\n    \"_meta\": {\n      \"title\": \"Load VAE\"\n    }\n  },\n  \"5\": {\n    \"inputs\": {\n      \"vae_name\": \"example-audio-vae.safetensors\"\n    },\n    \"class_type\": \"VAELoader\",\n    \"_meta\": {\n      \"title\": \"Load VAE\"\n    }\n  },\n  \"6\": {\n    \"inputs\": {\n      \"prompt\": \"Insert Prompt Here\",\n      \"width\": [\n        \"52\",\n        0\n      ],\n      \"height\": [\n        \"52\",\n        1\n      ],\n      \"length\": [\n        \"36\",\n        1\n      ],\n      \"clip\": [\n        \"2\",\n        0\n      ],\n      \"vae\": [\n        \"4\",\n        0\n      ],\n      \"first_frame\": [\n        \"51\",\n        0\n      ]\n    },\n    \"class_type\": \"MiniMaxH3ImageToVideo\",\n    \"_meta\": {\n      \"title\": \"MiniMax H3 Image to Video\"\n    }\n  },\n  \"8\": {\n    \"inputs\": {\n      \"noise_seed\": 123456789\n    },\n    \"class_type\": \"RandomNoise\",\n    \"_meta\": {\n      \"title\": \"RandomNoise\"\n    }\n  },\n  \"9\": {\n    \"inputs\": {\n      \"sampler_name\": \"euler\"\n    },\n    \"class_type\": \"KSamplerSelect\",\n    \"_meta\": {\n      \"title\": \"KSamplerSelect\"\n    }\n  },\n  \"11\": {\n    \"inputs\": {\n      \"model\": [\n        \"17\",\n        0\n      ],\n      \"conditioning\": [\n        \"55\",\n        0\n      ]\n    },\n    \"class_type\": \"BasicGuider\",\n    \"_meta\": {\n      \"title\": \"Basic Guider\"\n    }\n  },\n  \"12\": {\n    \"inputs\": {\n      \"noise\": [\n        \"8\",\n        0\n      ],\n      \"guider\": [\n        \"11\",\n        0\n      ],\n      \"sampler\": [\n        \"9\",\n        0\n      ],\n      \"sigmas\": [\n        \"47\",\n        1\n      ],\n      \"latent_image\": [\n        \"6\",\n        1\n      ]\n    },\n    \"class_type\": \"SamplerCustomAdvanced\",\n    \"_meta\": {\n      \"title\": \"SamplerCustomAdvanced\"\n    }\n  },\n  \"13\": {\n    \"inputs\": {\n      \"samples\": [\n        \"56\",\n        0\n      ],\n      \"vae\": [\n        \"4\",\n        0\n      ]\n    },\n    \"class_type\": \"VAEDecode\",\n    \"_meta\": {\n      \"title\": \"VAE Decode\"\n    }\n  },\n  \"14\": {\n    \"inputs\": {\n      \"samples\": [\n        \"56\",\n        0\n      ],\n      \"vae\": [\n        \"5\",\n        0\n      ]\n    },\n    \"class_type\": \"VAEDecodeAudio\",\n    \"_meta\": {\n      \"title\": \"VAE Decode Audio\"\n    }\n  },\n  \"15\": {\n    \"inputs\": {\n      \"fps\": 24,\n      \"bit_depth\": \"auto\",\n      \"color_space\": \"sRGB\",\n      \"codec\": \"h264\",\n      \"images\": [\n        \"57\",\n        0\n      ],\n      \"audio\": [\n        \"14\",\n        0\n      ]\n    },\n    \"class_type\": \"CreateVideo\",\n    \"_meta\": {\n      \"title\": \"Create Video\"\n    }\n  },\n  \"16\": {\n    \"inputs\": {\n      \"filename_prefix\": \"example/video/initial\",\n      \"format\": \"mp4\",\n      \"format.codec\": \"h264\",\n      \"format.codec.encoding\": \"re-encode\",\n      \"format.codec.encoding.crf\": 14,\n      \"codec\": \"auto\",\n      \"video\": [\n        \"15\",\n        0\n      ]\n    },\n    \"class_type\": \"SaveVideo\",\n    \"_meta\": {\n      \"title\": \"Save Video\"\n    }\n  },\n  \"17\": {\n    \"inputs\": {\n      \"max_resolution\": 248,\n      \"jpeg_quality\": 80,\n      \"suppress_default_preview\": true,\n      \"preview_frames\": 362,\n      \"preview_fps\": 12,\n      \"tiny_vae\": \"example-tiny-vae.safetensors\",\n      \"model\": [\n        \"47\",\n        0\n      ],\n      \"audio_vae\": [\n        \"5\",\n        0\n      ]\n    },\n    \"class_type\": \"ModelPreviewOverrideKJ\",\n    \"_meta\": {\n      \"title\": \"Model Preview Override\"\n    }\n  },\n  \"27\": {\n    \"inputs\": {\n      \"chunks\": 2,\n      \"seq_threshold\": 4096,\n      \"model\": [\n        \"37\",\n        0\n      ]\n    },\n    \"class_type\": \"MiniMaxChunkFeedForward\",\n    \"_meta\": {\n      \"title\": \"MiniMax H3 Chunk FeedForward\"\n    }\n  },\n  \"34\": {\n    \"inputs\": {\n      \"attention\": \"comfy kitchen attention\",\n      \"model\": [\n        \"58\",\n        0\n      ]\n    },\n    \"class_type\": \"ModelAttentionBackend\",\n    \"_meta\": {\n      \"title\": \"Model Attention Backend\"\n    }\n  },\n  \"35\": {\n    \"inputs\": {\n      \"value\": 12\n    },\n    \"class_type\": \"PrimitiveFloat\",\n    \"_meta\": {\n      \"title\": \"Float (Duration)\"\n    }\n  },\n  \"36\": {\n    \"inputs\": {\n      \"expression\": \"max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17\",\n      \"values.a\": [\n        \"35\",\n        0\n      ]\n    },\n    \"class_type\": \"ComfyMathExpression\",\n    \"_meta\": {\n      \"title\": \"Math Expression\"\n    }\n  },\n  \"37\": {\n    \"inputs\": {\n      \"selection\": \"sol-attn\",\n      \"selection.tau\": 1,\n      \"start_percent\": 0.25,\n      \"end_percent\": 0.9,\n      \"dense_blocks\": \"0,1\",\n      \"min_tokens\": 12288,\n      \"extra_tokens\": 256,\n      \"sink_conditioning\": \"exact_kv_and_rows\",\n      \"verbose\": false,\n      \"model\": [\n        \"34\",\n        0\n      ]\n    },\n    \"class_type\": \"BlockSparseAttention\",\n    \"_meta\": {\n      \"title\": \"Model Sparse Attention\"\n    }\n  },\n  \"47\": {\n    \"inputs\": {\n      \"hyperflow_file\": \"example-hyperflow-8step.safetensors\",\n      \"strength\": 1,\n      \"lora_mode\": \"bypass\",\n      \"variant\": \"auto\",\n      \"download_if_missing\": false,\n      \"verbose\": false,\n      \"experimental_curve_refit\": false,\n      \"model\": [\n        \"27\",\n        0\n      ]\n    },\n    \"class_type\": \"ApplyHyperFlow\",\n    \"_meta\": {\n      \"title\": \"Apply HyperFlow (MiniMax-H3 8-Step)\"\n    }\n  },\n  \"50\": {\n    \"inputs\": {\n      \"image\": \"example-first-frame.png\"\n    },\n    \"class_type\": \"LoadImage\",\n    \"_meta\": {\n      \"title\": \"Load Image\"\n    }\n  },\n  \"51\": {\n    \"inputs\": {\n      \"upscale_method\": \"nearest-exact\",\n      \"megapixels\": 0.8,\n      \"resolution_steps\": 32,\n      \"image\": [\n        \"50\",\n        0\n      ]\n    },\n    \"class_type\": \"ImageScaleToTotalPixels\",\n    \"_meta\": {\n      \"title\": \"Scale Image to Total Pixels\"\n    }\n  },\n  \"52\": {\n    \"inputs\": {\n      \"image\": [\n        \"51\",\n        0\n      ]\n    },\n    \"class_type\": \"GetImageSize\",\n    \"_meta\": {\n      \"title\": \"Get Image Size\"\n    }\n  },\n  \"55\": {\n    \"inputs\": {\n      \"mode\": \"auto\",\n      \"context_length\": 22,\n      \"encode_mode\": \"video\",\n      \"anchor_mode\": \"head\",\n      \"crop\": \"disabled\",\n      \"audio_context_length\": 22,\n      \"audio_mode\": \"timeline\",\n      \"conditioning\": [\n        \"6\",\n        0\n      ],\n      \"latent\": [\n        \"6\",\n        1\n      ],\n      \"vae\": [\n        \"4\",\n        0\n      ],\n      \"prev_latent\": [\n        \"59\",\n        0\n      ],\n      \"audio_vae\": [\n        \"5\",\n        0\n      ]\n    },\n    \"class_type\": \"MiniMaxH3VideoExtender\",\n    \"_meta\": {\n      \"title\": \"MiniMax H3 Video Extender\"\n    }\n  },\n  \"56\": {\n    \"inputs\": {\n      \"filename_prefix\": \"example/native/clip\",\n      \"clip_index\": 1,\n      \"latent\": [\n        \"12\",\n        0\n      ]\n    },\n    \"class_type\": \"MiniMaxH3SaveLatent\",\n    \"_meta\": {\n      \"title\": \"MiniMax H3 Save AV Latent\"\n    }\n  },\n  \"57\": {\n    \"inputs\": {\n      \"trim_frames\": [\n        \"55\",\n        1\n      ],\n      \"fps\": 24,\n      \"match_tail\": true,\n      \"retain_overlap_frames\": 0,\n      \"images\": [\n        \"13\",\n        0\n      ],\n      \"audio\": [\n        \"14\",\n        0\n      ]\n    },\n    \"class_type\": \"MiniMaxH3LoopTrim\",\n    \"_meta\": {\n      \"title\": \"MiniMax H3 Extension Trim\"\n    }\n  },\n  \"58\": {\n    \"inputs\": {\n      \"PowerLoraLoaderHeaderWidget\": {\n        \"type\": \"PowerLoraLoaderHeaderWidget\"\n      },\n      \"lora_1\": {\n        \"on\": false,\n        \"lora\": \"example/turbo-8step.safetensors\",\n        \"strength\": 1\n      },\n      \"lora_2\": {\n        \"on\": false,\n        \"lora\": \"example/style.safetensors\",\n        \"strength\": 0.5\n      },\n      \"model\": [\n        \"1\",\n        0\n      ]\n    },\n    \"class_type\": \"Power Lora Loader (rgthree)\",\n    \"_meta\": {\n      \"title\": \"Power Lora Loader (rgthree)\"\n    }\n  },\n  \"59\": {\n    \"inputs\": {\n      \"latent_path\": \"example/native/source\",\n      \"clip_index\": 0,\n      \"vae\": [\n        \"4\",\n        0\n      ],\n      \"audio_vae\": [\n        \"5\",\n        0\n      ]\n    },\n    \"class_type\": \"MiniMaxH3LoadLatent\",\n    \"_meta\": {\n      \"title\": \"MiniMax H3 Load AV Latent\"\n    }\n  }\n}\n",
+  "name": "Example Hyperflow Initial (Required Picture)",
+  "nativeContinuation": {
+    "kind": "native_h3_av",
+    "version": 1,
+    "adapter": "opaque_keys",
+    "compatibilityKey": "example-hyperflow-native-av-v1",
+    "inputs": {
+      "enable": {
+        "nodeId": "55",
+        "inputName": "mode",
+        "enabledValue": "auto",
+        "disabledValue": "disabled",
+        "unsetValue": -1
+      },
+      "save_key": {
+        "nodeId": "56",
+        "inputName": "filename_prefix",
+        "enabledValue": true,
+        "disabledValue": false,
+        "unsetValue": -1
+      },
+      "load_key": {
+        "nodeId": "59",
+        "inputName": "latent_path",
+        "enabledValue": true,
+        "disabledValue": false,
+        "unsetValue": -1
+      },
+      "save_segment_index": {
+        "nodeId": "56",
+        "inputName": "clip_index",
+        "enabledValue": true,
+        "disabledValue": false,
+        "unsetValue": -1
+      },
+      "load_segment_index": {
+        "nodeId": "59",
+        "inputName": "clip_index",
+        "enabledValue": true,
+        "disabledValue": false,
+        "unsetValue": 0
+      },
+      "context_frames": {
+        "nodeId": "55",
+        "inputName": "context_length",
+        "enabledValue": true,
+        "disabledValue": false,
+        "unsetValue": -1
+      }
+    },
+    "sourceLinks": [
+      {
+        "nodeId": "55",
+        "inputName": "prev_latent",
+        "expectedSourceNodeId": "59",
+        "expectedOutputIndex": 0
+      }
+    ],
+    "requiredInputs": [
+      "save_segment_index",
+      "load_segment_index",
+      "context_frames"
+    ],
+    "videoContinuity": true,
+    "audioContinuity": false,
+    "audioEnabled": false,
+    "contextFrames": 22,
+    "contextGrid": {
+      "minimum": 5,
+      "step": 17,
+      "maximum": 39,
+      "alignment": "reject"
+    },
+    "extensionGrid": null,
+    "sourceOutGrid": null,
+    "framesPerSecond": null,
+    "requiresTailReference": false,
+    "allowEndpointAnchor": false,
+    "pictureFreeI2va": null
+  },
+  "description": "Synthetic metadata repair: Required Picture and renderer seed binding; initial graph is unchanged.",
+  "compatibleModes": [
+    "I2VA"
+  ],
+  "bindings": [
+    {
+      "source": {
+        "kind": "generated_prompt"
+      },
+      "nodeId": "6",
+      "inputName": "prompt"
+    },
+    {
+      "source": {
+        "kind": "duration"
+      },
+      "nodeId": "35",
+      "inputName": "value"
+    },
+    {
+      "source": {
+        "kind": "reference_asset",
+        "assetKind": "image",
+        "ordinal": 1
+      },
+      "nodeId": "50",
+      "inputName": "image",
+      "presence": "required",
+      "routes": [
+        {
+          "nodeId": "6",
+          "inputName": "first_frame",
+          "expectedSourceNodeId": "51",
+          "expectedOutputIndex": 0,
+          "channel": "image"
+        }
+      ]
+    },
+    {
+      "source": {
+        "kind": "renderer_seed"
+      },
+      "nodeId": "8",
+      "inputName": "noise_seed"
+    }
+  ],
+  "exposedControls": [
+    {
+      "id": "enable_turbo_lora",
+      "label": "Enable example turbo LoRA",
+      "target": {
+        "nodeId": "58",
+        "inputName": "lora_1",
+        "path": [
+          "on"
+        ]
+      },
+      "type": "boolean",
+      "defaultValue": false,
+      "minimum": null,
+      "maximum": null,
+      "step": null,
+      "choices": []
+    },
+    {
+      "id": "turbo_lora_strength",
+      "label": "Example turbo LoRA strength",
+      "target": {
+        "nodeId": "58",
+        "inputName": "lora_1",
+        "path": [
+          "strength"
+        ]
+      },
+      "type": "float",
+      "defaultValue": 1,
+      "minimum": null,
+      "maximum": null,
+      "step": null,
+      "choices": []
+    }
+  ],
+  "workflowControlPresets": []
+}

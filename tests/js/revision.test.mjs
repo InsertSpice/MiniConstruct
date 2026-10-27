@@ -5,6 +5,7 @@ import {
   applyRevisionCandidate, assessRevisionFindings, createRevisionSnapshot, createSelectionSnapshot,
   reconstructsPrompt, revisionIsStale, selectionFromHighlighted, selectionFromTextarea,
 } from "../../web/js/revision.js";
+import { markOutputManuallyEdited } from "../../web/js/manual-edit.js";
 
 
 test("raw textarea snapshot preserves multiline selection and repeated text", () => {
@@ -81,6 +82,23 @@ test("stale source or variation prevents apply", () => {
   assert.equal(applyRevisionCandidate(outputs, 1, revision), false);
   outputs[0].prompt = "manual edit";
   assert.equal(applyRevisionCandidate(outputs, 0, revision), false);
+});
+
+
+test("manual edit invalidates an old revision and remains the exact source for a new one", () => {
+  const outputs = [{ prompt: "A person walks home." }];
+  const oldRevision = createRevisionSnapshot(outputs, 0,
+    createSelectionSnapshot(outputs[0].prompt, 2, 8), "old request", {}, {});
+  outputs[0] = markOutputManuallyEdited(outputs[0], "A woman walks home.");
+  assert.equal(revisionIsStale(outputs, 0, oldRevision), true);
+  const edited = outputs[0].prompt;
+  const next = createRevisionSnapshot(outputs, 0,
+    createSelectionSnapshot(edited, 2, 7), "new request", {}, {});
+  assert.equal(next.sourcePrompt, edited);
+  assert.equal(next.selection.fullPrompt, edited);
+  next.candidatePrompt = "A woman walks home, then stops.";
+  assert.equal(applyRevisionCandidate(outputs, 0, next), true);
+  assert.equal(outputs[0].prompt, next.candidatePrompt);
 });
 
 

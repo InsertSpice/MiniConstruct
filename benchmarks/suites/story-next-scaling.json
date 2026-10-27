@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "story-next-scaling",
+  "title": "Bounded Plan Next scaling",
+  "cases": [
+    "story-next-scaling-4",
+    "story-next-scaling-12",
+    "story-next-scaling-30",
+    "story-next-scaling-60"
+  ]
+}

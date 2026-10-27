@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "projectName": "h3-visual-endpoint",
+  "mode": "Ref2VA",
+  "durationSeconds": 6,
+  "variations": 1,
+  "creativeRequest": "Continue Subject 1 from the exact endpoint pose while carrying the yellow object.",
+  "dialogue": "",
+  "assets": [
+    {
+      "id": "subject-1-picture",
+      "kind": "image",
+      "filename": "subject-1.png",
+      "mimeType": "image/png",
+      "role": "subject_identity",
+      "order": 0,
+      "notes": "Generic synthetic Subject 1: blue outfit. The identity illustration does not fix current pose or camera.",
+      "image": {
+        "data_url": "data:image/png,fixture-placeholder",
+        "width": 320,
+        "height": 180
+      },
+      "subjectIdentity": {
+        "subjectId": "subject-1",
+        "focus": "general",
+        "layout": "single_view"
+      }
+    }
+  ],
+  "subjects": [
+    {
+      "id": "subject-1",
+      "number": 1
+    }
+  ],
+  "nextSubjectNumber": 2
+}

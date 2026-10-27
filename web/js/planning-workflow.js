@@ -1,3 +1,5 @@
+import { freshVisualHandoff } from "./visual-handoff.js";
+
 export const RELATIONSHIP_OPTIONS = [
   ["continue_previous_shot", "Continue previous shot"],
   ["new_shot_preserve_continuity", "New shot — preserve continuity"],
@@ -7,29 +9,52 @@ export const RELATIONSHIP_OPTIONS = [
 
 export const PLAN_SCOPES = [
   ["main_prompt", "Main Prompt / idea"],
+  ["dialogue", "Exact Dialogue / Lyrics"],
   ["incoming_state", "Incoming State"],
   ["intended_outgoing_state", "Intended Outgoing State"],
   ["relationship_to_previous", "Relationship to Previous"],
-  ["camera_intent", "Camera / Shot Intent"],
+  ["camera_intent", "Shot Plan / Camera Intent"],
 ];
 
 export function freshPlanning() {
-  return { relationshipToPrevious: null, cameraIntent: "" };
+  return { scenePlan: "", relationshipToPrevious: null, cameraIntent: "", visualHandoff: freshVisualHandoff() };
 }
 
 export function planningFromProject(project) {
   const planning = project?.planning || {};
   return {
+    scenePlan: planning.scenePlan || "",
     relationshipToPrevious: planning.relationshipToPrevious ?? null,
     cameraIntent: planning.cameraIntent || "",
+    visualHandoff: { ...freshVisualHandoff(), ...planning.visualHandoff },
   };
+}
+
+export function storyShotMismatchMessage({ hasSavedPlanning, plannedShotCount, actualShotCount }) {
+  const scenePlanExists = typeof hasSavedPlanning === "string"
+    ? Boolean(hasSavedPlanning.trim())
+    : hasSavedPlanning === true;
+  const planned = Number(plannedShotCount);
+  const actualText = String(actualShotCount ?? "").trim();
+  if (!scenePlanExists || plannedShotCount == null || !Number.isInteger(planned) || planned < 1
+    || !actualText || Number(actualText) === planned) return "";
+  const shotWord = planned === 1 ? "shot" : "shots";
+  return `Saved planning requests ${planned} ${shotWord}. H3 Setup currently requests ${actualText}.`;
+}
+
+export function renderStoryShotMismatch(advisory, authority) {
+  advisory.textContent = storyShotMismatchMessage(authority);
+  advisory.hidden = !advisory.textContent;
 }
 
 const isMissing = value => value == null || (typeof value === "string" && !value.trim());
 
-export function fillMissingPlan({ creativeRequest, incomingState, intendedOutgoingState, planning }, proposal) {
+export function fillMissingPlan({ creativeRequest, dialogue, incomingState, intendedOutgoingState, planning }, proposal) {
   const result = {
     creativeRequest: creativeRequest || "",
+    // Infer from Previous is a planning-only operation. Dialogue remains the
+    // current canonical Workspace value even if a model echoes another value.
+    dialogue: dialogue ?? "",
     incomingState: incomingState || "",
     intendedOutgoingState: intendedOutgoingState || "",
     planning: { ...planning },
@@ -48,11 +73,13 @@ export function applyScopedPlan(current, proposal, scopes) {
   const selected = new Set(scopes || []);
   const result = {
     creativeRequest: current.creativeRequest || "",
+    dialogue: current.dialogue ?? "",
     incomingState: current.incomingState || "",
     intendedOutgoingState: current.intendedOutgoingState || "",
     planning: { ...(current.planning || freshPlanning()) },
   };
   if (selected.has("main_prompt")) result.creativeRequest = proposal.creativeRequest;
+  if (selected.has("dialogue")) result.dialogue = proposal.dialogue;
   if (selected.has("incoming_state")) result.incomingState = proposal.incomingState;
   if (selected.has("intended_outgoing_state")) result.intendedOutgoingState = proposal.intendedOutgoingState;
   if (selected.has("relationship_to_previous")) result.planning.relationshipToPrevious = proposal.relationshipToPrevious;

@@ -1,0 +1,31 @@
+{
+  "name": "Pure latent continuation example",
+  "description": "Provider-free shape of a MiniMax H3 AV latent continuation graph. Node names are intentionally generic.",
+  "compatibleModes": ["Ref2VA"],
+  "workflowJson": "{\"conditioning\":{\"class_type\":\"H3Conditioning\",\"inputs\":{\"prompt\":\"old prompt\",\"duration\":4}},\"167\":{\"class_type\":\"NativeAVLatentLoad\",\"inputs\":{\"latent_path\":\"\",\"clip_index\":0}},\"164\":{\"class_type\":\"H3ContinuationContext\",\"inputs\":{\"mode\":\"auto\",\"context_length\":22,\"audio_enabled\":true,\"prev_latent\":[\"167\",0]}},\"sampler\":{\"class_type\":\"H3Sampler\",\"inputs\":{\"conditioning\":[\"164\",0]}},\"native-save\":{\"class_type\":\"NativeAVLatentSave\",\"inputs\":{\"latent\":[\"sampler\",0],\"filename_prefix\":\"\",\"clip_index\":0,\"enabled\":true}},\"decode\":{\"class_type\":\"AVDecode\",\"inputs\":{\"latent\":[\"native-save\",0]}},\"overlap-trim\":{\"class_type\":\"HiddenOverlapTrim\",\"inputs\":{\"images\":[\"decode\",0],\"audio\":[\"decode\",1],\"trim_frames\":[\"164\",1]}},\"output\":{\"class_type\":\"AVOutput\",\"inputs\":{\"images\":[\"overlap-trim\",0],\"audio\":[\"overlap-trim\",1]}}}",
+  "bindings": [
+    {"source": {"kind": "generated_prompt"}, "nodeId": "conditioning", "inputName": "prompt"},
+    {"source": {"kind": "duration"}, "nodeId": "conditioning", "inputName": "duration"}
+  ],
+  "nativeContinuation": {
+    "compatibilityKey": "h3-pure-latent-example-v1",
+    "contextFrames": 22,
+    "contextGrid": {"minimum": 5, "step": 17, "maximum": 39, "alignment": "reject"},
+    "audioContinuity": true,
+    "audioEnabled": true,
+    "requiredInputs": ["enable", "save_enabled", "save_segment_index", "load_segment_index", "context_frames", "audio_enabled"],
+    "inputs": {
+      "enable": {"nodeId": "164", "inputName": "mode", "enabledValue": "auto", "disabledValue": "disabled"},
+      "save_enabled": {"nodeId": "native-save", "inputName": "enabled"},
+      "save_key": {"nodeId": "native-save", "inputName": "filename_prefix"},
+      "load_key": {"nodeId": "167", "inputName": "latent_path"},
+      "save_segment_index": {"nodeId": "native-save", "inputName": "clip_index"},
+      "load_segment_index": {"nodeId": "167", "inputName": "clip_index", "unsetValue": 0},
+      "context_frames": {"nodeId": "164", "inputName": "context_length"},
+      "audio_enabled": {"nodeId": "164", "inputName": "audio_enabled"}
+    },
+    "sourceLinks": [
+      {"nodeId": "164", "inputName": "prev_latent", "expectedSourceNodeId": "167", "expectedOutputIndex": 0}
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Same bedroom, new camera shot",
+  "mode": "Ref2VA",
+  "durationSeconds": 6,
+  "variations": 1,
+  "creativeRequest": "Show the quiet bedroom from the bedside. The door slowly opens.",
+  "dialogue": "",
+  "assets": [
+    {
+      "id": "bedroom-picture",
+      "kind": "image",
+      "filename": "bedroom-desk-wide.png",
+      "mimeType": "image/png",
+      "role": "environment",
+      "order": 0,
+      "notes": "Wide bedroom view from the desk side. Blue walls, wooden door, cream bedspread, desk and window.",
+      "image": {
+        "data_url": "data:image/png,fixture-placeholder",
+        "width": 640,
+        "height": 400
+      }
+    }
+  ]
+}

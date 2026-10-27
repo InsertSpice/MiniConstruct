@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform-open-thread",
+  "version": "1",
+  "title": "Old open thread recall",
+  "description": "Alice's obligation to return Bob's document is only carried by old open-thread memory when it becomes relevant again.",
+  "tags": ["story", "longform", "next", "open-thread"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea":"Alice travels back to the station district.",
+    "sequenceContext":"Keep promises and obligations causally coherent.",
+    "storyMemory":{"recentSummary":"Alice has reached the station district at dusk.","openThreads":[{"id":"22222222-2222-4222-8222-222222222222","text":"Alice promised Bob she would return his signed document."}]},
+    "generations":[
+      {"workspacePath":"workspace.json","scenePlan":"Alice promises Bob she will return his signed document.","planning":{"relationshipToPrevious":null}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice travels through small towns without seeing Bob.","repeat":5},
+      {"workspacePath":"workspace.json","scenePlan":"A delayed tram carries Alice toward the station district."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice crosses the market as evening lights come on."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice reaches the station office where Bob is expected."}
+    ],
+    "next":{"requestedCount":2,"instruction":"Continue naturally at the station office."}
+  },
+  "expectations":{"checks":[{"kind":"story_item_count_equals","value":2},{"kind":"story_recommendation_pairs_valid"}]},
+  "behavioralChecks":[
+    {"id":"promise-memory-transmitted","description":"The old obligation is transmitted as an unresolved Story Memory thread.","kind":"request_memory_contains","text":"signed document"},
+    {"id":"promise-recalled","description":"Review whether the continuation recalls Bob's document obligation without fabricating unrelated old threads.","expectedConcepts":["Bob","document"],"forbiddenConcepts":["another promise","unrelated debt"]}
+  ],
+  "humanReview":["Does the continuation keep Bob's document obligation open until it is genuinely fulfilled?"]
+}

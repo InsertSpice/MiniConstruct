@@ -75,6 +75,19 @@ def require_guides(guides_dir: Path = GUIDES_DIR) -> None:
     missing = missing_guide_specs(guides_dir)
     if missing:
         raise GuideAcquisitionError(guide_setup_message(guides_dir / spec.local_name for spec in missing))
+    verify_guides(guides_dir)
+
+
+def verify_guides(guides_dir: Path = GUIDES_DIR, specs: Iterable[GuideSpec] = GUIDE_SPECS) -> None:
+    """Check existing bytes too; never trust or overwrite an altered local guide."""
+    for spec in specs:
+        target = guides_dir / spec.local_name
+        if target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() != spec.sha256:
+            raise GuideAcquisitionError(
+                f"Existing MiniMax H3 guide {target} did not match the recorded SHA-256 "
+                f"for upstream commit {UPSTREAM_COMMIT}. Preserve it elsewhere, then run "
+                "`python -m miniconstruct.h3.guide_acquisition` to acquire the pinned file."
+            )
 
 
 def acquire_missing_guides(
@@ -85,6 +98,7 @@ def acquire_missing_guides(
 ) -> list[Path]:
     """Download only missing guides, preserving the exact verified response bytes."""
     specs = tuple(specs)
+    verify_guides(guides_dir, specs)
     missing = missing_guide_specs(guides_dir, specs)
     downloaded: list[Path] = []
     for spec in missing:
@@ -103,7 +117,18 @@ def acquire_missing_guides(
                 f"for upstream commit {UPSTREAM_COMMIT}."
             )
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        # Install a complete verified file; interruption cannot leave a truncated guide.
+        import tempfile
+        import os
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=target.parent, prefix=".guide-", delete=False) as handle:
+                temporary = Path(handle.name)
+                handle.write(data)
+            os.replace(temporary, target)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
         downloaded.append(target)
     return downloaded
 

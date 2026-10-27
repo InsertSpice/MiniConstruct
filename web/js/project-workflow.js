@@ -1,7 +1,7 @@
 export function freshUnsavedWorkspace() {
   return {
     schemaVersion: 1, projectId: null, projectName: "Untitled Project", mode: "T2VA", durationSeconds: 6,
-    shots: null, aspectRatio: "auto", variations: 1, creativeRequest: "", dialogue: "", referenceLabels: "",
+    shots: null, aspectRatio: "4:3", variations: 1, creativeRequest: "", dialogue: "", referenceLabels: "",
     assets: [], subjects: [], nextSubjectNumber: 1,
   };
 }
@@ -22,8 +22,13 @@ export function freshUnsavedContinuity() {
   return { sequenceContext: "", incomingState: "", intendedOutgoingState: "" };
 }
 
-export function freshUnsavedPlanning() {
-  return { relationshipToPrevious: null, cameraIntent: "" };
+function canonicalStoryMemory(value) {
+  if (!value || typeof value !== "object") return value;
+  const memory = structuredClone(value);
+  for (const key of ["durableFacts", "openThreads"]) {
+    if (Array.isArray(memory[key])) memory[key] = memory[key].filter(entry => entry && typeof entry.text === "string" && entry.text.trim());
+  }
+  return memory;
 }
 
 export function continuityFromProject(project) {
@@ -49,6 +54,24 @@ export function prepareImportedWorkspace(workspace) {
   return imported;
 }
 
+// Distinguish an absent legacy cast from an explicitly empty canonical cast.
+// The raw envelope preserves field presence while validation supplies defaults.
+export function importedSequenceMetadata(payload, validated) {
+  const hasCanonicalMetadata = Array.isArray(payload?.sequenceSubjects)
+    || validated?.sequenceNextSubjectNumber != null;
+  if (!hasCanonicalMetadata) return { sequenceSubjects: null, sequenceNextSubjectNumber: null };
+  return {
+    sequenceSubjects: Array.isArray(validated?.sequenceSubjects) ? validated.sequenceSubjects : [],
+    sequenceNextSubjectNumber: validated?.sequenceNextSubjectNumber ?? null,
+  };
+}
+
+export function clearImportedSequenceMetadata(state) {
+  state.importedSequenceSubjects = null;
+  state.importedSequenceNextSubjectNumber = null;
+  return state;
+}
+
 export async function loadProjectSources({ listFilesystem, listLegacy, cachedFilesystem = [], cachedLegacy = [] }) {
   const [filesystemResult, legacyResult] = await Promise.allSettled([listFilesystem(), listLegacy()]);
   return {
@@ -61,10 +84,11 @@ export async function loadProjectSources({ listFilesystem, listLegacy, cachedFil
   };
 }
 
-export async function persistFilesystemProject({ projectId, workspace, continuity, planning, storyIdea, createProject, saveProject }) {
+export async function persistFilesystemProject({ projectId, workspace, continuity, planning, storyIdea, storyCreativeDirection, storyPlanningStyle, storyMemory, memoryAuthority, sequenceSubjects, sequenceNextSubjectNumber, characterProfiles, dialogueLanguage, createProject, saveProject }) {
+  storyMemory = canonicalStoryMemory(storyMemory);
   const response = projectId
-    ? await saveProject(projectId, workspace, continuity, planning, storyIdea)
-    : await createProject(workspace, continuity, planning, storyIdea);
+    ? await saveProject(projectId, workspace, continuity, planning, storyIdea, storyMemory, memoryAuthority, storyCreativeDirection, characterProfiles, dialogueLanguage, storyPlanningStyle)
+    : await createProject(workspace, continuity, planning, storyIdea, storyMemory, storyCreativeDirection, sequenceSubjects, characterProfiles, sequenceNextSubjectNumber, dialogueLanguage, storyPlanningStyle);
   return { projectId: response.id, name: response.name, workspace: response.workspace, sequence: response.sequence, response };
 }
 

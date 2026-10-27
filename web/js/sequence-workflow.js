@@ -1,7 +1,9 @@
 export const EPHEMERAL_GENERATION_ID = "ephemeral-generation";
 
 export function shouldMarkWorkspaceDirty(target) {
-  return Boolean(target?.closest?.(".left-rail") && !target.closest("#sequence-panel"));
+  return Boolean(target?.closest?.(".left-rail") && !target.closest("#sequence-panel")
+    && !target.closest("#story-planner") && !target.closest("#continuation-drafting")
+    && !target.closest("#asset-list") && !target.closest(".subject-narrative-name"));
 }
 
 export function ephemeralSequence() {

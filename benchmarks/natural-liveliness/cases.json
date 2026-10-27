@@ -1,0 +1,301 @@
+{
+  "schemaVersion": 1,
+  "suite": "h3-natural-liveliness",
+  "cases": [
+    {
+      "id": "neutral-visible-face",
+      "title": "Neutral visible adult face",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Liveliness · Neutral visible adult face",
+        "mode": "T2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "An adult sits at a kitchen table in ordinary daylight, face clearly visible throughout.",
+        "subjects": [
+          {
+            "id": "subject-1",
+            "number": 1
+          }
+        ],
+        "nextSubjectNumber": 2,
+        "creativeControls": {
+          "promptDetail": "standard"
+        }
+      }
+    },
+    {
+      "id": "exact-dialogue-listener",
+      "title": "Exact dialogue with a silent listener",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Liveliness · Exact dialogue with a silent listener",
+        "mode": "T2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "Iris and Leo sit across a table, both adult faces clearly visible. Iris speaks the supplied line to Leo; Leo listens silently. Keep both in view.",
+        "subjects": [
+          {
+            "id": "subject-1",
+            "number": 1
+          },
+          {
+            "id": "subject-2",
+            "number": 2
+          }
+        ],
+        "nextSubjectNumber": 3,
+        "creativeControls": {
+          "promptDetail": "standard"
+        },
+        "dialogue": "Iris: \"The door was open when I got here.\""
+      }
+    },
+    {
+      "id": "implied-concern",
+      "title": "A small missing-object uncertainty",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Liveliness · A small missing-object uncertainty",
+        "mode": "T2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "An adult at a desk notices that the usual key hook is empty. Their face is clearly visible. They stay at the desk; the cause remains unknown.",
+        "subjects": [
+          {
+            "id": "subject-1",
+            "number": 1
+          }
+        ],
+        "nextSubjectNumber": 2,
+        "creativeControls": {
+          "promptDetail": "standard"
+        }
+      }
+    },
+    {
+      "id": "deliberate-stillness",
+      "title": "Held attention and deliberate restraint",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Liveliness · Held attention and deliberate restraint",
+        "mode": "T2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "An adult watches a doorway with held attention, face clearly visible. Preserve deliberate stillness, restraint and minimal movement throughout; no fidgeting or repeated gaze shifts.",
+        "subjects": [
+          {
+            "id": "subject-1",
+            "number": 1
+          }
+        ],
+        "nextSubjectNumber": 2,
+        "creativeControls": {
+          "promptDetail": "standard"
+        }
+      }
+    },
+    {
+      "id": "closed-eyes-rest",
+      "title": "Resting with eyes closed",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Liveliness · Resting with eyes closed",
+        "mode": "T2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "An adult rests in an armchair, face clearly visible and eyes deliberately closed throughout the clip. Quiet rest; eyes remain closed.",
+        "subjects": [
+          {
+            "id": "subject-1",
+            "number": 1
+          }
+        ],
+        "nextSubjectNumber": 2,
+        "creativeControls": {
+          "promptDetail": "standard"
+        }
+      }
+    },
+    {
+      "id": "two-visible-characters",
+      "title": "Two ordinary adults sharing a quiet wait",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Liveliness · Two ordinary adults sharing a quiet wait",
+        "mode": "Ref2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "<Subject 1>, the adult in <Picture 1>, and a second adult wait side by side at a bus stop in ordinary daylight. Both faces are clearly visible; neither undergoes a large emotional change.",
+        "subjects": [
+          {
+            "id": "subject-1",
+            "number": 1
+          },
+          {
+            "id": "subject-2",
+            "number": 2
+          }
+        ],
+        "nextSubjectNumber": 3,
+        "creativeControls": {
+          "promptDetail": "standard",
+          "subjectIdentityFidelity": {
+            "level": "strict"
+          }
+        },
+        "assets": [
+          {
+            "id": "neutral-sheet",
+            "kind": "image",
+            "filename": "neutral-subject-sheet.png",
+            "mimeType": "image/png",
+            "role": "subject_identity",
+            "subjectIdentity": {
+              "subjectId": "subject-1",
+              "focus": "general",
+              "layout": "reference_sheet"
+            },
+            "order": 1
+          }
+        ]
+      },
+      "requiresVision": true,
+      "fixtureAssets": [
+        {
+          "assetId": "neutral-sheet",
+          "path": "assets/neutral-subject-sheet.png"
+        }
+      ]
+    },
+    {
+      "id": "anime-awkwardness",
+      "title": "Modern digital anime mild awkwardness",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Liveliness · Modern digital anime mild awkwardness",
+        "mode": "T2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "Modern 2D digital anime style. An adult at a cafe realizes they have waved to the wrong table; a mildly awkward pause, face clearly visible. They stay seated; no new interaction or dialogue.",
+        "subjects": [
+          {
+            "id": "subject-1",
+            "number": 1
+          }
+        ],
+        "nextSubjectNumber": 2,
+        "creativeControls": {
+          "promptDetail": "standard"
+        }
+      }
+    },
+    {
+      "id": "nonliving-mannequin",
+      "title": "Nonliving face negative control",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Liveliness · Nonliving face negative control",
+        "mode": "T2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "A nonliving rigid shop-window mannequin with painted open eyes stands motionless, face clearly visible. It is an inanimate display, not a robot or living character.",
+        "subjects": [],
+        "nextSubjectNumber": 1,
+        "creativeControls": {
+          "promptDetail": "standard"
+        }
+      }
+    },
+    {
+      "id": "anime-neutral-fixed-frame",
+      "title": "Anime neutral face from a fixed first frame",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Liveliness · Anime neutral fixed frame",
+        "mode": "I2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "The character remains calmly present and attentive in the same setting. Keep the performance natural and understated.",
+        "subjects": [
+          { "id": "subject-1", "number": 1 }
+        ],
+        "nextSubjectNumber": 2,
+        "creativeControls": { "promptDetail": "standard" },
+        "assets": [
+          {
+            "id": "anime-first-frame",
+            "kind": "image",
+            "filename": "anime-fixed-first-frame.png",
+            "mimeType": "image/png",
+            "role": "first_frame_anchor",
+            "order": 1
+          }
+        ]
+      },
+      "fixtureAssets": [
+        { "assetId": "anime-first-frame", "path": "assets/anime-fixed-first-frame.png" }
+      ]
+    },
+    {
+      "id": "anime-deliberate-stillness-fixed-frame",
+      "title": "Anime held attention from a fixed first frame",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Liveliness · Anime deliberate stillness fixed frame",
+        "mode": "I2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "She remains very still, quietly holding her attention toward the same point in front of her. Preserve the same calm expression, head position, and gaze direction. No deliberate gesture or emotional change occurs.",
+        "subjects": [
+          { "id": "subject-1", "number": 1 }
+        ],
+        "nextSubjectNumber": 2,
+        "creativeControls": { "promptDetail": "standard" },
+        "assets": [
+          {
+            "id": "anime-first-frame",
+            "kind": "image",
+            "filename": "anime-fixed-first-frame.png",
+            "mimeType": "image/png",
+            "role": "first_frame_anchor",
+            "order": 1
+          }
+        ]
+      },
+      "fixtureAssets": [
+        { "assetId": "anime-first-frame", "path": "assets/anime-fixed-first-frame.png" }
+      ]
+    }
+  ]
+}

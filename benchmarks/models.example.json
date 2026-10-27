@@ -12,6 +12,7 @@
       },
       "modelId": "replace-with-your-model-id",
       "supportsVision": false,
+      "contextWindow": 16384,
       "maxTokens": 4096,
       "timeoutSeconds": 120,
       "reasoningMode": "off"

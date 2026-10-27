@@ -34,6 +34,40 @@ STYLE_GUIDANCE = {
 }
 
 
+STYLE_OBSERVATIONS = {
+    VisualStylePreset.CINEMATIC: "image treatment, palette, contrast, and lighting",
+    VisualStylePreset.LIVE_ACTION: "photographic qualities, light and highlight behavior, visible textures, and image treatment",
+    VisualStylePreset.ANIMATED_2D: "linework, shape language, proportions, shading, palette, and background painting",
+    VisualStylePreset.ANIMATED_2D_ANIME: "linework and outlines, shape language and proportions, facial and eye rendering, hair rendering and highlights, cel-shading and shadow layering, palette, contrast, saturation, lighting, and background painting",
+    VisualStylePreset.CG_3D: "geometry and shape language, visible material and shader appearance, surface treatment, character styling, and lighting",
+    VisualStylePreset.CG_3D_STYLIZED: "stylized geometry and proportions, character styling, visible material and shader appearance, surface treatment, and lighting",
+    VisualStylePreset.CLAYMATION: "modeled shapes, visible clay surface treatment, tactile irregularities, and lighting",
+    VisualStylePreset.WATERCOLOR: "wash transparency, pigment edges, color bleed, palette, and visible paper texture",
+    VisualStylePreset.VINTAGE_FILM: "visible grain, contrast, color response, highlight treatment, and image softness",
+}
+
+
+def _style_role_evidence(style_pictures, subject_pictures, environment_pictures, general_pictures) -> str:
+    """Shared Auto/explicit role scoping; callers establish medium authority."""
+    text = ""
+    if style_pictures:
+        labels = ", ".join(label for _, label in style_pictures)
+        text += f" Visually inspect {labels} as the strongest overall visual-style authority."
+    if subject_pictures:
+        labels = ", ".join(label for _, label in subject_pictures)
+        text += (
+            f" Visually inspect {labels} as strong evidence for the mapped character design and its rendering; "
+            "do not extend that authority to unrelated environment artwork."
+        )
+    if environment_pictures:
+        labels = ", ".join(label for _, label in environment_pictures)
+        text += f" Use {labels} primarily for environment appearance and rendering."
+    if general_pictures:
+        labels = ", ".join(label for _, label in general_pictures)
+        text += f" Use {labels} as supporting visual-style evidence only to the extent supported by their role and visible content."
+    return text
+
+
 TONE_GUIDANCE = {
     "sensuality": {
         "subtle": "Lightly sensual presentation through tasteful body language, framing, expression, or movement where appropriate.",
@@ -91,7 +125,7 @@ PERFORMANCE_ENERGY_GUIDANCE = {
 
 
 def compile_creative_controls(workspace: Workspace, supports_vision: bool = True) -> str:
-    """Return concise active workspace preferences, or an empty string for all-Auto."""
+    """Compile active controls with role-scoped, reference-informed visual style."""
     controls = workspace.creative_controls
     lines: list[str] = []
     # Keep this local import so the builder can call this compiler without an import cycle.
@@ -104,6 +138,7 @@ def compile_creative_controls(workspace: Workspace, supports_vision: bool = True
     style_pictures = [(asset, label) for asset, label in picture_references if asset.role == "style_appearance"]
     subject_style_pictures = [(asset, label) for asset, label in picture_references if asset.role == "subject_identity"]
     environment_pictures = [(asset, label) for asset, label in picture_references if asset.role == "environment"]
+    general_visual_pictures = [(asset, label) for asset, label in picture_references if asset.role == "general_visual"]
     if controls.music.mode == MusicMode.OFF:
         lines.extend([
             "Non-diegetic music: forbidden.",
@@ -139,43 +174,108 @@ def compile_creative_controls(workspace: Workspace, supports_vision: bool = True
         tone_items.append(f"Subject performance energy: {PERFORMANCE_ENERGY_GUIDANCE[tone_performance.performance_energy]}")
     if tone_items:
         lines.append(
-            "Tone / Performance: Blend active dimensions coherently according to their relative strengths and the Creative Request. "
+            "Tone / Performance: Blend active dimensions coherently according to their relative strengths and the current authoring direction. "
             "These govern subject tone, performance, expression, pose, movement, and staging or presentation, not cut pacing, and must not override explicit Camera Creative Controls or identity-fidelity requirements. "
             "They do not independently change a reference-established wardrobe; when the Creative Request explicitly requests a wardrobe change, follow that requested target. "
             + " ".join(tone_items)
         )
 
     style = controls.visual_style
-    if style.preset in STYLE_GUIDANCE:
+    if style.preset == VisualStylePreset.AUTO:
+        # Auto needs visual evidence to add a style-specific policy. In text-only
+        # workspaces the request, notes, labels, and continuity remain the evidence;
+        # avoid injecting a default medium just because Auto is selected.
+        style_evidence_pictures = [
+            *style_pictures, *subject_style_pictures, *environment_pictures, *general_visual_pictures,
+        ]
+        if style_evidence_pictures:
+            style_text = (
+                "Visual Style (Auto): infer the target presentation from the Creative Request, authoritative reference roles, "
+                "relevant Notes and Reference Labels, and trusted continuity. Auto is an inference policy, not a fixed preset: "
+                "follow explicit user style instructions and established continuity, and preserve a coherent reference-established "
+                "medium when the request does not call for a change. Preserve deliberately distinct Subject styles when the request "
+                "supports them. Do not invent certainty or declare one reference universal when the evidence is mixed or ambiguous."
+            )
+            if supports_vision:
+                style_text += _style_role_evidence(
+                    style_pictures, subject_style_pictures, environment_pictures, general_visual_pictures,
+                )
+                style_text += (
+                    " Where the visible evidence supports it, retain the medium and a few distinctive traits that materially affect "
+                    "consistency, such as 2D illustration, 3D CG, photographic imagery, line and shape treatment, shading, color "
+                    "blocking, materials, texture, or stylized lighting. Distinguish photographic rendering from cinematic lighting "
+                    "or realistic movement. Use only traits actually visible; do not force anime/cartoon labels, add genre defaults, "
+                    "or produce a technical inventory. Establish a supported overall presentation naturally in the opening of Shot 1 "
+                    "when appropriate, without repeating it in every shot."
+                )
+            else:
+                style_text += (
+                    " Vision is unavailable, so do not claim to have inspected these Pictures or infer unseen rendering traits. "
+                    "Use only explicit style instructions, relevant Notes, Reference Labels, structured role metadata, and trusted "
+                    "continuity; filenames and reference-sheet layout do not establish a visual style. If those sources give no useful "
+                    "style evidence, remain neutral."
+                )
+            lines.append(style_text)
+    elif style.preset in STYLE_GUIDANCE:
         style_text = (
             "Visual Style (authoritative): "
             f"{STYLE_GUIDANCE[style.preset]} Establish this overall style naturally at the beginning of Shot 1. "
             "Preserve the relevant identity, environment, and content from references while applying this target presentation."
         )
-        if style_pictures and supports_vision:
-            labels = ", ".join(label for _, label in style_pictures)
-            style_text += (
-                f" Visually inspect {labels} as the primary overall visual-style authority and retain only "
-                "the concise, confident visible design or rendering traits that matter under this medium, such as character "
-                "proportions, facial or eye treatment, linework, coloring, shading, hair rendering, highlights, or texture. "
-                "Use only traits supported by those Pictures, their Notes, or the Creative Request; do not add preset-only genre embellishment."
+        style_text += (
+            " The selected preset establishes the target medium or treatment; reference analysis refines it, "
+            "never switches it to Auto or replaces it with a reference's medium. Explicit user-authored style "
+            "requirements and qualifications outrank speculative observations, within the active control authority. "
+            "When reference media differ from the target, translate transferable identity, outfit, colors, design, "
+            "and scene semantics into the selected presentation. Do not carry incompatible source rendering into "
+            "the target or describe contradictory photographic and hand-drawn output. "
+            "Resolve mixed rendering styles by explicit user intent and reference roles rather than averaging "
+            "contradictory traits or making every Picture a global style authority."
+        )
+        first_frames = [(asset, label) for asset, label in picture_references if asset.role == "first_frame_anchor"]
+        evidence_pictures = [
+            *style_pictures, *subject_style_pictures, *environment_pictures, *general_visual_pictures, *first_frames,
+        ]
+        if evidence_pictures and supports_vision:
+            style_text += _style_role_evidence(
+                style_pictures, subject_style_pictures, environment_pictures, general_visual_pictures,
             )
-        elif subject_style_pictures and supports_vision:
-            labels = ", ".join(label for _, label in subject_style_pictures)
+            if first_frames:
+                labels = ", ".join(label for _, label in first_frames)
+                style_text += (
+                    f" Inspect {labels} for visible appearance and opening-frame evidence; "
+                    "its existing first-frame anchor authority and required alignment remain unchanged. "
+                    "Style analysis does not authorize replacing or restyling an anchored frame."
+                )
             style_text += (
-                f" With no Style / Appearance Picture, use {labels} only as supporting character-design evidence for facial design, "
-                "eye treatment, linework, coloring, shading, or hair rendering where visibly supported; do not treat it as authority for unrelated environment artwork."
+                " Style / Appearance Pictures are primary overall rendering evidence within the selected medium. "
+                "Subject / Identity Pictures contribute character, facial design, costume rendering, and relevant "
+                "appearance only where supported by their focus and visible content. Environment Pictures guide "
+                "background art, atmosphere, lighting, and environmental rendering, never character eye shape. "
+                "Do not copy a Subject Picture's camera angle, pose, or transient expression into overall style. "
+                "Style evidence alone does not make a Picture an exact compositional template; preserve existing "
+                "composition and frame-anchor authority."
             )
-        elif style_pictures or subject_style_pictures:
+        elif not supports_vision:
             style_text += (
-                " Vision is unavailable, so use only the selected medium plus style facts supplied in Notes or the Creative Request; "
-                "do not claim uninspected reference-specific visual traits."
+                " Vision is unavailable, so do not claim to have inspected Pictures or infer unseen rendering traits. "
+                "Use only user-authored Notes, descriptions, Reference Labels, and explicit creative instructions "
+                "as appearance evidence, scoped to their reference roles; filenames and reference-sheet layout "
+                "do not establish a visual style."
             )
-        if environment_pictures:
-            labels = ", ".join(label for _, label in environment_pictures)
-            style_text += (
-                f" {labels} may guide environment rendering and appearance only; it is not a universal global or facial-style authority."
-            )
+        style_text += (
+            f" Choose only a handful of distinctive, supported observations appropriate to this medium, such as "
+            f"{STYLE_OBSERVATIONS[style.preset]}. These are possible observations, not a mandatory checklist "
+            "or preset defaults: include only traits supported by supplied image evidence when vision is available "
+            "or by user-authored descriptions and Notes. Do not add preset-only genre embellishment or quality "
+            "boosters. If useful appearance evidence is absent, keep the preset's concise default direction without "
+            "pretending detailed traits were observed. Prefer observable appearance; do not invent studios, artists, "
+            "film stocks, camera lenses, rendering engines, shader techniques, historical production methods, "
+            "or unsupported materials and textures. Integrate the chosen medium and supported traits as concise "
+            "scene-specific art direction at the beginning of Shot 1 within the official mode structure, not a new "
+            "section or technical inventory. Do not repeat it in every shot or crowd out action, motion, choreography, "
+            "camera, or temporal progression."
+        )
         lines.append(style_text)
     elif style.preset == VisualStylePreset.CUSTOM and style.custom.strip():
         lines.append(

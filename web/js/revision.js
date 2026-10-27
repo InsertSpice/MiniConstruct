@@ -69,6 +69,7 @@ export function createRevisionSnapshot(outputs, outputIndex, selection, instruct
     }),
     instruction,
     workspace: structuredClone(workspace),
+    authoringPath: originOutput?.authoringPath || "one_shot",
     llm: structuredClone(llm),
   };
 }
@@ -85,6 +86,7 @@ export function applyRevisionCandidate(outputs, activeIndex, revision) {
   revision.originOutput.prompt = revision.candidatePrompt;
   revision.originOutput.validation = revision.validation;
   revision.originOutput.sourceFingerprint = revision.sourceFingerprint || null;
+  revision.originOutput.authoringPath = revision.authoringPath;
   revision.originOutput.referenceMap = revision.referenceMap || null;
   revision.originOutput.revised = true;
   return true;

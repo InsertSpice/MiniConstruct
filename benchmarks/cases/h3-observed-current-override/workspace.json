@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "projectName": "h3-observed-current-override",
+  "mode": "Ref2VA",
+  "durationSeconds": 6,
+  "variations": 1,
+  "creativeRequest": "Subject 1 walks to the window.",
+  "dialogue": "",
+  "assets": [
+    {
+      "id": "kent-picture",
+      "kind": "image",
+      "filename": "kent-jacket.png",
+      "mimeType": "image/png",
+      "role": "subject_identity",
+      "order": 0,
+      "notes": "Synthetic identity illustration for Kent (Subject 1), brown hair, red jacket.",
+      "image": {
+        "data_url": "data:image/png,fixture-placeholder",
+        "width": 640,
+        "height": 400
+      },
+      "subjectIdentity": {
+        "subjectId": "kent",
+        "focus": "general",
+        "layout": "single_view"
+      }
+    }
+  ],
+  "subjects": [
+    {
+      "id": "kent",
+      "number": 1
+    }
+  ],
+  "nextSubjectNumber": 2,
+  "creativeControls": {
+    "subjectIdentityFidelity": {
+      "level": "strict"
+    }
+  }
+}

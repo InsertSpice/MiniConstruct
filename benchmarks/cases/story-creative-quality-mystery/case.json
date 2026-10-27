@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "story-creative-quality-mystery",
+  "version": "1",
+  "title": "Story-aware scene planning quality: mystery and discovery",
+  "description": "Opt-in text-only review case for causal mystery progression across four Generations.",
+  "tags": ["story", "initial-range", "scene-plan", "quality", "opt-in"],
+  "operation": "build_initial_range",
+  "story": {
+    "storyIdea": "A woman returns to a nearly empty railway station after receiving an anonymous note about something belonging to her missing brother. She searches, follows a promising false clue, discovers evidence proving the note was genuine, and leaves knowing where to go next.",
+    "sequenceContext": "",
+    "storyCreativeDirection": {
+      "toneMood": "",
+      "performanceEnergy": "Keep performances understated and controlled, favoring small expressions, measured movement, and restrained delivery over theatrical display.\n\nKeep performances restrained and low-key, favoring subtle reactions, controlled movement, and understated delivery over heightened or explosive expression.",
+      "pacingRhythm": "Keep narrative progression measured, allowing developments and reactions room to unfold before the next meaningful turn.",
+      "beatDurationDensity": "Keep beat density dense, packing several connected meaningful developments or pieces of information into each Generation without sacrificing clarity."
+    },
+    "narrativeSubjects": [{"subjectId": "woman", "narrativeName": "Woman"}],
+    "generations": [{"workspacePath": "workspace.json", "planning": {"relationshipToPrevious": null}}],
+    "initialRange": {"requestedTotalCount": 4}
+  },
+  "expectations": {"checks": [
+    {"kind": "story_item_count_equals", "value": 4},
+    {"kind": "story_initial_range_new_generation_count_equals", "value": 3},
+    {"kind": "story_initial_range_ordered_slots"},
+    {"kind": "story_initial_range_memory_available"},
+    {"kind": "story_first_relationship_null"},
+    {"kind": "story_relationship_valid"},
+    {"kind": "story_field_not_empty", "field": "scenePlan"},
+    {"kind": "story_field_not_empty", "field": "incomingState"},
+    {"kind": "story_field_not_empty", "field": "intendedOutgoingState"},
+    {"kind": "story_field_not_empty", "field": "cameraIntent"},
+    {"kind": "forbidden_text_absent", "patterns": ["\\[Shot\\s*\\d+\\]", "<Picture\\s*\\d+>", "ComfyUI"]}
+  ]},
+  "humanReview": [
+    "Does each Generation contain actual story development rather than merely restating a milestone?",
+    "Does the search involve plausible attempts or choices?",
+    "Is the false lead causally meaningful rather than decorative?",
+    "Is the genuine discovery earned by visible action or observation?",
+    "Does the final Generation create a credible next direction without arbitrarily solving the missing-brother mystery?",
+    "Are invented connective details locally useful rather than random atmosphere?",
+    "Are Scene Plan, Incoming State, and Intended Outgoing State doing distinct jobs?",
+    "Is each Generation feasible for its configured duration?",
+    "Does Scene Plans remain narrative prose rather than H3 syntax?"
+  ]
+}

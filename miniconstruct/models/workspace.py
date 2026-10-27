@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Iterable, Literal, Mapping
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, ValidationInfo, field_validator, model_validator
 
 
 class H3Mode(StrEnum):
@@ -13,6 +13,44 @@ class H3Mode(StrEnum):
     FL2VA = "FL2VA"
     L2VA = "L2VA"
     REF2VA = "Ref2VA"
+
+
+class DialogueLanguage(StrEnum):
+    """The documented H3 spoken-output languages.  This is deliberately Sequence-wide."""
+
+    AS_WRITTEN = "as_written"
+    AR = "ar"
+    ZH = "zh"
+    EN = "en"
+    FR = "fr"
+    DE = "de"
+    IT = "it"
+    JA = "ja"
+    KO = "ko"
+    PT = "pt"
+    RU = "ru"
+    ES = "es"
+
+
+DIALOGUE_LANGUAGE_LABELS = {
+    DialogueLanguage.AS_WRITTEN: "As Written", DialogueLanguage.AR: "Arabic",
+    DialogueLanguage.ZH: "Chinese", DialogueLanguage.EN: "English", DialogueLanguage.FR: "French",
+    DialogueLanguage.DE: "German", DialogueLanguage.IT: "Italian", DialogueLanguage.JA: "Japanese",
+    DialogueLanguage.KO: "Korean", DialogueLanguage.PT: "Portuguese", DialogueLanguage.RU: "Russian",
+    DialogueLanguage.ES: "Spanish",
+}
+
+
+class DialogueResolution(BaseModel):
+    """Inspectable, generation-local cache for a Sequence language resolution."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    source_text: str = Field(alias="sourceText", max_length=30000)
+    target_language: DialogueLanguage = Field(alias="targetLanguage")
+    resolved_text: str = Field(alias="resolvedText", max_length=30000)
+    source_fingerprint: str = Field(alias="sourceFingerprint", pattern=r"^[0-9a-f]{64}$")
+    status: Literal["current", "stale", "user_edited"] = "current"
+    contract_version: int = Field(default=1, alias="contractVersion", ge=1)
 
 
 class AssetKind(StrEnum):
@@ -37,6 +75,12 @@ class CreativeInterpretation(StrEnum):
     CONSERVATIVE = "conservative"
     BALANCED = "balanced"
     EXPANSIVE = "expansive"
+
+
+class H3PromptDetail(StrEnum):
+    CONCISE = "concise"
+    STANDARD = "standard"
+    DETAILED = "detailed"
 
 
 class ReferenceFidelityLevel(StrEnum):
@@ -114,7 +158,7 @@ IMAGE_ROLES = {
     "storyboard_composition", "general_visual",
 }
 VIDEO_ROLES = {
-    "continuation_source", "seamless_overlap_continuation", "editing_source",
+    "continuation_source", "tail_reference_continuation", "editing_source",
     "motion_action", "camera_movement", "cut_pacing_rhythm", "general_video",
 }
 AUDIO_ROLES = {
@@ -188,7 +232,18 @@ class ReferenceAsset(BaseModel):
     order: int = Field(default=0, ge=0)
     image: ImagePayload | None = None
     media_payload: MediaPayload | None = Field(default=None, alias="mediaPayload")
+    # Transient recovery projection; stripped at the Project write boundary.
+    payload_availability: Literal["missing", "corrupt"] | None = Field(default=None, alias="payloadAvailability")
+    payload_sha256: str | None = Field(default=None, alias="payloadSha256", pattern=r"^[0-9a-f]{64}$")
     attached: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_overlap_role(cls, value):
+        if isinstance(value, dict) and value.get("role") == "seamless_overlap_continuation":
+            value = dict(value)
+            value["role"] = "tail_reference_continuation"
+        return value
 
     @model_validator(mode="after")
     def validate_role_and_payload(self, info: ValidationInfo) -> "ReferenceAsset":
@@ -208,10 +263,38 @@ class ReferenceAsset(BaseModel):
         return self
 
 
+def structural_subject_ids(assets: Iterable[ReferenceAsset | Mapping[str, Any]]) -> set[str]:
+    """Return Subjects actively required by semantic Picture relationships.
+
+    Subject-shaped metadata on any other asset is intentionally inert.  This
+    accepts stored manifest dictionaries as well as hydrated assets so Project
+    mutations use the exact same rule without requiring image payload hydration.
+    """
+    required: set[str] = set()
+    for asset in assets:
+        if isinstance(asset, Mapping):
+            kind, role = asset.get("kind"), asset.get("role")
+            identity = asset.get("subjectIdentity", {})
+            comparison = asset.get("comparisonSubjects", [])
+        else:
+            kind, role = asset.kind, asset.role
+            identity, comparison = asset.subject_identity, asset.comparison_subject_ids
+        if kind == AssetKind.IMAGE or kind == AssetKind.IMAGE.value:
+            if role == "subject_identity":
+                subject_id = identity.get("subjectId", "subject-1") if isinstance(identity, Mapping) else identity.subject_id
+                if isinstance(subject_id, str) and subject_id:
+                    required.add(subject_id)
+            elif role == "character_comparison_scale":
+                values = comparison if isinstance(comparison, list) else []
+                required.update(value for value in values if isinstance(value, str) and value)
+    return required
+
+
 class MusicControls(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: MusicMode = MusicMode.AUTO
+    # New Generations deliberately omit score unless the author opts in.
+    mode: MusicMode = MusicMode.OFF
     description: str = Field(default="", max_length=8000)
 
 
@@ -270,10 +353,15 @@ class CreativeControls(BaseModel):
         validation_alias=AliasChoices("subjectIdentityFidelity", "referenceFidelity"),
     )
     tone_performance: TonePerformanceControls = Field(default_factory=TonePerformanceControls, alias="tonePerformance")
+    prompt_detail: H3PromptDetail = Field(default=H3PromptDetail.STANDARD, alias="promptDetail")
 
 
 class Workspace(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    # Server-only projection of explicit saved intent plus verified native lineage.
+    # Never accepted from JSON or persisted as an alternate unconditioned mode.
+    _native_i2va: bool = PrivateAttr(default=False)
+    _native_i2va_context: str = PrivateAttr(default="")
 
     schema_version: Literal[1] = Field(default=1, alias="schemaVersion")
     project_id: str | None = Field(default=None, alias="projectId", max_length=128)
@@ -281,10 +369,14 @@ class Workspace(BaseModel):
     mode: H3Mode = H3Mode.T2VA
     duration_seconds: float = Field(default=6.0, alias="durationSeconds", ge=4, le=15)
     shots: int | None = Field(default=None, gt=0, strict=True)
-    aspect_ratio: str = Field(default="auto", alias="aspectRatio", min_length=1, max_length=40)
+    aspect_ratio: str = Field(default="4:3", alias="aspectRatio", min_length=1, max_length=40)
     variations: int = Field(default=1, ge=1, le=8, strict=True)
     creative_request: str = Field(default="", alias="creativeRequest", max_length=50000)
     dialogue: str = Field(default="", max_length=30000)
+    # `dialogue` remains source/authoring authority.  The companion resolution is
+    # only exact spoken-output authority when this explicit Sequence setting is active.
+    dialogue_language: DialogueLanguage = Field(default=DialogueLanguage.AS_WRITTEN, alias="dialogueLanguage")
+    dialogue_resolution: DialogueResolution | None = Field(default=None, alias="dialogueResolution")
     reference_labels: str = Field(default="", alias="referenceLabels", max_length=30000)
     assets: list[ReferenceAsset] = Field(default_factory=list)
     subjects: list[SubjectRecord] = Field(default_factory=list)
@@ -343,7 +435,7 @@ class Workspace(BaseModel):
             return self
         images = [asset for asset in self.assets if asset.kind == AssetKind.IMAGE]
         roles = [asset.role for asset in images]
-        if self.mode == H3Mode.I2VA and roles.count("first_frame_anchor") != 1:
+        if self.mode == H3Mode.I2VA and not (info.context or {}).get("native_i2va") and roles.count("first_frame_anchor") != 1:
             raise ValueError("I2VA requires exactly one first-frame anchor image")
         if self.mode == H3Mode.FL2VA:
             if roles.count("first_frame_anchor") != 1 or roles.count("last_frame_anchor") != 1:
@@ -357,6 +449,9 @@ class Workspace(BaseModel):
     def ordered_assets(self) -> list[ReferenceAsset]:
         kind_order = {AssetKind.IMAGE: 0, AssetKind.VIDEO: 1, AssetKind.AUDIO: 2}
         return sorted(self.assets, key=lambda item: (kind_order[item.kind], item.order, item.id))
+
+    def structural_subject_ids(self) -> set[str]:
+        return structural_subject_ids(self.assets)
 
 
 def validate_authoring_workspace(value: Any) -> Workspace:

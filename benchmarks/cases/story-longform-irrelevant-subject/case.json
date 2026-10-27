@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform-irrelevant-subject",
+  "version": "1",
+  "title": "Irrelevant Subject identity stays excluded",
+  "description": "Both Alice and Bob have old identity Pictures, but only Alice becomes relevant at the continuation point.",
+  "tags": ["story", "longform", "next", "identity", "exclusion", "vision"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea":"Alice returns alone to the archive.",
+    "sequenceContext":"Only transmit visual identity evidence for relevant returning Subjects.",
+    "storyMemory":{"durableFacts":[{"id":"66666666-6666-4666-8666-666666666666","text":"Alice is alone at the archive gate.","relatedSubjectIds":["alice"]}]},
+    "narrativeSubjects":[{"subjectId":"alice","narrativeName":"Alice"},{"subjectId":"bob","narrativeName":"Bob"}],
+    "generations":[
+      {"workspacePath":"identity-workspace.json","scenePlan":"Alice and Bob part ways after cataloguing old records.","planning":{"relationshipToPrevious":null}},
+      {"workspacePath":"workspace.json","scenePlan":"Unrelated travellers cross distant landscapes.","repeat":5},
+      {"workspacePath":"workspace.json","scenePlan":"Rain gathers above the archive town."},
+      {"workspacePath":"workspace.json","scenePlan":"The archive gate stands empty at dusk."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice returns alone to the archive gate."}
+    ],
+    "next":{"requestedCount":1,"instruction":"Continue naturally with Alice alone at the archive."}
+  },
+  "expectations":{"checks":[{"kind":"story_item_count_equals","value":1},{"kind":"story_recommendation_pairs_valid"}]},
+  "behavioralChecks":[
+    {"id":"alice-identity-offered","description":"Alice's old identity record is available to the continuation.","kind":"historical_subject_available","subjectId":"alice"},
+    {"id":"bob-identity-excluded","description":"Bob's old identity record is not transmitted merely because he remains in Sequence Cast.","kind":"historical_subject_absent","subjectId":"bob"},
+    {"id":"no-bob-recommendation","description":"Review the recorded recommendation pairs to ensure Bob's identity is not recommended for Alice's solo continuation.","expectedConcepts":["Alice"],"forbiddenConcepts":["Bob"]}
+  ],
+  "humanReview":["When vision is enabled, does the request include Alice's historical identity evidence but exclude Bob's irrelevant identity Picture?"]
+}

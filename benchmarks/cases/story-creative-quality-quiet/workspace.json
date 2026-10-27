@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Story creative quality quiet",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "",
+  "dialogue": "",
+  "subjects": [{"id": "man", "number": 1}],
+  "nextSubjectNumber": 2,
+  "assets": []
+}

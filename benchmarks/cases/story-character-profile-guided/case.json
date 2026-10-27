@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "story-character-profile-guided",
+  "version": "1",
+  "title": "Character Profile A/B: guided",
+  "description": "Plan Next 2 for the matched municipal-archive discovery with Alice's stable Character Profile supplied.",
+  "tags": ["story", "character-profile", "ab"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea": "At a municipal archive, Alice opens a newly delivered records box and notices an unfamiliar sealed envelope inside.",
+    "sequenceContext": "The archive is operating normally. The envelope is unexplained but not established as dangerous or supernatural.",
+    "storyMemory": {"recentSummary": "Alice has just received the sealed records box.", "durableFacts": [], "openThreads": []},
+    "narrativeSubjects": [
+      {"subjectId": "alice", "narrativeName": "Alice", "characterProfile": {
+        "roleBackground": "Senior conservator at a municipal archive. Trained to document evidence carefully before drawing conclusions.",
+        "personality": "Calm, methodical, observant and skeptical of dramatic explanations. Notices small inconsistencies before reacting.",
+        "appearance": "Silver-streaked braid, narrow rectangular glasses, composed posture.",
+        "speechMannerisms": "Speaks in measured, concise sentences. Pauses to inspect details before answering and rarely raises her voice.",
+        "notes": "Protective of fragile documents. Admits uncertainty rather than bluffing."
+      }}
+    ],
+    "generations": [
+      {"workspacePath": "workspace.json", "scenePlan": "Alice receives a sealed municipal records box at the archive.", "planning": {"relationshipToPrevious": null}}
+    ],
+    "next": {"requestedCount": 2, "instruction": "Continue naturally as Alice examines the unfamiliar envelope."}
+  },
+  "expectations": {"checks": [
+    {"kind": "story_item_count_equals", "value": 2},
+    {"kind": "story_new_items_have_no_existing_generation_id"},
+    {"kind": "story_relevant_subject_ids_equals", "value": ["alice"]},
+    {"kind": "story_character_profile_present", "value": "alice"},
+    {"kind": "story_character_profile_policy_present"}
+  ]},
+  "humanReview": [
+    "Compared with the control case, does Alice behave methodically and observantly without the model mechanically parroting the Profile prose?",
+    "Does the plan use relevant archive expertise and restrained rather than melodramatic reactions?",
+    "Where dialogue is naturally proposed, is her manner measured and concise?",
+    "Where appearance is relevant, is it used consistently without unnecessary Profile recitation in every Generation?",
+    "Does factual continuity remain equally sound in both cases?"
+  ]
+}

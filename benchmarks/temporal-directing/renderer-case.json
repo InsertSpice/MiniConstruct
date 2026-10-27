@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "suite": "h3-temporal-directing",
+  "case": {
+    "id": "miku-intra-shot-actions",
+    "title": "Miku sparse intra-shot action landmarks",
+    "authoringPath": "one_shot",
+    "durationSeconds": 8,
+    "shotCount": 1,
+    "workspace": {
+      "mode": "T2VA",
+      "aspectRatio": "16:9",
+      "creativeRequest": "Hatsune Miku waves, turns to face a chair, and sits down in one continuous shot."
+    }
+  },
+  "promptTemplate": "integrated_multimodal_description:\n[Shot 1] An 8-second anime studio scene in one continuous shot; no cuts; no transitions. Hatsune Miku stands beside a simple chair, facing camera, in an uncluttered indoor studio with a plain background and even lighting. The chair is positioned so she can turn to face it and sit naturally. A fixed full-body camera keeps Miku and the chair visible throughout. {event1} she raises her right hand and performs one clear wave. {event2} she lowers the hand and turns her whole body around to face the chair. {event3} she sits down on the chair. Finally, she remains seated briefly. Keep motion ordinary and physically achievable. No dancing, jumping, extra characters, dialogue, teleporting, frozen waiting, or abrupt pose snapping.\noverall_soundscape:\nQuiet room tone; no speech.\nnon_diegetic_music:\nNone.\n",
+  "events": [
+    {"id": "wave", "onset": "wave onset", "completion": "clear wave", "targetSeconds": 2.0},
+    {"id": "turn", "onset": "turn onset", "completion": "clearly facing chair", "targetSeconds": 4.0},
+    {"id": "sit", "onset": "sit onset", "completion": "clearly seated", "targetSeconds": 6.0}
+  ],
+  "treatments": {
+    "chronological-control": ["First,", "Then,", "After that,"],
+    "approximate-landmarks": ["Around 00:02.000,", "Around 00:04.000,", "Around 00:06.000,"],
+    "exact-landmarks": ["At 00:02.000,", "At 00:04.000,", "At 00:06.000,"]
+  }
+}

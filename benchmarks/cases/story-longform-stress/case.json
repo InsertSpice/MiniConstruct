@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform-stress",
+  "version": "1",
+  "title": "Stateful 22-Generation Story long-form stress scenario",
+  "description": "An explicitly selected, expensive production-path scenario. One materialized Project progresses through six Plan Next applies, a historical Replan, and a historical Insert.",
+  "tags": ["story", "longform", "stress", "stateful", "opt-in", "vision"],
+  "requirements": {"vision": true},
+  "operation": "run_story_longform_stress",
+  "story": {
+    "storyIdea": "A courier carries a sealed ledger across a storm-threatened city to the archive district before midnight.",
+    "sequenceContext": "Keep the journey grounded, preserve established commitments, and make each beat a concrete visual story moment.",
+    "narrativeSubjects": [
+      {"subjectId": "alice", "narrativeName": "Alice"},
+      {"subjectId": "bob", "narrativeName": "Bob"},
+      {"subjectId": "carol", "narrativeName": "Carol"}
+    ],
+    "generations": [
+      {
+        "workspacePath": "generation-1-workspace.json",
+        "scenePlan": "At a rain-slick station, Bob entrusts Alice with a sealed ledger and she checks the distinctive brass key in her coat pocket while Carol passes nearby.",
+        "planning": {"relationshipToPrevious": null},
+        "fixtureAssets": [{"assetId": "carol-reference-sheet", "path": "cases/ref2va-reference-sheet-identity/assets/subject-1-reference-sheet.jpg", "source": "benchmark"}]
+      },
+      {
+        "workspacePath": "generation-2-workspace.json",
+        "scenePlan": "Alice promises Bob she will deliver the sealed ledger to the archivist before midnight; the Old Stone Bridge stands intact and open beyond the market.",
+        "planning": {"relationshipToPrevious": "new_shot_preserve_continuity"}
+      },
+      {
+        "workspacePath": "generation-3-workspace.json",
+        "scenePlan": "Alice leaves the market road and departs alone toward the archive district with the sealed ledger secured inside her coat.",
+        "planning": {"relationshipToPrevious": "new_shot_preserve_continuity"},
+        "storyMemoryAfter": {
+          "recentSummary": "Alice has departed toward the archive district with Bob's sealed ledger before midnight.",
+          "durableFacts": [
+            {"id": "11111111-1111-4111-8111-111111111111", "text": "Alice still possesses the distinctive brass key.", "relatedSubjectIds": ["alice"]},
+            {"id": "22222222-2222-4222-8222-222222222222", "text": "Old Stone Bridge is intact and open.", "relatedSubjectIds": ["alice"]}
+          ],
+          "openThreads": [
+            {"id": "33333333-3333-4333-8333-333333333333", "text": "Alice promised Bob she will deliver the sealed ledger to the archivist before midnight.", "relatedSubjectIds": ["alice", "bob"]}
+          ]
+        }
+      }
+    ],
+    "stress": {
+      "planNext": [
+        {"requestedCount": 3, "instruction": "Continue Alice's grounded journey through the riverside district toward Old Stone Bridge. Across these three beats she may approach the bridge but must not cross it yet. Do not reach the archive district or Archivist. The sealed ledger remains undelivered and the bridge remains intact/open."},
+        {"requestedCount": 3, "instruction": "In three beats, Alice reaches the approach to Old Stone Bridge. She must not cross it; the bridge remains intact/open, the sealed ledger remains undelivered, and neither the archive district nor Archivist has been reached."},
+        {"requestedCount": 3, "instruction": "In the first of these beats Alice receives reliable confirmation that Old Stone Bridge has collapsed and is impassable, then adapts her route. The sealed ledger remains undelivered."},
+        {"requestedCount": 3, "instruction": "Alice progresses along the alternate route toward the archive. Do not deliver the sealed ledger yet, and preferably do not reach the Archivist."},
+        {"requestedCount": 3, "instruction": "Progress through reaching or navigating the archive and finding the Archivist. The actual delivery of the sealed ledger to the Archivist occurs only in the final beat of this batch."},
+        {"requestedCount": 3, "instruction": "Continue after the delivery. In the final beat, Carol returns naturally to the story after her long absence."}
+      ],
+      "replanInstruction": "Improve these two detour beats while preserving established events.",
+      "insertInstruction": "Insert one natural bridge beat after A and before the protected next Generation.",
+      "replanStartGeneration": 11,
+      "replanEndGeneration": 12,
+      "insertUpstreamGeneration": 7
+    }
+  },
+  "humanReview": [
+    "Do the six applied Plan Next batches feel like one coherent travel-and-delivery story rather than repeated generic travel?",
+    "Does Carol's return feel natural, and does the recorded identity-reference transport look appropriate? A reference recommendation is advisory, not a structural pass condition.",
+    "Does Story Memory remain selective rather than accumulating redundant facts or threads?",
+    "Do the historical Replan and Insert fit their surrounding early history without leaking later delivery or return knowledge?"
+  ]
+}

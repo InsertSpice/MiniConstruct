@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform-replan-history",
+  "version": "1",
+  "title": "Replan Range uses upstream historical state",
+  "description": "A bounded Replan immediately after U cannot leak later collapsed-bridge or delivered-package memory backwards.",
+  "tags": ["story", "longform", "replan", "historical-correctness"],
+  "operation": "plan_story_replan",
+  "story": {
+    "storyIdea":"Alice must deliver a package across the river district.",
+    "sequenceContext":"Replanned existing beats retain their stable target Generation identities.",
+    "generations":[
+      {"workspacePath":"workspace.json","scenePlan":"Alice accepts a package for Bob.","planning":{"relationshipToPrevious":null}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice reaches the intact pedestrian bridge with the package.","storyMemoryAfter":{"recentSummary":"Alice is at the intact bridge with Bob's undelivered package.","durableFacts":[{"id":"99999999-9999-4999-8999-999999999999","text":"The pedestrian bridge is intact."}],"openThreads":[{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","text":"The package delivery to Bob is unresolved."}]}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice studies the bridge stairs before crossing."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice moves carefully across the river district."},
+      {"workspacePath":"workspace.json","scenePlan":"A passer-by calls from the far bank."},
+      {"workspacePath":"workspace.json","scenePlan":"Night settles over the river district."},
+      {"workspacePath":"workspace.json","scenePlan":"Later, Alice follows a route away from the river.","storyMemoryAfter":{"recentSummary":"The bridge collapsed later and Alice delivered the package to Bob.","durableFacts":[{"id":"99999999-9999-4999-8999-999999999999","text":"The pedestrian bridge has collapsed."}]}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice walks home after the later delivery."}
+    ],
+    "replan":{"startGeneration":3,"endGeneration":4,"instruction":"Replan these two bridge beats with more tension while preserving their historical truth."}
+  },
+  "expectations":{"checks":[{"kind":"story_item_count_equals","value":2},{"kind":"story_replan_target_generation_ids_preserved"},{"kind":"story_recommendation_pairs_valid"}]},
+  "behavioralChecks":[
+    {"id":"replan-uses-upstream-intact-memory","description":"The Replan authority uses U's intact bridge memory.","kind":"request_memory_contains","text":"bridge is intact"},
+    {"id":"replan-excludes-future-memory","description":"The Replan Story Memory authority excludes later collapsed-bridge truth.","kind":"request_memory_absent","text":"bridge has collapsed"},
+    {"id":"replan-target-ids-stable","description":"Replanned output preserves the exact existing Generation IDs of the selected range.","kind":"replan_target_generation_ids_preserved"},
+    {"id":"replan-prose-history","description":"Review whether replanned prose retains intact-bridge and unresolved-delivery truth without future-state leakage.","expectedConcepts":["bridge","delivery"],"forbiddenConcepts":["collapsed","delivered"]}
+  ],
+  "humanReview":["Do the two replanned beats use U's historical state and retain their original target Generation identities?"]
+}

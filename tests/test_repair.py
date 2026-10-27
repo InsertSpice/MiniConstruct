@@ -1,12 +1,39 @@
 from __future__ import annotations
 
 import pytest
+import asyncio
+from fastapi import HTTPException
+from starlette.requests import Request
 
 from miniconstruct.api import routes
+from miniconstruct.h3.prompt_text import mask_literal_text
 from miniconstruct.h3.repair import assemble_repair_prompt
-from miniconstruct.h3.validator import validate_prompt
-from miniconstruct.models.workspace import H3Mode
+from miniconstruct.h3.validator import validate_prompt, validate_workspace_prompt
+from miniconstruct.models.workspace import H3Mode, ReferenceAsset, ReferenceLayout
 from miniconstruct.models.api import RepairRequest
+from miniconstruct.llm.client import LLMBackendError
+
+
+class RepairConnection:
+    def __init__(self):
+        self.messages = asyncio.Queue()
+        self.waiting = asyncio.Event()
+        self.request = Request({"type": "http"}, self.receive)
+
+    async def receive(self):
+        self.waiting.set()
+        return await self.messages.get()
+
+    def disconnect(self):
+        self.messages.put_nowait({"type": "http.disconnect"})
+
+
+def test_literal_mask_preserves_offsets_and_dialogue():
+    source = '<Subject 1> says <d>Picture 8</d> and "Subject 9" near <Picture 1>.'
+    masked = mask_literal_text(source)
+    assert len(masked) == len(source)
+    assert masked.index("<Picture 1>") == source.index("<Picture 1>")
+    assert "Picture 8" not in masked and "Subject 9" not in masked
 
 
 FOUR_SHOT_PROMPT = (
@@ -67,6 +94,211 @@ def comparison_prompt(include_definition=True, include_retention=False, appears_
     )
 
 
+def identity_workspace(workspace_factory, image_asset_factory, *, sheet=False, multiple=False):
+    first = image_asset_factory("identity-1", order=0)
+    second = image_asset_factory("identity-2", order=1)
+    second.subject_identity.subject_id = "subject-2"
+    if sheet:
+        first.subject_identity.layout = ReferenceLayout.REFERENCE_SHEET
+    assets = [first, second]
+    if multiple:
+        third = image_asset_factory("identity-3", order=2)
+        assets.append(third)
+    return workspace_factory(
+        mode="Ref2VA", assets=assets,
+        subjects=[{"id": "subject-1", "number": 1}, {"id": "subject-2", "number": 2}], nextSubjectNumber=3,
+    )
+
+
+def identity_prompt(first="the woman in a red coat", second="the man with a blue scarf"):
+    return (
+        "subject_definitions:\n"
+        f"<Subject 1> is {first}.\n"
+        f"<Subject 2> is {second}.\n\n"
+        "summary:\n[reference generation] They meet at the station.\n\n"
+        "retention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - identity retained.\n"
+        "<Subject 2> (appears in [Shot 1]): fully_preserved - identity retained.\n\n"
+        "detailed_description:\n[Shot 1] <Subject 1> waves to <Subject 2>.\n\n"
+        "overall_soundscape:\nStation ambience.\n\nnon_diegetic_music:\nN/A"
+    )
+
+
+@pytest.mark.asyncio
+async def test_repair_identity_provenance_without_provider(workspace_factory, image_asset_factory, monkeypatch):
+    workspace = identity_workspace(workspace_factory, image_asset_factory)
+    prompt = identity_prompt()
+    initial = validate_workspace_prompt(prompt, workspace)
+    assert [f.code for f in initial.findings].count("identity_reference_missing") == 2
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: pytest.fail("provider constructed"))
+    result = await routes.repair(repair_request(workspace, prompt), RepairConnection().request)
+    assert "<Subject 1> is the woman in a red coat, shown in <Picture 1>." in result.prompt
+    assert "<Subject 2> is the man with a blue scarf, shown in <Picture 2>." in result.prompt
+    assert result.prompt.split("summary:", 1)[1] == prompt.split("summary:", 1)[1]
+    assert result.validation.valid
+
+
+@pytest.mark.asyncio
+async def test_repair_observed_split_provenance_and_identity_retention(workspace_factory, image_asset_factory, monkeypatch):
+    identity = image_asset_factory()
+    identity.subject_identity.layout = ReferenceLayout.REFERENCE_SHEET
+    workspace = workspace_factory(mode="Ref2VA", assets=[identity])
+    prompt = identity_prompt(first="Alice, a 20-year-old girl with shoulder-length blonde hair tied with a black bow, blue eyes, fair skin")
+    prompt = prompt.replace(
+        "<Subject 1> is Alice, a 20-year-old girl with shoulder-length blonde hair tied with a black bow, blue eyes, fair skin.",
+        "<Subject 1> is Alice, a 20-year-old girl with shoulder-length blonde hair tied with a black bow, blue eyes, fair skin.\n<Picture 1> provides the visual identity reference for <Subject 1>.",
+    ).replace(
+        "retention_analysis:\n<Subject 1>",
+        "retention_analysis:\n<Picture 1> (identity provenance): weak_reference - used to establish\n<Subject 1>'s visual identity without reproducing the reference sheet layout\nor clothing.\n<Subject 1>",
+    )
+    before = validate_workspace_prompt(prompt, workspace)
+    assert {"identity_reference_missing", "identity_picture_definition", "identity_picture_retention"} <= {f.code for f in before.findings}
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: pytest.fail("provider constructed"))
+    result = await routes.repair(repair_request(workspace, prompt))
+    assert "<Subject 1> is Alice, a 20-year-old girl with shoulder-length blonde hair tied with a black bow, blue eyes, fair skin, shown in <Picture 1>." in result.prompt
+    assert "<Picture 1> provides the visual identity reference" not in result.prompt
+    assert "(identity provenance): weak_reference" not in result.prompt
+    assert "or clothing." not in result.prompt
+    assert result.validation.valid
+
+
+@pytest.mark.asyncio
+async def test_repair_does_not_duplicate_provenance_already_in_second_sentence(workspace_factory, image_asset_factory, monkeypatch):
+    workspace = workspace_factory(mode="Ref2VA", assets=[image_asset_factory()])
+    prompt = identity_prompt(first="Alice, a blonde young woman. Her visual identity comes from <Picture 1>")
+    prompt = prompt.replace(
+        "retention_analysis:\n<Subject 1>",
+        "retention_analysis:\n<Picture 1> (identity provenance): weak_reference - identity source only.\n<Subject 1>",
+    )
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: pytest.fail("provider constructed"))
+    result = await routes.repair(repair_request(workspace, prompt))
+    subject_record = result.prompt.split("subject_definitions:", 1)[1].split("summary:", 1)[0]
+    assert subject_record.count("<Picture 1>") == 1
+    assert "shown in <Picture 1>" not in subject_record
+    assert "(identity provenance): weak_reference" not in result.prompt
+    assert result.validation.valid
+
+
+@pytest.mark.asyncio
+async def test_identity_record_repair_preserves_following_video_and_audio_records(workspace_factory, image_asset_factory, monkeypatch):
+    identity = image_asset_factory()
+    video = ReferenceAsset.model_validate({"id": "video-1", "kind": "video", "filename": "motion.mp4", "mimeType": "video/mp4", "role": "motion_action"})
+    audio = ReferenceAsset.model_validate({"id": "audio-1", "kind": "audio", "filename": "sound.mp3", "mimeType": "audio/mpeg", "role": "general_audio"})
+    workspace = workspace_factory(mode="Ref2VA", assets=[identity, video, audio])
+    prompt = identity_prompt(first="Alice, a blonde young woman in <Picture 1>")
+    prompt = prompt.replace(
+        "<Subject 1> is Alice, a blonde young woman in <Picture 1>.",
+        "<Subject 1> is Alice, a blonde young woman in <Picture 1>.\n"
+        "<Picture 1> (identity provenance): redundant standalone identity record.\n"
+        "Wrapped identity detail that must be removed.\n"
+        "<Video 1> (cut structure): weak_reference - Preserve this video record exactly.\n"
+        "<Audio 1>: reference - Preserve this audio record exactly.",
+    ).replace(
+        "retention_analysis:\n<Subject 1>",
+        "retention_analysis:\n"
+        "<Picture 1> (identity provenance): weak_reference - used to establish\n"
+        "wrapped identity retention text that must be removed.\n"
+        "<Video 1> (cut structure): weak_reference - Preserve this video retention exactly.\n"
+        "<Audio 1>: reference - Preserve this audio retention exactly.\n"
+        "<Subject 1>",
+    )
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: pytest.fail("provider constructed"))
+    result = await routes.repair(repair_request(workspace, prompt))
+    assert "<Picture 1> (identity provenance)" not in result.prompt
+    assert "Wrapped identity detail that must be removed." not in result.prompt
+    assert "wrapped identity retention text that must be removed." not in result.prompt
+    for exact_record in (
+        "<Video 1> (cut structure): weak_reference - Preserve this video record exactly.",
+        "<Audio 1>: reference - Preserve this audio record exactly.",
+        "<Video 1> (cut structure): weak_reference - Preserve this video retention exactly.",
+        "<Audio 1>: reference - Preserve this audio retention exactly.",
+    ):
+        assert exact_record in result.prompt
+
+
+@pytest.mark.asyncio
+async def test_repair_reference_sheet_uses_metadata_only(workspace_factory, image_asset_factory, monkeypatch):
+    workspace = identity_workspace(workspace_factory, image_asset_factory, sheet=True)
+    prompt = identity_prompt(second="the man with a blue scarf in <Picture 2>")
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: pytest.fail("provider constructed"))
+    result = await routes.repair(repair_request(workspace, prompt))
+    assert "<Subject 1> is the woman in a red coat, shown in <Picture 1>." in result.prompt
+    assert "designated Reference Sheet" not in result.prompt
+    assert all(term not in result.prompt for term in ("front view", "side view", "rear view", "expression sheet"))
+    assert result.validation.valid
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first,expected", [
+    ("the woman in a red coat in <Picture 1>", "shown in <Picture 3>"),
+    ("Alice, a woman with blonde hair. Her face is shown in <Picture 1>", "shown in <Picture 3>"),
+])
+async def test_repair_multiple_identity_pictures(workspace_factory, image_asset_factory, monkeypatch, first, expected):
+    workspace = identity_workspace(workspace_factory, image_asset_factory, multiple=True)
+    prompt = identity_prompt(first=first, second="the man in <Picture 2>")
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: pytest.fail("provider constructed"))
+    result = await routes.repair(repair_request(workspace, prompt))
+    assert expected in result.prompt
+    assert result.prompt.count("<Picture 1>") == 1
+    assert result.prompt.count("<Picture 3>") == 1
+    assert result.validation.valid
+
+
+@pytest.mark.asyncio
+async def test_repair_missing_definition_and_other_error_use_fallback(workspace_factory, image_asset_factory, monkeypatch):
+    workspace = identity_workspace(workspace_factory, image_asset_factory)
+    prompt = identity_prompt().replace("<Subject 1> is the woman in a red coat.\n", "")
+    client = RepairClient(identity_prompt("the woman in <Picture 1>", "the man in <Picture 2>"))
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: client)
+    await routes.repair(repair_request(workspace, prompt))
+    assert client.messages is not None
+    sent_prompt = str(client.messages[-1]["content"]).split("CURRENT H3 PROMPT TO REPAIR:\\n", 1)[-1]
+    assert "<Subject 1> is the woman" not in sent_prompt
+    assert "shown in <Picture 2>" in str(client.messages)
+
+    prompt = identity_prompt().replace("[Shot 1] <Subject 1> waves", "[Shot 1] <Subject 1> waves\n[Shot 2] <Subject 2> returns")
+    client = RepairClient(identity_prompt("the woman in <Picture 1>", "the man in <Picture 2>"))
+    calls = []
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: calls.append(client) or client)
+    await routes.repair(repair_request(workspace, prompt))
+    assert len(calls) == 1
+    assert client.messages is not None
+    assert "shown in <Picture 1>" in str(client.messages)
+    assert "shown in <Picture 2>" in str(client.messages)
+
+
+@pytest.mark.asyncio
+async def test_repair_valid_identity_prompt_is_unchanged(workspace_factory, image_asset_factory, monkeypatch):
+    workspace = identity_workspace(workspace_factory, image_asset_factory)
+    prompt = identity_prompt("the woman in <Picture 1>", "the man in <Picture 2>")
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: pytest.fail("provider constructed"))
+    result = await routes.repair(repair_request(workspace, prompt))
+    assert result.prompt == prompt
+
+
+@pytest.mark.asyncio
+async def test_repair_never_assigns_identity_picture_to_wrong_subject(workspace_factory, image_asset_factory, monkeypatch):
+    workspace = identity_workspace(workspace_factory, image_asset_factory)
+    prompt = identity_prompt("the woman in a red coat", "the man in <Picture 1>")
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: pytest.fail("provider constructed"))
+    result = await routes.repair(repair_request(workspace, prompt))
+    subject_2 = result.prompt.split("<Subject 2> is", 1)[1].split("summary:", 1)[0]
+    assert "shown in <Picture 2>" in subject_2
+    assert result.validation.valid
+
+
+@pytest.mark.asyncio
+async def test_repair_ambiguous_duplicate_definition_falls_back(workspace_factory, image_asset_factory, monkeypatch):
+    workspace = identity_workspace(workspace_factory, image_asset_factory)
+    prompt = identity_prompt("the woman in a red coat", "the man in <Picture 2>")
+    prompt = prompt.replace("<Subject 2> is", "<Subject 1> is also described here.\n<Subject 2> is")
+    client = RepairClient(identity_prompt("the woman in <Picture 1>", "the man in <Picture 2>"))
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: client)
+    await routes.repair(repair_request(workspace, prompt))
+    assert client.messages is not None
+    sent_prompt = str(client.messages[-1]["content"]).split("CURRENT H3 PROMPT TO REPAIR:\\n", 1)[-1]
+    assert "Identity provenance: <Picture 1>." not in sent_prompt
+
+
 def test_repair_prompt_keeps_workspace_context_but_makes_current_output_authoritative(workspace_factory):
     request = repair_request(workspace_factory(shots=3, dialogue="Narrator: Keep moving."))
     assembled = assemble_repair_prompt(request, [])
@@ -85,6 +317,16 @@ def test_repair_uses_one_system_message_and_replaces_generation_policy(workspace
     assert "Format repair policy" in system
     assert "Generation policy" not in system
     assert "===== Format repair policy =====" in assembled.inspector_text
+
+
+def test_repair_bad_existing_audio_uses_canonical_allowlist(workspace_factory):
+    prompt = FOUR_SHOT_PROMPT + " <Audio 1>"
+    findings = [item for item in validate_prompt(prompt, H3Mode.T2VA, 8).findings if item.code == "dangling_asset"]
+    assembled = assemble_repair_prompt(repair_request(workspace_factory(), prompt), findings)
+    system = assembled.messages[0]["content"]
+    assert "Allowed Audio references: none." in system
+    assert "nonexistent Picture, Video or Audio label is invalid" in system
+    assert findings
 
 
 def test_repair_receives_bare_reference_label_finding(workspace_factory):
@@ -111,13 +353,78 @@ class RepairClient:
 
 
 @pytest.mark.asyncio
+async def test_repair_fallback_disconnect_cancels_exact_client_and_awaits_cleanup(workspace_factory, monkeypatch):
+    connection = RepairConnection()
+    started, cleaned = asyncio.Event(), asyncio.Event()
+    owned = []
+
+    class WaitingClient(RepairClient):
+        async def __aexit__(self, *_):
+            cleaned.set()
+
+        async def generate(self, messages):
+            owned.append(asyncio.current_task())
+            started.set()
+            await asyncio.Future()
+
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: WaitingClient(""))
+    task = asyncio.create_task(routes.repair(repair_request(workspace_factory()), connection.request))
+    await asyncio.wait_for(started.wait(), 1)
+    connection.disconnect()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, 1)
+    assert cleaned.is_set()
+    assert owned[0].cancelled()
+
+
+@pytest.mark.asyncio
+async def test_repair_disconnect_does_not_cancel_peer_operation(workspace_factory, monkeypatch):
+    first, second = RepairConnection(), RepairConnection()
+    started = asyncio.Event()
+    calls = 0
+
+    class WaitingClient(RepairClient):
+        async def generate(self, messages):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                started.set()
+            await asyncio.Future()
+
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: WaitingClient(""))
+    one = asyncio.create_task(routes.repair(repair_request(workspace_factory()), first.request))
+    two = asyncio.create_task(routes.repair(repair_request(workspace_factory()), second.request))
+    await asyncio.wait_for(started.wait(), 1)
+    first.disconnect()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(one, 1)
+    assert not two.done()
+    second.disconnect()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(two, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [502, 504])
+async def test_repair_provider_failure_keeps_http_status(workspace_factory, monkeypatch, status):
+    class FailingClient(RepairClient):
+        async def generate(self, messages):
+            raise LLMBackendError("provider failure", status)
+
+    monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: FailingClient(""))
+    with pytest.raises(HTTPException) as caught:
+        await routes.repair(repair_request(workspace_factory()), RepairConnection().request)
+    assert caught.value.status_code == status
+
+
+@pytest.mark.asyncio
 async def test_repair_fixes_bad_timestamp_without_reconciling_shot_count(workspace_factory, monkeypatch):
     workspace = workspace_factory(shots=3, dialogue="Narrator: Keep moving.")
     repaired = FOUR_SHOT_PROMPT.replace("At 09.000", "At 00:05.000")
     client = RepairClient(repaired)
     monkeypatch.setattr(routes, "OpenAICompatibleClient", lambda _: client)
 
-    result = await routes.repair(repair_request(workspace))
+    result = await routes.repair(repair_request(workspace), RepairConnection().request)
 
     assert result.prompt == repaired
     assert result.prompt.count("[Shot ") == 4
@@ -141,7 +448,7 @@ async def test_repair_skips_model_when_only_workspace_consistency_is_wrong(works
 
 
 @pytest.mark.asyncio
-async def test_explicit_repair_deterministically_canonicalizes_bare_labels(workspace_factory, monkeypatch):
+async def test_explicit_repair_keeps_base_mode_subject_labels_bare(workspace_factory, monkeypatch):
     prompt = FOUR_SHOT_PROMPT.replace(
         "A cyclist says", '<Subject 1> has narrower-set eyes relative to Subject 1 and says',
     ).replace("Keep moving.", 'Keep moving about "Picture 1".')
@@ -150,10 +457,13 @@ async def test_explicit_repair_deterministically_canonicalizes_bare_labels(works
 
     result = await routes.repair(repair_request(workspace_factory(), prompt))
 
-    assert "relative to <Subject 1>" in result.prompt
+    assert "relative to Subject 1" in result.prompt
+    assert "relative to <Subject 1>" not in result.prompt
     assert '"Picture 1"' in result.prompt
     assert "<d>[English] Keep moving" in result.prompt
     assert client.messages is not None
+    assert 'use canonical H3 label <Subject 1>' not in str(client.messages)
+    assert "<Subject 1> references are only valid in Ref2VA." in str(client.messages)
 
 
 @pytest.mark.asyncio

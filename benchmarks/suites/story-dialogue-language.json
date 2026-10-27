@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "id": "story-dialogue-language",
+  "title": "Sequence dialogue-language review suite",
+  "cases": ["story-dialogue-language-ja", "dialogue-language-manual-en-ja"]
+}

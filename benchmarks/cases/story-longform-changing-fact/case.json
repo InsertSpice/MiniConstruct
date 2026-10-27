@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform-changing-fact",
+  "version": "1",
+  "title": "Latest changing fact wins",
+  "description": "An intact bridge becomes collapsed in Generation-owned Story Memory before the terminal Plan Next anchor.",
+  "tags": ["story", "longform", "next", "changing-fact"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea":"Alice must continue through the river district.",
+    "sequenceContext":"A grounded journey through the city after a storm.",
+    "generations":[
+      {"workspacePath":"workspace.json","scenePlan":"Alice crosses the intact pedestrian bridge at dawn.","planning":{"relationshipToPrevious":null},"storyMemoryAfter":{"durableFacts":[{"id":"44444444-4444-4444-8444-444444444444","text":"The pedestrian bridge is intact."}]}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice continues through the river district.","repeat":3},
+      {"workspacePath":"workspace.json","scenePlan":"A storm breaks the old pedestrian bridge behind Alice.","storyMemoryAfter":{"durableFacts":[{"id":"44444444-4444-4444-8444-444444444444","text":"The pedestrian bridge has collapsed."}]}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice searches a side street for an alternate route."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice follows the river wall through heavy rain."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice reaches the blocked river crossing after the storm.","storyMemoryAfter":{"durableFacts":[{"id":"44444444-4444-4444-8444-444444444444","text":"The pedestrian bridge has collapsed."}]}}
+    ],
+    "next":{"requestedCount":2,"instruction":"Continue naturally from the blocked crossing."}
+  },
+  "expectations":{"checks":[{"kind":"story_item_count_equals","value":2}]},
+  "behavioralChecks":[
+    {"id":"latest-bridge-memory","description":"The authoritative Plan Next memory contains the latest collapsed-bridge state.","kind":"request_memory_contains","text":"bridge has collapsed"},
+    {"id":"superseded-bridge-memory-absent","description":"The authoritative Plan Next memory does not retain the superseded intact-bridge wording.","kind":"request_memory_absent","text":"bridge is intact"},
+    {"id":"bridge-fact-id-preserved","description":"The changing bridge fact remains represented by its stable memory ID after projection.","kind":"memory_fact_id_preserved","memoryId":"44444444-4444-4444-8444-444444444444"},
+    {"id":"latest-state-prose","description":"Review whether the continuation routes around the collapsed bridge instead of reverting to the earlier intact state.","expectedConcepts":["bridge"],"forbiddenConcepts":["crosses the intact bridge"]}
+  ],
+  "humanReview":["Does the model use the latest bridge state and avoid accumulating contradictory bridge facts?"]
+}

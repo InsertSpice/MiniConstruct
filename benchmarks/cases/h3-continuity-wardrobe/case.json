@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "h3-continuity-wardrobe",
+  "title": "Wardrobe carry from saved Incoming State",
+  "operation": "generate_prompt",
+  "description": "Synthetic illustrated reference; tests prompt-writing behavior, not rendered-video consistency. Opt-in, no LLM judge.",
+  "tags": [
+    "continuity",
+    "Ref2VA",
+    "vision"
+  ],
+  "requirements": {
+    "vision": true
+  },
+  "fixtureAssets": [
+    {
+      "assetId": "alice-picture",
+      "path": "assets/alice-jacket.png"
+    }
+  ],
+  "h3Project": {
+    "sequenceContext": "A quiet blue bedroom in one continuous evening.",
+    "incomingState": "Alice is no longer wearing the jacket. She wears the cream shirt underneath.",
+    "intendedOutgoingState": "Alice reaches the window without putting the jacket back on.",
+    "planning": {
+      "relationshipToPrevious": "new_shot_preserve_continuity",
+      "cameraIntent": "Medium shot of Subject 1 from the front."
+    },
+    "predecessorMemory": {
+      "recentSummary": "Alice wore a red jacket and removed it.",
+      "durableFacts": [
+        {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "text": "Alice left her jacket on the chair."
+        }
+      ]
+    },
+    "inputContains": [
+      "Alice is no longer wearing the jacket. She wears the cream shirt underneath.",
+      "Medium shot of Subject 1 from the front.",
+      "Same scene, new camera shot",
+      "explicit current user authoring > Incoming State"
+    ],
+    "inputAbsent": [
+      "SECRET PLANNER THREAD"
+    ]
+  },
+  "humanReview": [
+    "Does Alice remain identifiable as Subject 1?",
+    "Does the prompt begin without the red jacket and keep it absent despite the historical identity image?"
+  ]
+}

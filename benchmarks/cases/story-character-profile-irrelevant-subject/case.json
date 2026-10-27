@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "story-character-profile-irrelevant-subject",
+  "version": "1",
+  "title": "Irrelevant dormant Character Profile stays excluded",
+  "description": "Alice is relevant to the current solo continuation while Bob remains dormant with a detailed Profile.",
+  "tags": ["story", "character-profile", "longform", "exclusion", "vision"],
+  "requirements": {"vision": true},
+  "fixtureAssets": [
+    {"assetId": "alice-identity", "path": "assets/alice_station_identity.png", "source": "external"}
+  ],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea": "Alice returns alone to the municipal archive annex.",
+    "sequenceContext": "Only relevant Subjects and their relevant identity evidence belong in this bounded continuation.",
+    "storyMemory": {"recentSummary": "Alice is alone at the archive annex gate.", "durableFacts": [
+      {"id": "99999999-9999-4999-8999-999999999999", "text": "Alice is alone at the archive annex gate.", "relatedSubjectIds": ["alice"]}
+    ], "openThreads": []},
+    "narrativeSubjects": [
+      {"subjectId": "alice", "narrativeName": "Alice"},
+      {"subjectId": "bob", "narrativeName": "Bob", "characterProfile": {
+        "roleBackground": "A meticulous field linguist who catalogues endangered dialects across remote regions.",
+        "personality": "Patient, analytical and private; distrusts quick conclusions.",
+        "appearance": "Tall, weathered canvas jacket, dark curls and a brass compass.",
+        "speechMannerisms": "Uses careful qualifiers and pauses before correcting a technical detail.",
+        "notes": "Bob is dormant and distant from the current archive beat."
+      }}
+    ],
+    "generations": [
+      {"workspacePath": "identity-workspace.json", "scenePlan": "Alice and Bob part ways after cataloguing old records; Alice's identity is established.", "planning": {"relationshipToPrevious": null}},
+      {"workspacePath": "workspace.json", "scenePlan": "Unrelated travellers cross distant landscapes.", "repeat": 5},
+      {"workspacePath": "workspace.json", "scenePlan": "Rain gathers above the archive town."},
+      {"workspacePath": "workspace.json", "scenePlan": "The archive gate stands empty at dusk."},
+      {"workspacePath": "workspace.json", "scenePlan": "Alice returns alone to the archive annex gate."}
+    ],
+    "next": {"requestedCount": 1, "instruction": "Continue naturally with Alice alone at the archive annex."}
+  },
+  "expectations": {"checks": [
+    {"kind": "story_item_count_equals", "value": 1},
+    {"kind": "story_recommendation_pairs_valid"},
+    {"kind": "image_input_count_equals", "value": 1},
+    {"kind": "story_relevant_subject_ids_equals", "value": ["alice"]},
+    {"kind": "story_character_profile_absent", "value": "bob"},
+    {"kind": "story_character_profile_policy_absent"}
+  ]},
+  "behavioralChecks": [
+    {"id": "alice-historical-identity-available", "description": "Alice's old identity record is available to the continuation.", "kind": "historical_subject_available", "subjectId": "alice"},
+    {"id": "bob-historical-identity-excluded", "description": "Bob's identity record is not transmitted merely because he remains in the canonical cast.", "kind": "historical_subject_absent", "subjectId": "bob"}
+  ],
+  "humanReview": [
+    "Does the request and generated Story keep Bob's dormant Profile out of the current Alice-only beat?",
+    "Does the generated Story avoid inventing Bob into the continuation?",
+    "Is Alice's historical identity evidence used compatibly without unnecessary Profile or Picture recitation?"
+  ]
+}

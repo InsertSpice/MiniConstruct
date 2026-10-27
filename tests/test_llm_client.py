@@ -8,12 +8,23 @@ import pytest
 from miniconstruct.llm.client import LLMBackendError, OpenAICompatibleClient
 from miniconstruct.llm.compatibility import DIRECT_OUTPUT_INSTRUCTION
 from miniconstruct.models.api import LLMSettings
+from pydantic import ValidationError
 
 
 def config(**overrides):
     data = {"baseUrl": "http://local.test/v1", "model": "writer", "timeoutSeconds": 2}
     data.update(overrides)
     return LLMSettings.model_validate(data)
+
+
+@pytest.mark.parametrize("timeout", [600, 1200, 3600])
+def test_llm_settings_accept_extended_local_timeouts(timeout):
+    assert config(timeoutSeconds=timeout).timeout_seconds == timeout
+
+
+def test_llm_settings_reject_timeout_above_extended_ceiling():
+    with pytest.raises(ValidationError):
+        config(timeoutSeconds=3601)
 
 
 @pytest.mark.asyncio

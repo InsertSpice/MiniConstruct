@@ -1,0 +1,241 @@
+{
+  "schemaVersion": 1,
+  "suite": "h3-temporal-directing",
+  "cases": [
+    {
+      "id": "kent-gold-key-search",
+      "title": "Kent begins searching for the gold key",
+      "authoringPath": "story",
+      "durationSeconds": 13,
+      "shotCount": 2,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Temporal directing · Kent search",
+        "mode": "Ref2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "",
+        "subjects": [
+          {
+            "id": "subject-1",
+            "number": 1
+          },
+          {
+            "id": "subject-2",
+            "number": 2
+          },
+          {
+            "id": "subject-3",
+            "number": 3
+          }
+        ],
+        "nextSubjectNumber": 4,
+        "assets": [
+          {
+            "id": "subject-1-identity",
+            "kind": "image",
+            "filename": "kent-subject-1.png",
+            "mimeType": "image/png",
+            "role": "subject_identity",
+            "subjectIdentity": {
+              "subjectId": "subject-1",
+              "focus": "full_body"
+            },
+            "order": 1
+          },
+          {
+            "id": "subject-2-identity",
+            "kind": "image",
+            "filename": "takina-subject-2.png",
+            "mimeType": "image/png",
+            "role": "subject_identity",
+            "subjectIdentity": {
+              "subjectId": "subject-2",
+              "focus": "full_body"
+            },
+            "order": 2
+          },
+          {
+            "id": "subject-3-identity",
+            "kind": "image",
+            "filename": "maki-subject-3.png",
+            "mimeType": "image/png",
+            "role": "subject_identity",
+            "subjectIdentity": {
+              "subjectId": "subject-3",
+              "focus": "full_body"
+            },
+            "order": 3
+          }
+        ]
+      },
+      "storyAuthority": {
+        "storyPlanPremise": "Kent is on a quest, searching the city to find the gold key. After a lot of searching, he finds the key, then takes it to the ancient door in the sewers, uses the key to unlock the door, and reaches the land of gold.",
+        "sequenceContext": "Kent is searching the city for a missing key; the sequence follows his quest across distinct city locations.",
+        "orderedScenePlans": [
+          {
+            "generationId": "G1",
+            "ordinal": 1,
+            "scenePlan": "Kent begins searching the city streets. Takina trails a few paces behind him while Maki passes through the background.",
+            "current": true
+          },
+          {
+            "generationId": "G2",
+            "ordinal": 2,
+            "scenePlan": "Kent searches another city district and follows a plausible lead toward the older part of town.",
+            "current": false
+          },
+          {
+            "generationId": "G3",
+            "ordinal": 3,
+            "scenePlan": "After further searching, Kent finally finds the gold key.",
+            "current": false
+          },
+          {
+            "generationId": "G4",
+            "ordinal": 4,
+            "scenePlan": "Kent begins taking the gold key toward the sewer entrance.",
+            "current": false
+          }
+        ],
+        "currentGeneration": {
+          "generationId": "G1",
+          "ordinal": 1,
+          "scenePlan": "Kent begins searching the city streets. Takina trails a few paces behind him while Maki passes through the background.",
+          "incomingState": "",
+          "intendedOutgoingState": "",
+          "relationshipToPrevious": null,
+          "cameraIntent": "",
+          "dialogue": "",
+          "durationSeconds": 13,
+          "participatingSubjects": [
+            {
+              "id": "subject-1",
+              "number": 1
+            },
+            {
+              "id": "subject-2",
+              "number": 2
+            },
+            {
+              "id": "subject-3",
+              "number": 3
+            }
+          ]
+        },
+        "storyMemoryBefore": {
+          "recentSummary": "",
+          "durableFacts": []
+        },
+        "characterProfiles": [
+          {
+            "subjectId": "subject-1",
+            "canonicalH3Label": "<Subject 1>",
+            "narrativeName": "Kent"
+          },
+          {
+            "subjectId": "subject-2",
+            "canonicalH3Label": "<Subject 2>",
+            "narrativeName": "Takina"
+          },
+          {
+            "subjectId": "subject-3",
+            "canonicalH3Label": "<Subject 3>",
+            "narrativeName": "Maki"
+          }
+        ]
+      },
+      "requiresVision": true,
+      "authorityMarkers": [
+        {
+          "label": "quest object established in the Story Plan",
+          "text": "gold key"
+        }
+      ],
+      "fixtureAssets": [
+        {
+          "assetId": "subject-1-identity",
+          "path": "assets/kent-subject-1.png"
+        },
+        {
+          "assetId": "subject-2-identity",
+          "path": "assets/takina-subject-2.png"
+        },
+        {
+          "assetId": "subject-3-identity",
+          "path": "assets/maki-subject-3.png"
+        }
+      ]
+    },
+    {
+      "id": "quiet-platform-dialogue",
+      "title": "Quiet dialogue with an intentional pause",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Temporal directing · quiet exchange",
+        "mode": "T2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "At a nearly empty railway platform, Alice sits beside Rowan and says, ‘I thought you had left.’ Rowan waits through a long silence, meets her gaze, and quietly replies, ‘I stayed.’ Keep the scene restrained; the silence is intentional."
+      },
+      "exactDialogue": "Alice: I thought you had left.\nRowan: I stayed.",
+      "continuity": {
+        "recentSummary": "They have been apart; neither has moved from the bench during this exchange."
+      }
+    },
+    {
+      "id": "cup-object-handoff",
+      "title": "A careful cup handoff",
+      "authoringPath": "one_shot",
+      "durationSeconds": 6,
+      "shotCount": 2,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Temporal directing · cup handoff",
+        "mode": "T2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "At a narrow kitchen counter, Noor stands on screen-left facing Eli on screen-right. Noor reaches with her right hand, lifts a chipped blue cup from the counter, and passes it handle-first across the counter. Eli turns toward Noor, receives the handle with his left hand, and sets the cup down on his side."
+      },
+      "continuity": {
+        "recentSummary": "The blue cup begins on the counter between them; Noor remains screen-left and Eli screen-right."
+      }
+    },
+    {
+      "id": "market-crossing-paths",
+      "title": "Three pedestrians cross paths",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 3,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Temporal directing · crossing paths",
+        "mode": "T2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "In a busy open-air market, a woman in the foreground walks from screen-left to screen-right carrying a paper parcel. Behind her, a bicycle courier travels from screen-right to screen-left. A child farther back steps around a puddle and turns to watch the courier pass. Keep the foreground and background paths distinct and preserve screen direction across cuts."
+      },
+      "continuity": {
+        "recentSummary": "Foreground woman crosses left to right; background courier crosses right to left."
+      }
+    },
+    {
+      "id": "rhythmic-street-performance",
+      "title": "A rhythmic street performance",
+      "authoringPath": "one_shot",
+      "durationSeconds": 10,
+      "shotCount": 3,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Temporal directing · rhythmic performance",
+        "mode": "T2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "A solo street dancer performs to an original instrumental rhythm with a steady hand drum and bass pulse. The dancer begins with small heel taps and shoulder accents, builds into a traveling turn and two grounded jumps synchronized to stronger drum accents, then lands facing the musicians and holds still for the final beat. The camera tracks the turn and settles for the held ending. No lyrics."
+      }
+    }
+  ]
+}

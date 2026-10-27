@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "h3-visual-tail",
+  "title": "Visual Handoff: tail",
+  "operation": "generate_prompt",
+  "description": "Opt-in synthetic Selected Take visual handoff through production resolution. Generated H3 prompts and exported predecessor/handoff media require explicit external rendering and human review; no LLM judge, renderer submission, trimming or stitching.",
+  "tags": [
+    "continuity",
+    "visual-handoff",
+    "vision"
+  ],
+  "requirements": {
+    "vision": true
+  },
+  "fixtureAssets": [
+    {
+      "assetId": "subject-1-picture",
+      "path": "assets/subject-1.png"
+    }
+  ],
+  "h3Project": {
+    "predecessorVisualFixture": true,
+    "planning": {
+      "relationshipToPrevious": "continue_previous_shot",
+      "cameraIntent": "Follow Subject 1 walking right, carrying the yellow object; continue the ongoing action and camera momentum.",
+      "visualHandoff": {
+        "strategy": "auto",
+        "tailSeconds": 1.5,
+        "immediateCutMilliseconds": 100
+      }
+    },
+    "inputContains": [
+      "actual final segment of the predecessor",
+      "Begin the new generated action from the END",
+      "continuation reference"
+    ],
+    "inputAbsent": []
+  },
+  "humanReview": [
+    "Does the starting state plausibly continue from the ending state of the supplied tail?",
+    "Does the action avoid an obvious reset while retaining coherent motion direction and state?",
+    "Are identity and environment stable? Do not claim a pixel-perfect seam or duplicated source frames."
+  ]
+}

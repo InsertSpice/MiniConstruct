@@ -93,7 +93,9 @@ def test_vision_and_revision_context_keep_enriched_manifest(workspace_factory, i
         "workspace": workspace.model_dump(mode="json", by_alias=True), "llm": {"baseUrl": "http://test/v1", "model": "writer"}, "outputIndex": 0,
         "selection": {"fullPrompt": prompt, "beforeSelection": prompt[:start], "selectedText": selected, "afterSelection": prompt[start + len(selected):]}, "instruction": "Match the eyes.",
     })
-    assert '"focus": "face"' in assemble_revision_prompt(request).inspector_text
+    revision_text = assemble_revision_prompt(request).inspector_text
+    assert '"focus": "face"' in revision_text
+    assert "SAME <Subject N> definition sentence" in revision_text
 
 
 def test_repair_keeps_subject_metadata_context_syntax_only(workspace_factory, image_asset_factory):
@@ -106,6 +108,8 @@ def test_repair_keeps_subject_metadata_context_syntax_only(workspace_factory, im
     })
     text = str(assemble_repair_prompt(request, []).messages)
     assert "not authority to reconcile" in text and "subjectIdentity" in text
+    assert "SAME <Subject N> definition sentence" in text
+    assert "identity-only Pictures get no retention line" in text
 
 
 def test_identity_sets_are_stable_across_picture_reorder_and_export_round_trip(workspace_factory, image_asset_factory):
@@ -246,8 +250,10 @@ def test_only_permanent_morphology_notes_can_reinforce_facial_identity(workspace
 def test_identity_pictures_are_subject_provenance_not_standalone_retention_items(workspace_factory, image_asset_factory):
     identity = image_asset_factory()
     text = assemble_prompt(workspace_factory(mode="Ref2VA", assets=[identity]), True).inspector_text
-    assert "Cite identity-only Picture provenance inside its <Subject N> definition" in text
-    assert "do not create standalone Picture retention entries" in text
+    assert "SAME <Subject N> definition sentence" in text
+    assert "GOOD: '<Subject 1> is Alice, the woman shown in <Picture 1>, with ...'" in text
+    assert "BAD: '<Subject 1> is Alice...' followed by '<Picture 1> is the identity reference for <Subject 1>.'" in text
+    assert "identity-only Pictures get no retention line" in text
     assert "<Subject 1> is defined by <Picture 1>." in text
 
 
@@ -264,7 +270,7 @@ def test_concrete_picture_roles_remain_eligible_for_standalone_tracking(workspac
     identity = image_asset_factory("identity")
     storyboard = image_asset_factory("storyboard", role="storyboard_composition", order=1)
     text = assemble_prompt(workspace_factory(mode="Ref2VA", assets=[identity, storyboard]), True).inspector_text
-    assert "Separately configured concrete Picture roles remain independent" in text
+    assert "A standalone Picture record and retention line are allowed when the canonical Reference Asset role independently tracks a frame, composition, or storyboard target" in text
 
 
 def test_retention_shot_membership_means_visible_subject_presence(workspace_factory, image_asset_factory):

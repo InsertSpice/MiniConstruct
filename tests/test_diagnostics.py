@@ -57,4 +57,4 @@ def test_image_bytes_hash_stably_and_asset_order_is_deterministic(workspace_fact
     assert first == second
     rendered = json.dumps(messages)
     assert rendered.index("a.png") < rendered.index("b.png")
-    assert "AA==" in rendered  # Raw data stays in the request; only diagnostics hash it.
+    assert "data:image/jpeg;base64," in rendered  # Actual derivative stays in the request; diagnostics hash it.

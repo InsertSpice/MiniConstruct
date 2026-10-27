@@ -28,7 +28,7 @@
         "items": [
           {
             "existingGeneration": 1,
-            "creativeRequest": "The cyclist stops beside a lost dog on the rainy street.",
+            "scenePlan": "The cyclist stops beside a lost dog on the rainy street.",
             "incomingState": "The cyclist rides along a rainy street.",
             "intendedOutgoingState": "The cyclist and dog face one another.",
             "relationshipToPrevious": null,
@@ -37,7 +37,7 @@
           },
           {
             "existingGeneration": null,
-            "creativeRequest": "The cyclist removes one wet glove and offers a hand for the dog to sniff.",
+            "scenePlan": "The cyclist removes one wet glove and offers a hand for the dog to sniff.",
             "incomingState": "The cyclist and dog face one another.",
             "intendedOutgoingState": "The dog cautiously sniffs the cyclist's hand and wags its tail.",
             "relationshipToPrevious": "new_shot_preserve_continuity",
@@ -46,7 +46,7 @@
           },
           {
             "existingGeneration": null,
-            "creativeRequest": "The cyclist leads the trusting dog toward its home.",
+            "scenePlan": "The cyclist leads the trusting dog toward its home.",
             "incomingState": "The dog stands willingly beside the cyclist.",
             "intendedOutgoingState": "The cyclist and dog arrive outside the owner's home.",
             "relationshipToPrevious": "new_shot_preserve_continuity",
@@ -55,7 +55,7 @@
           },
           {
             "existingGeneration": null,
-            "creativeRequest": "The owner opens the door and reunites with the dog.",
+            "scenePlan": "The owner opens the door and reunites with the dog.",
             "incomingState": "The cyclist and dog wait outside the home.",
             "intendedOutgoingState": "The dog is reunited with its owner while the cyclist smiles.",
             "relationshipToPrevious": "new_shot_preserve_continuity",
@@ -116,7 +116,7 @@
       {
         "kind": "story_field_equals",
         "item": 2,
-        "field": "creativeRequest",
+        "field": "scenePlan",
         "value": "The cyclist removes one wet glove and offers a hand for the dog to sniff."
       },
       {

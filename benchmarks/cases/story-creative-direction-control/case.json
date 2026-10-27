@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "story-creative-direction-control",
+  "version": "1",
+  "title": "Story Creative Direction A/B: control",
+  "description": "Plan Next 3 from a neutral railway-station starting state; compare this case with its paired Creative Direction variant.",
+  "tags": ["story", "creative-direction", "ab"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea": "Alice is waiting alone at a small railway station after sunset. Her train is significantly delayed.",
+    "sequenceContext": "The station is still operating normally. Nothing explicitly supernatural has happened. Alice has no confirmed reason to believe she is in danger.",
+    "storyCreativeDirection": {
+      "toneMood": "",
+      "performanceEnergy": "",
+      "pacingRhythm": "",
+      "beatDurationDensity": ""
+    },
+    "storyMemory": {
+      "recentSummary": "",
+      "durableFacts": [],
+      "openThreads": []
+    },
+    "narrativeSubjects": [
+      {"subjectId": "subject-1", "narrativeName": "Alice"}
+    ],
+    "generations": [
+      {
+        "workspacePath": "workspace.json","scenePlan": "Alice is waiting on the platform after learning the train is delayed.",
+        "incomingState": "",
+        "intendedOutgoingState": "",
+        "planning": {"relationshipToPrevious": null}
+      }
+    ],
+    "next": {"requestedCount": 3}
+  },
+  "expectations": {
+    "checks": [
+      {"kind": "story_item_count_equals", "value": 3},
+      {"kind": "story_new_items_have_no_existing_generation_id"},
+      {"kind": "story_recommendation_pairs_valid"}
+    ]
+  },
+  "humanReview": [
+    "Does the guided version show more gradual unease than the control?",
+    "Are reactions more restrained and natural in the guided version?",
+    "Do the early beats breathe more in the guided version?",
+    "Does intensity or pacing increase across the three slots in the guided version?",
+    "Does each Generation stay closer to one meaningful development?",
+    "Does the model avoid parroting Creative Direction text into every Creative Request or Main Prompt?",
+    "Does factual continuity remain equally sound in both cases?"
+  ]
+}

@@ -1,5 +1,10 @@
 export { snapshotGenerationRequest } from "./seed.js";
 
+export function generationClickIntent(generation, starting) {
+  if (generation) return "stop";
+  return starting ? "already-starting" : "start";
+}
+
 export function createEventStreamParser(onEvent) {
   let buffer = "";
 

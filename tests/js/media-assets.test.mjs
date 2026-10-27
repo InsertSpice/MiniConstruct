@@ -60,3 +60,26 @@ test("Save replaces upload authority but preserves concurrent reattachment and f
   assert.equal(assets[0].mediaPayload.projectId, "saved");
   assert.equal(assets[1].mediaPayload.uploadId, "new");
 });
+
+
+test("canonical unavailable state clears stale pixels and descriptors but preserves concurrent replacements", async () => {
+  const { pictureDigest } = await import("../../web/js/reference-authority.js");
+  const url = `data:image/png;base64,${Buffer.from([1, 2, 3]).toString("base64")}`;
+  const digest = await pictureDigest(url);
+  const assets = [{ id: "picture", kind: "image", image: { data_url: url } },
+    { id: "audio", kind: "audio", mediaPayload: { sha256: "old", projectId: "saved" } },
+    { id: "new", kind: "video", mediaPayload: { sha256: "new", uploadId: "upload" } },
+    { id: "exact", kind: "audio", mediaPayload: { sha256: "old", uploadId: "exact-upload" } }];
+  await adoptSavedMedia(assets, { assets: [
+    { id: "picture", payloadAvailability: "missing", payloadSha256: digest },
+    { id: "audio", payloadAvailability: "corrupt", payloadSha256: "old" },
+    { id: "new", payloadAvailability: "missing", payloadSha256: "old" },
+    { id: "exact", payloadAvailability: "missing", payloadSha256: "old" },
+  ] });
+  assert.equal(assets[0].image, null);
+  assert.equal(assets[1].mediaPayload, null);
+  assert.equal(assets[2].mediaPayload.sha256, "new");
+  assert.equal(assets[3].mediaPayload.uploadId, "exact-upload");
+  assert.match(mediaPayloadStatus(assets[0]), /missing.*replace Picture/);
+  assert.match(mediaPayloadStatus(assets[1]), /corrupt.*reattach/);
+});

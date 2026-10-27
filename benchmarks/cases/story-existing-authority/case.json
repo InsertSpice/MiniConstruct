@@ -13,7 +13,7 @@
     "sequenceContext": "The sequence takes place inside the same closed museum at night. Mara wears the same dark raincoat throughout. The alarm remains disabled until explicitly triggered.",
     "generations": [
       {
-        "workspacePath": "workspace.json",
+        "workspacePath": "workspace.json","scenePlan": "Mara enters the closed museum and pauses beside the information desk.",
         "incomingState": "Mara stands just inside the museum entrance.",
         "intendedOutgoingState": "Mara reaches the information desk.",
         "planning": {
@@ -22,7 +22,7 @@
         }
       },
       {
-        "workspacePath": "generation-2-workspace.json",
+        "workspacePath": "generation-2-workspace.json","scenePlan": "Mara opens the catalogue drawer behind the desk.",
         "incomingState": "",
         "intendedOutgoingState": "The drawer is open and Mara has found the catalogue.",
         "planning": {
@@ -66,7 +66,7 @@
       },
       {
         "kind": "story_field_not_empty",
-        "field": "creativeRequest"
+        "field": "scenePlan"
       },
       {
         "kind": "story_field_not_empty",
@@ -87,7 +87,7 @@
       {
         "kind": "story_field_equals",
         "item": 1,
-        "field": "creativeRequest",
+        "field": "scenePlan",
         "value": "Mara enters the closed museum and pauses beside the information desk."
       },
       {
@@ -111,7 +111,7 @@
       {
         "kind": "story_field_equals",
         "item": 2,
-        "field": "creativeRequest",
+        "field": "scenePlan",
         "value": "Mara opens the catalogue drawer behind the desk."
       },
       {

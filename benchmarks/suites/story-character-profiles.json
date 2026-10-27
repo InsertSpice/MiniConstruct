@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "story-character-profiles",
+  "title": "Story Character Profile behavioral benchmark",
+  "cases": [
+    "story-character-profile-control",
+    "story-character-profile-guided",
+    "story-character-profile-current-state-authority",
+    "story-character-profile-returning-subject",
+    "story-character-profile-irrelevant-subject"
+  ]
+}

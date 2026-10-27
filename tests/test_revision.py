@@ -76,7 +76,7 @@ def test_revision_prompt_has_full_h3_workspace_and_dialogue_context(workspace_fa
     assert user_content.count("[Shot 2] The cyclist crosses.") == 1
     assert user_content.count("integrated_multimodal_description:") == 1
     assert dialogue in text
-    assert "Exact Dialogue field is authoritative" in text
+    assert "resolved Exact Dialogue field is authoritative" in text
     assert "Return ONLY replacement text" in text
 
 
@@ -87,6 +87,14 @@ def test_revision_uses_one_system_message_and_replaces_generation_policy(workspa
     assert "Selective revision policy" in system
     assert "Generation policy" not in system
     assert "===== Selective revision policy =====" in assembled.inspector_text
+
+
+def test_revision_bad_existing_audio_does_not_expand_workspace_allowlist(workspace_factory):
+    prompt = PROMPT.replace("A cyclist waits.", "A cyclist waits beside <Audio 1>.")
+    assembled = assemble_revision_prompt(revision_request(workspace_factory(), full_prompt=prompt))
+    system = assembled.messages[0]["content"]
+    assert "Allowed Audio references: none." in system
+    assert "nonexistent label in the existing H3 prompt is an error" in system
 
 
 def test_revision_context_marks_one_unicode_selection_without_serializing_full_prompt_twice(workspace_factory):

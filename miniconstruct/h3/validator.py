@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from dataclasses import dataclass
 
+from miniconstruct.models.subject_numbers import subject_numbers as technical_subject_numbers
+from miniconstruct.h3.prompt_text import mask_literal_text
 from miniconstruct.models.api import ValidationFinding, ValidationResult
-from miniconstruct.models.workspace import AssetKind, H3Mode, ReferenceAsset, Workspace
+from miniconstruct.models.workspace import (
+    DIALOGUE_LANGUAGE_LABELS, AssetKind, DialogueLanguage, H3Mode,
+    ReferenceAsset, Workspace,
+)
 
 
 BASE_FIELDS = ["integrated_multimodal_description", "overall_soundscape", "non_diegetic_music"]
@@ -16,6 +22,16 @@ FIELD_RE = re.compile(r"(?m)^(?P<name>[a-z_]+):")
 SHOT_RE = re.compile(r"\[Shot\s+(\d+)\](?:\s+At\s+(\d{2}):(\d{2})\.(\d{3}),)?", re.IGNORECASE)
 LABEL_RE = re.compile(r"<(Subject|Picture|Video|Audio)\s+(\d+)>")
 BARE_LABEL_RE = re.compile(r"(?<![<\w])(Subject|Picture|Video|Audio)\s+(\d+)(?![\w>])")
+H3_DIALOGUE_LANGUAGES = {
+    label for language, label in DIALOGUE_LANGUAGE_LABELS.items()
+    if language != DialogueLanguage.AS_WRITTEN
+}
+H3_DIALOGUE_BLOCK_RE = re.compile(r"(?is)<d>(.*?)</d>")
+H3_LEADING_LANGUAGE_RE = re.compile(
+    r"^\[(" + "|".join(re.escape(label) for label in sorted(H3_DIALOGUE_LANGUAGES, key=len, reverse=True))
+    + r")\](?:\s+|$)", re.IGNORECASE,
+)
+H3_LEADING_BRACKET_TOKEN_RE = re.compile(r"^\[([^\]\r\n]+)\](?:\s+|$)")
 RETENTION_SUBJECT_RE = re.compile(
     r"(?ms)^<Subject\s+(?P<subject>\d+)>\s*\(appears\s+in\s+\[(?P<shots>.*?)\]\)"
 )
@@ -53,7 +69,7 @@ def _section_text(text: str, name: str, following_name: str) -> str:
 
 
 def _has_comparison_definition(definitions: str, picture: int) -> bool:
-    return bool(re.search(rf"(?m)^<Picture\s+{picture}>(?=\s|:)", _mask_literal_text(definitions)))
+    return bool(re.search(rf"(?m)^<Picture\s+{picture}>(?=\s|:)", mask_literal_text(definitions)))
 
 
 def _comparison_definition_entry(definitions: str, picture: int) -> str | None:
@@ -81,7 +97,7 @@ def _comparison_default_definition(workspace: Workspace, picture: int, asset: Re
 
 
 def _has_comparison_retention(retention: str, picture: int) -> bool:
-    return bool(re.search(rf"(?m)^<Picture\s+{picture}>(?=\s|:)", _mask_literal_text(retention)))
+    return bool(re.search(rf"(?m)^<Picture\s+{picture}>(?=\s|:)", mask_literal_text(retention)))
 
 
 def _comparison_retention_entry(retention: str, picture: int) -> str | None:
@@ -171,14 +187,69 @@ def _dialogue_lines(dialogue: str) -> list[str]:
         if not raw:
             continue
         _, separator, text = raw.partition(":")
-        lines.append(text.strip() if separator else raw)
+        spoken = text.strip() if separator else raw
+        # Authoring quotes delimit the line; they are not spoken punctuation.
+        spoken = _strip_outer_dialogue_quotes(spoken)
+        lines.append(spoken)
     return [line for line in lines if line]
 
 
-def _mask_literal_text(text: str) -> str:
-    """Mask literal dialogue and quoted scene text before structural label checks."""
-    masked = re.sub(r"(?is)<d>.*?</d>", lambda match: " " * len(match.group()), text)
-    return re.sub(r'"(?:\\.|[^"\\])*"', lambda match: " " * len(match.group()), masked)
+def _strip_outer_dialogue_quotes(spoken: str) -> str:
+    """Remove one matching authoring wrapper, leaving spoken punctuation intact."""
+    pairs = {'"': '"', '“': '”', '「': '」', '『': '』', '‘': '’'}
+    if len(spoken) >= 2 and pairs.get(spoken[0]) == spoken[-1]:
+        return spoken[1:-1]
+    return spoken
+
+
+def _spoken_text(text: str) -> str:
+    """Normalize transport and typography, while keeping spoken punctuation exact."""
+    text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), text)
+    text = text.replace(r'\"', '"').replace("…", "...")
+    return re.sub(r"\s+", " ", text)
+
+
+@dataclass(frozen=True)
+class _DialogueBlock:
+    language: str | None
+    tag_state: str  # "recognized", "missing", or "unsupported"
+    payload: str
+
+
+def _dialogue_blocks(main_text: str) -> list[_DialogueBlock]:
+    blocks = []
+    for match in H3_DIALOGUE_BLOCK_RE.finditer(main_text):
+        content = match.group(1).strip()
+        language = None
+        tag_state = "missing"
+        tag = H3_LEADING_BRACKET_TOKEN_RE.match(content)
+        if tag:
+            supported = H3_LEADING_LANGUAGE_RE.match(content)
+            if supported:
+                language = next((name for name in H3_DIALOGUE_LANGUAGES if name.casefold() == supported.group(1).casefold()), None)
+                tag_state = "recognized"
+                content = content[supported.end():]
+            else:
+                tag_state = "unsupported"
+                content = content[tag.end():]
+        blocks.append(_DialogueBlock(language, tag_state, content))
+    return blocks
+
+
+def _contains_exact_dialogue(main_text: str, line: str) -> bool:
+    tagged = _dialogue_blocks(main_text)
+    # Only one recognized leading H3 language token is syntax. Everything
+    # after it remains exact spoken payload, including literal brackets/quotes.
+    return any(block.tag_state == "recognized" and block.payload.strip() == line.strip() for block in tagged)
+
+
+def _contains_dialogue_outside_blocks(main_text: str, line: str) -> bool:
+    outside = H3_DIALOGUE_BLOCK_RE.sub(lambda match: " " * len(match.group()), main_text)
+    spoken = _spoken_text(outside)
+    expected = _spoken_text(line.strip())
+    # This detects exact canonical text in prose only so the caller can report
+    # missing H3 dialogue syntax. Prose never satisfies exact dialogue authority.
+    return bool(re.search(r"(?<!\w)" + re.escape(expected) + r"(?![\w.!?…])", spoken))
 
 
 def _mask_fl_alignment_labels(text: str) -> str:
@@ -199,12 +270,18 @@ def _mask_fl_alignment_labels(text: str) -> str:
     return text
 
 
-def canonicalize_bare_reference_labels(text: str) -> str:
-    """Bracket bare labels while preserving dialogue and quoted literal text."""
-    protected = _mask_fl_alignment_labels(_mask_literal_text(text))
+def canonicalize_bare_reference_labels(text: str, mode: H3Mode | None = None) -> str:
+    """Bracket supported bare labels while preserving protected literal text.
+
+    A missing mode retains the historical standalone-helper behavior. Production
+    callers should pass the active Workspace mode.
+    """
+    protected = _mask_fl_alignment_labels(mask_literal_text(text))
     parts: list[str] = []
     cursor = 0
     for match in BARE_LABEL_RE.finditer(protected):
+        if match.group(1) == "Subject" and mode is not None and mode != H3Mode.REF2VA:
+            continue
         parts.extend((text[cursor:match.start()], f"<{match.group(1)} {match.group(2)}>"))
         cursor = match.end()
     parts.append(text[cursor:])
@@ -262,6 +339,8 @@ def validate_prompt(
     assets: list[ReferenceAsset] | None = None,
     dialogue: str = "",
     expected_shots: int | None = None,
+    dialogue_language: str = "as_written",
+    *, native_i2va: bool = False,
 ) -> ValidationResult:
     assets = assets or []
     findings: list[ValidationFinding] = []
@@ -271,18 +350,28 @@ def validate_prompt(
     if "```" in text:
         findings.append(_finding("ERROR", "markdown_fence", "Remove Markdown fences from the H3 prompt."))
 
-    label_text = _mask_literal_text(text)
+    label_text = mask_literal_text(text)
     if mode == H3Mode.FL2VA:
         label_text = _mask_fl_alignment_labels(label_text)
     for kind, number in BARE_LABEL_RE.findall(label_text):
+        if kind == "Subject" and mode != H3Mode.REF2VA:
+            continue
         token = f"{kind} {number}"
         findings.append(_finding(
             "ERROR", "bare_reference_label",
             f'Bare reference label "{token}"; use canonical H3 label <{token}>.',
         ))
 
+    if mode != H3Mode.REF2VA:
+        for kind, number in LABEL_RE.findall(label_text):
+            if kind == "Subject":
+                findings.append(_finding(
+                    "ERROR", "unsupported_reference_mode",
+                    f"<{kind} {number}> references are only valid in Ref2VA.",
+                ))
+
     expected = REF_FIELDS if mode == H3Mode.REF2VA else BASE_FIELDS
-    if mode in {H3Mode.T2VA, H3Mode.REF2VA} and not text.startswith(f"{expected[0]}:"):
+    if (mode in {H3Mode.T2VA, H3Mode.REF2VA} or native_i2va) and not text.startswith(f"{expected[0]}:"):
         findings.append(_finding(
             "ERROR", "extraneous_preamble",
             f"The H3 prompt must begin directly with {expected[0]}: without commentary or a heading.",
@@ -301,7 +390,10 @@ def validate_prompt(
         findings.append(_finding("WARNING", "unknown_section", f"Unrecognized top-level section: {field}."))
 
     first_line = text.splitlines()[0].strip()
-    if mode == H3Mode.I2VA:
+    if mode == H3Mode.I2VA and native_i2va:
+        if assets or re.search(r"<(?:Picture|Video|Audio)\s+\d+>|(?:supplied|attached|new)\s+first[- ]frame\s+(?:Picture|image)", text, re.I):
+            findings.append(_finding("ERROR", "native_i2va_media", "Native-only I2VA has no new first-frame Picture or media references."))
+    elif mode == H3Mode.I2VA:
         exact = "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
         if first_line != exact:
             findings.append(_finding("ERROR", "first_frame_alignment", "I2VA requires the exact official first-frame instruction."))
@@ -398,7 +490,7 @@ def validate_prompt(
                     "ERROR", "comparison_scale_retention_missing",
                     f"Character Comparison / Scale {label} requires a relationship retention entry in retention_analysis.",
                 ))
-            elif re.search(rf"(?im)^<Picture\s+{picture}>\s*\(\s*appears\s+in\s+\[", _mask_literal_text(retention)):
+            elif re.search(rf"(?im)^<Picture\s+{picture}>\s*\(\s*appears\s+in\s+\[", mask_literal_text(retention)):
                 findings.append(_finding(
                     "ERROR", "comparison_scale_picture_appears_in_shot",
                     f"Character Comparison / Scale {label} retains a relationship; it should not use Subject-style appears in [Shot ...] retention syntax.",
@@ -408,7 +500,7 @@ def validate_prompt(
         summary_match = re.search(r"(?ms)^summary:\s*(.*?)(?=^retention_analysis:)", text)
         summary = summary_match.group(1).lower() if summary_match else ""
         roles = {asset.role for asset in assets}
-        if roles & {"continuation_source", "seamless_overlap_continuation"} and "video continuation" not in summary:
+        if roles & {"continuation_source", "tail_reference_continuation"} and "video continuation" not in summary:
             findings.append(_finding("ERROR", "missing_task_relationship", "A continuation Video requires the official video continuation task relationship."))
         if "editing_source" in roles and "video editing" not in summary:
             findings.append(_finding("ERROR", "missing_task_relationship", "An editing-source Video requires the official video editing task relationship."))
@@ -416,12 +508,13 @@ def validate_prompt(
             findings.append(_finding("ERROR", "missing_task_relationship", "Direct Audio reuse requires the official audio reuse task relationship."))
         if roles & {"music_beat_rhythm", "voice_timbre", "dialogue_spoken_content", "sound_audio_style", "general_audio"} and "audio reference" not in summary:
             findings.append(_finding("WARNING", "missing_task_relationship", "Guidance-only Audio normally requires the official audio reference task relationship."))
+        handoff_endpoint = any(asset.kind == "image" and asset.options.get("visualHandoff", {}).get("strategy") in {"endpoint_frame", "endpoint_then_immediate_cut"} for asset in assets)
         if roles & {"first_frame_anchor", "keyframe_anchor", "last_frame_anchor", "storyboard_composition"} and "keyframe completion" not in summary:
             findings.append(_finding("WARNING", "missing_task_relationship", "A concrete Picture anchor normally requires keyframe completion."))
-        if "seamless_overlap_continuation" in roles:
-            normalized = main_text.lower()
-            if "no replay" not in normalized or not any(phrase in normalized for phrase in ("continues forward", "continue forward", "advances forward", "monotonically forward")):
-                findings.append(_finding("WARNING", "weak_overlap_handoff", "Seamless overlap should explicitly prohibit replay and continue forward beyond the overlap."))
+        if handoff_endpoint and "keyframe completion" not in summary:
+            findings.append(_finding("ERROR", "endpoint_handoff_requires_keyframe_completion", "A predecessor endpoint Picture requires the official keyframe completion task relationship."))
+        if handoff_endpoint and "video continuation" in summary and not any(asset.kind == "video" and asset.role in {"continuation_source", "tail_reference_continuation"} for asset in assets):
+            findings.append(_finding("ERROR", "endpoint_handoff_rejects_video_continuation", "Endpoint-only handoff must not claim video continuation without a continuation Video."))
         subject_speakers: defaultdict[int, set[int]] = defaultdict(set)
         for subject, speaker in re.findall(r"<Subject\s+(\d+)>\s*\(S(\d+)\)", text):
             subject_speakers[int(subject)].add(int(speaker))
@@ -429,9 +522,28 @@ def validate_prompt(
             if len(speakers) > 1:
                 findings.append(_finding("WARNING", "speaker_consistency", f"Subject {subject} uses multiple speaker IDs: {sorted(speakers)}."))
 
+    try:
+        selected_language = DialogueLanguage(str(dialogue_language).split(".")[-1].lower())
+    except ValueError:
+        selected_language = DialogueLanguage.AS_WRITTEN
+    required_language = (
+        DIALOGUE_LANGUAGE_LABELS[selected_language]
+        if selected_language != DialogueLanguage.AS_WRITTEN else None
+    )
     for line in _dialogue_lines(dialogue):
-        dialogue_blocks = re.findall(r"<d>(?:\[[^\]]+\]\s*)?(.*?)</d>", text, flags=re.DOTALL)
-        if not any(line in block for block in dialogue_blocks):
+        blocks = _dialogue_blocks(main_text)
+        matching = [block for block in blocks if block.payload.strip() == line.strip()]
+        if matching and any(block.tag_state == "unsupported" for block in matching):
+            findings.append(_finding("ERROR", "dialogue_language_tag_invalid", "The leading H3 dialogue language tag is unsupported; use one of the official supported language names."))
+        if matching and any(block.tag_state == "missing" for block in matching):
+            findings.append(_finding("ERROR", "dialogue_language_tag_missing", "Exact spoken text must use H3 dialogue syntax <d>[Language] ...</d>; its required supported leading language tag is missing."))
+        if required_language and any(block.language is not None and block.language != required_language for block in matching):
+            findings.append(_finding("ERROR", "dialogue_language_tag_mismatch", f"H3 dialogue language tag must be {required_language} for this Sequence."))
+        if matching:
+            continue
+        if _contains_dialogue_outside_blocks(main_text, line):
+            findings.append(_finding("ERROR", "dialogue_language_tag_missing", "Exact spoken text appears outside an H3 dialogue block; use <d>[Language] exact spoken payload</d>."))
+        elif not _contains_exact_dialogue(main_text, line):
             findings.append(_finding("ERROR", "dialogue_changed", f"Exact dialogue was not preserved: {line}"))
 
     if not findings:
@@ -440,29 +552,55 @@ def validate_prompt(
 
 
 def validate_workspace_prompt(prompt: str, workspace: Workspace) -> ValidationResult:
-    result = validate_prompt(prompt, workspace.mode, workspace.duration_seconds, workspace.assets, workspace.dialogue, workspace.shots)
+    result = validate_prompt(prompt, workspace.mode, workspace.duration_seconds, workspace.assets, workspace.dialogue, workspace.shots, workspace.dialogue_language.value,
+                             native_i2va=workspace._native_i2va)
     if workspace.mode != H3Mode.REF2VA:
         return result
     definitions_match = re.search(r"(?ms)^subject_definitions:\s*(.*?)(?=^summary:)", prompt)
-    definitions = _mask_literal_text(definitions_match.group(1)) if definitions_match else ""
-    subject_numbers = {subject.id: subject.number for subject in workspace.subjects}
+    definitions = mask_literal_text(definitions_match.group(1)) if definitions_match else ""
+    subject_numbers = technical_subject_numbers(workspace.subjects)
     pictures = sorted((asset for asset in workspace.assets if asset.kind == AssetKind.IMAGE), key=lambda asset: (asset.order, asset.id))
+    identity_only_numbers = {
+        number for number, asset in enumerate(pictures, 1) if asset.role == "subject_identity"
+    }
+    identity_subjects: dict[int, int] = {}
     for picture_number, asset in enumerate(pictures, 1):
         if asset.role != "subject_identity":
             continue
         subject_number = subject_numbers.get(asset.subject_identity.subject_id)
         if subject_number is None:
             continue
+        identity_subjects[picture_number] = subject_number
         subject_match = re.search(
-            rf"(?ms)^<Subject\s+{subject_number}>\s+is\b(.*?)(?=^<Subject\s+\d+>\s+is\b|^<Picture\s+\d+>|\Z)",
+            rf"(?ms)^<Subject\s+{subject_number}>\s+is\b(.*?)(?=^<(?:Subject|Picture|Video|Audio)\s+\d+>(?=\s|:|$)|\Z)",
             definitions,
         )
         label = f"<Picture {picture_number}>"
-        if subject_match is None or label not in subject_match.group(0):
+        subject_record = subject_match.group(0) if subject_match else ""
+        if subject_match is None or label not in subject_record:
             result.findings.append(_finding(
                 "ERROR", "identity_reference_missing",
-                f"<Subject {subject_number}> is missing identity provenance {label} in subject_definitions.",
+                f"<Subject {subject_number}> must cite identity provenance {label} inside its definition.",
             ))
+    if definitions:
+        for match in re.finditer(r"(?m)^<Picture\s+(\d+)>[^\n]*", definitions):
+            number = int(match.group(1))
+            if number in identity_only_numbers:
+                subject_number = identity_subjects.get(number)
+                target = f"Subject {subject_number}" if subject_number is not None else "its mapped Subject"
+                result.findings.append(_finding(
+                    "ERROR", "identity_picture_definition",
+                    f"Picture {number} is identity-only provenance for {target}; cite <Picture {number}> inside that Subject's definition instead of defining it separately.",
+                ))
+    retention_match = re.search(r"(?ms)^retention_analysis:\s*(.*?)(?=^detailed_description:)", prompt)
+    if retention_match:
+        for match in re.finditer(r"(?m)^<Picture\s+(\d+)>[^\n]*", retention_match.group(1)):
+            number = int(match.group(1))
+            if number in identity_only_numbers:
+                result.findings.append(_finding(
+                    "ERROR", "identity_picture_retention",
+                    f"Picture {number} is only Subject identity provenance and must not have a standalone retention_analysis entry; retain its mapped Subject instead.",
+                ))
     if any(item.severity == "ERROR" for item in result.findings):
         result.valid = False
         result.findings[:] = [item for item in result.findings if item.code != "structure_ok"]

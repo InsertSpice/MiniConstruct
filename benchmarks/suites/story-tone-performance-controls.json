@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "story-tone-performance-controls",
+  "title": "Story H3 Tone / Performance Controls",
+  "cases": [
+    "story-tone-performance-scene-arc",
+    "story-tone-performance-authority"
+  ]
+}

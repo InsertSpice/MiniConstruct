@@ -1,6 +1,6 @@
 export class Element {
   constructor(tag, doc) {
-    this.tagName = tag; this.ownerDocument = doc; this.children = []; this.events = {}; this.attributes = {};
+    this.tagName = tag; this.ownerDocument = doc; this.children = []; this.events = {}; this.attributes = {}; this.dataset = {};
     this.value = ""; this.checked = false; this.disabled = false;
   }
   append(...children) { for (const child of children) { child.parentElement = this; this.children.push(child); } }

@@ -1,0 +1,17 @@
+{
+  "kind": "synthetic-regression-fixture",
+  "modelCodecStateIdentity": "ad445d5c57e64f3b2440efc2ba55e747400594ab0ecd4d161298d91c7e50cec0",
+  "syntheticPicturePixels": [
+    1200,
+    800
+  ],
+  "megapixels": 0.8,
+  "resolutionSteps": 32,
+  "canvas": [
+    1120,
+    736
+  ],
+  "importedSeed": 123456789,
+  "rendererVerified": false,
+  "scope": "Portable example declarations only; no machine-local inspection evidence or model-file content hashes."
+}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "story-creative-direction",
+  "title": "Story Creative Direction A/B",
+  "cases": [
+    "story-creative-direction-control",
+    "story-creative-direction-guided"
+  ]
+}

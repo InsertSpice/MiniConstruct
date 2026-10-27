@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "ref2va-explicit-style-anime",
+  "version": "1",
+  "title": "Reference-informed Visual Style: anime",
+  "description": "Matched visual-style authoring case using one illustrated Subject reference; compare baseline and candidate writer instructions with identical inputs.",
+  "tags": [
+    "Ref2VA",
+    "vision",
+    "visual-style",
+    "opt-in"
+  ],
+  "requirements": {
+    "vision": true
+  },
+  "expectations": {},
+  "humanReview": [
+    "Does Auto infer the illustrated medium, or does the explicit preset preserve its chosen medium?",
+    "Does the opening give a few distinctive evidenced appearance traits rather than a bare medium declaration or canned adjectives?",
+    "For anime, are supported line, facial, hair or shadow traits useful without becoming a mandatory inventory?",
+    "For live action, are identity, outfit and palette translated without requiring illustrated cel outlines?",
+    "Are Subject-only evidence boundaries respected, without copying sheet panels, poses, expressions or camera into global style?",
+    "Are unsupported production claims absent and both shots, motion and temporal progression still clear?"
+  ],
+  "fixtureAssets": [
+    {
+      "assetId": "b9059e49-58b0-4d86-895e-17bc5c2f9552",
+      "source": "benchmark",
+      "path": "cases/ref2va-camera-multishot-controls/assets/subject-1-reference-sheet.jpg"
+    }
+  ]
+}

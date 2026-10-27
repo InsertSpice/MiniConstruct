@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform-memory-hygiene",
+  "version": "2",
+  "title": "Story Memory hygiene across several Plan Next slots",
+  "description": "A longer memory mixes durable state, an obsolete route fact, active obligations, and a completed obligation that should not remain open.",
+  "tags": ["story", "longform", "next", "memory-hygiene"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea":"Alice continues from the archive toward the river district.",
+    "sequenceContext":"Keep Story Memory compact, current, and useful rather than a transcript.",
+    "storyMemory": {
+      "recentSummary":"Alice leaves the archive with the brass key and heads toward the river district.",
+      "durableFacts":[
+        {"id":"cccccccc-cccc-4ccc-8ccc-cccccccccccc","text":"Alice carries the brass key that opens the old archive."},
+        {"id":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","text":"The old pedestrian bridge route is obsolete after the collapse."},
+        {"id":"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee","text":"Bob's archive map is stored safely in Alice's satchel."}
+      ],
+      "openThreads":[
+        {"id":"ffffffff-ffff-4fff-8fff-ffffffffffff","text":"Alice still needs to return Bob's archive map."},
+        {"id":"12121212-1212-4212-8212-121212121212","text":"Alice must return the archivist's sealed letter before the winter council meets."},
+        {"id":"13131313-1313-4313-8313-131313131313","text":"The ferry toll is still unpaid."}
+      ]
+    },
+    "generations":[
+      {"workspacePath":"workspace.json","scenePlan":"Alice discovers the brass key in the archive.","planning":{"relationshipToPrevious":null}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice maps several unrelated city streets.","repeat":4},
+      {"workspacePath":"workspace.json","scenePlan":"Alice reaches the river district with Bob's map."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice pays the ferry toll and checks a route board."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice leaves the ferry quay toward the archive road."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice pauses near the obsolete bridge route."}
+    ],
+    "next":{"requestedCount":3,"instruction":"Continue through three concise beats. Resolve the completed ferry-toll obligation, keep durable facts current, and do not turn Story Memory into a transcript."}
+  },
+  "expectations":{"checks":[{"kind":"story_item_count_equals","value":3},{"kind":"story_recommendation_pairs_valid"}]},
+  "behavioralChecks":[
+    {"id":"hygiene-current-memory","description":"Review the per-slot projected memory for duplicate durable facts, stale unresolved threads, and unnecessary rewrites.","expectedConcepts":["river"],"forbiddenConcepts":["full transcript"]},
+    {"id":"hygiene-ferry-thread-resolved","description":"The completed ferry-toll thread is removed from projected memory when the generated continuation resolves it.","kind":"memory_thread_resolved","memoryId":"13131313-1313-4313-8313-131313131313"},
+    {"id":"hygiene-map-thread-preserved","description":"Bob's archive-map return thread remains open when the ferry-toll thread resolves.","kind":"memory_thread_id_preserved","memoryId":"ffffffff-ffff-4fff-8fff-ffffffffffff"},
+    {"id":"hygiene-letter-thread-preserved","description":"The unrelated archivist-letter obligation remains open when the ferry-toll thread resolves; unlike passage, it cannot be fulfilled at the ferry quay.","kind":"memory_thread_id_preserved","memoryId":"12121212-1212-4212-8212-121212121212"},
+    {"id":"hygiene-key-id-preserved","description":"The durable brass-key memory ID remains stable across the projected slots.","kind":"memory_fact_id_preserved","memoryId":"cccccccc-cccc-4ccc-8ccc-cccccccccccc"}
+  ],
+  "humanReview":["Version 2 replaces the ambiguous river-passage preservation target: paying the ferry toll and leaving the quay could reasonably fulfill it. The archivist-letter obligation is deliberately unrelated. Use the recorded counts, IDs, duplicate-normalized-text flags, summaries, and per-slot snapshots to assess whether Story Memory stays compact and useful."]
+}

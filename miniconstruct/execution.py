@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import ipaddress
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -14,9 +15,10 @@ from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator, model_serializer
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator, model_validator, model_serializer
 
 from miniconstruct.models.workspace import AssetKind, H3Mode
+from miniconstruct.native_continuation_models import NativeCapability
 
 MAX_WORKFLOW_BYTES = 2 * 1024 * 1024
 MAX_STATS_BYTES = 64 * 1024
@@ -95,6 +97,17 @@ class NamedConfig(StrictModel):
 
 class ConnectionWrite(NamedConfig):
     base_url: str = Field(alias="baseUrl", min_length=1, max_length=2048)
+    local_input_directory: str | None = Field(default=None, alias="localInputDirectory", max_length=4096)
+
+    @field_validator("local_input_directory")
+    @classmethod
+    def clean_input_directory(cls, value):
+        if value is None or not value.strip():
+            return None
+        value = value.strip()
+        if any(ord(c) < 32 for c in value) or not Path(value).is_absolute():
+            raise ValueError("Local input directory must be an absolute path on the MiniConstruct backend")
+        return value
 
     @field_validator("base_url")
     @classmethod
@@ -112,6 +125,39 @@ class GeneratedPromptSource(StrictModel):
 
 class DurationSource(StrictModel):
     kind: Literal["duration"]
+
+
+class AspectRatioSource(StrictModel):
+    kind: Literal["aspect_ratio"]
+    value_map: dict[StrictStr, StrictStr] = Field(default_factory=dict, alias="valueMap", max_length=16)
+    enum_choices: list[StrictStr] | None = Field(default=None, alias="enumChoices", min_length=1, max_length=100)
+
+    @model_serializer(mode="wrap")
+    def optional_enum_declaration(self, handler):
+        value = handler(self)
+        if self.enum_choices is None:
+            value.pop("enumChoices", None)
+            value.pop("enum_choices", None)
+        return value
+
+    @field_validator("enum_choices")
+    @classmethod
+    def unique_enum_choices(cls, value):
+        if value is not None:
+            from miniconstruct.aspect_ratios import ratio_mappings
+            ratio_mappings(value)
+        return value
+
+    @field_validator("value_map")
+    @classmethod
+    def bounded_value_map(cls, value):
+        if any(not key or len(key) > 40 or not target or len(target) > 256 for key, target in value.items()):
+            raise ValueError("aspect_ratio valueMap keys must be 1–40 characters and values 1–256 characters")
+        return value
+
+
+class RendererSeedSource(StrictModel):
+    kind: Literal["renderer_seed"]
 
 
 class ReferenceSource(StrictModel):
@@ -140,7 +186,7 @@ class ReferenceRoute(DeactivationTarget):
 
 
 class Binding(StrictModel):
-    source: Annotated[GeneratedPromptSource | DurationSource | ReferenceSource, Field(discriminator="kind")]
+    source: Annotated[GeneratedPromptSource | DurationSource | AspectRatioSource | RendererSeedSource | ReferenceSource, Field(discriminator="kind")]
     node_id: str = Field(alias="nodeId", min_length=1)
     input_name: str = Field(alias="inputName", min_length=1)
     presence: Literal["optional", "required"] = "optional"
@@ -308,7 +354,10 @@ def is_graph_link(value: Any) -> bool:
 
 def binding_errors(graph: dict, bindings: list[Binding]) -> list[str]:
     errors, seen = [], set()
+    if sum(binding.source.kind == "renderer_seed" for binding in bindings) > 1:
+        errors.append("Workflow Profile may map only one renderer_seed input.")
     target_seen = set()
+    semantic_targets = {(binding.node_id, binding.input_name) for binding in bindings}
     for index, binding in enumerate(bindings, 1):
         target = (binding.node_id, binding.input_name)
         label = f"Binding {index} ({binding.node_id} / {binding.input_name})"
@@ -324,11 +373,17 @@ def binding_errors(graph: dict, bindings: list[Binding]) -> list[str]:
             if isinstance(value, (list, dict)):
                 kind = "graph link" if is_graph_link(value) else "structured input"
                 errors.append(f"{label}: {kind} cannot be bound; choose a scalar input")
+            elif binding.source.kind == "aspect_ratio" and not isinstance(value, str):
+                errors.append(f"{label}: aspect_ratio must target a scalar string input")
+            elif binding.source.kind == "renderer_seed" and (type(value) is not int or value < 0 or value > 18446744073709551615):
+                errors.append(f"{label}: renderer_seed must target a non-negative integer seed input")
         for deactivation in binding_deactivation_targets(binding):
             key = (deactivation.node_id, deactivation.input_name)
             value = graph.get(deactivation.node_id, {}).get("inputs", {}).get(deactivation.input_name)
             if key in target_seen:
                 errors.append(f"{label}: deactivation target is declared more than once")
+            if key in semantic_targets:
+                errors.append(f"{label}: deactivation target conflicts with another semantic binding target")
             target_seen.add(key)
             expected = [deactivation.expected_source_node_id, deactivation.expected_output_index]
             if deactivation.expected_source_node_id not in graph:
@@ -401,8 +456,12 @@ def reference_boundary_targets(graph: dict, loader_id: str) -> tuple[set[tuple[s
     return (allowed, None) if allowed else (set(), OPTIONAL_BOUNDARY_ERROR)
 
 
-def optional_slot_errors(graph: dict, binding: Binding) -> list[str]:
-    """Require every executable path from the loader to cross an exact target edge."""
+def optional_slot_errors(graph: dict, binding: Binding, *, require_deactivation: bool = True) -> list[str]:
+    """Validate route ownership; removable slots must cut every executable path.
+
+    Always-active Required Pictures still need exact, reachable reference
+    boundaries. They do not need to disconnect other dependencies such as size.
+    """
     targets = binding_deactivation_targets(binding)
     if not targets:
         return [OPTIONAL_BOUNDARY_ERROR]
@@ -420,8 +479,23 @@ def optional_slot_errors(graph: dict, binding: Binding) -> list[str]:
                 for item in targets}
     if not declared.issubset(allowed):
         return ["Optional reference slot contains a deactivation target outside the safe reference-branch boundary."]
-    if allowed - declared:
-        return ["Optional reference slot cannot be safely disabled: still reaches executable workflow output through an undeclared boundary path."]
+    # Allowed edges were discovered from this loader within the safety bounds.
+    # Keep that ownership check even when the Picture cannot be deactivated.
+    if not require_deactivation:
+        return []
+    uncovered = sorted(allowed - declared)
+    if uncovered:
+        details = "; ".join(f"{destination[:120]} / {name[:120]} <- {source[:120]} output {output}"
+                            for source, destination, name, output in uncovered[:8])
+        if len(uncovered) > 8:
+            details += f"; and {len(uncovered) - 8} more inputs"
+        guidance = "Keep this slot Required if these inputs are needed. Only declare routes the destination supports omitting."
+        if any(name in {"width", "height"} and graph[source]["class_type"] == "GetImageSize"
+               for source, _destination, name, _output in uncovered):
+            guidance += (" These dimensions still depend on the Picture; a Picture-free workflow needs independent "
+                         "width and height in ComfyUI, followed by a new API export. Do not deactivate required dimensions.")
+        return ["Optional reference slot cannot be safely disabled: still reaches executable workflow output "
+                f"through undeclared boundary inputs: {details}. {guidance}"]
 
     # Discoverability and the safety walk share one deterministic, cycle-safe
     # graph traversal. A target that is not downstream of the mapped loader is
@@ -459,7 +533,9 @@ def optional_slot_errors(graph: dict, binding: Binding) -> list[str]:
         if source_id in original_terminals:
             return [f"Optional reference slot cannot be safely disabled: Optional "
                     f"{binding.source.asset_kind.title()} {binding.source.ordinal} still reaches executable "
-                    "workflow output through an undeclared path."]
+                    f"workflow output through an undeclared path to node {source_id[:120]} "
+                    f"({graph[source_id]['class_type'][:120]}). Keep the slot Required or revise this branch "
+                    "in ComfyUI and re-export it; MiniConstruct will not prune it."]
         remaining = [edge for edge in outgoing.get(source_id, [])
                      if (source_id, edge[0], edge[1], edge[2]) not in cut_edges]
         for destination_id, input_name, output_index in remaining:
@@ -486,10 +562,197 @@ def profile_readiness_errors(graph: dict, bindings: list[Binding]) -> list[str]:
     return errors
 
 
+def native_mapping_errors(graph, bindings, capability):
+    if capability is None:
+        return []
+    from miniconstruct.i2va_contract import picture_free_errors
+    errors = picture_free_errors(graph, bindings, capability)
+    seen = {(b.node_id, b.input_name) for b in bindings}
+    seen.update((r.node_id, r.input_name) for b in bindings if b.source.kind == "reference_asset"
+                for r in binding_routes(b))
+    for semantic, mapping in capability.inputs.items():
+        target = (mapping.node_id, mapping.input_name)
+        inputs = graph.get(mapping.node_id, {}).get("inputs", {})
+        if mapping.input_name not in inputs or isinstance(inputs.get(mapping.input_name), (list, dict)):
+            errors.append(f"Native {semantic}: mapped node/input must exist and be scalar")
+        if target in seen:
+            errors.append(f"Native {semantic}: mapped input conflicts with another binding/route")
+        seen.add(target)
+    source_targets = set()
+    for index, link in enumerate(capability.source_links, 1):
+        target = (link.node_id, link.input_name)
+        label = f"Native source link {index} ({link.node_id} / {link.input_name})"
+        value = graph.get(link.node_id, {}).get("inputs", {}).get(link.input_name)
+        expected = [link.expected_source_node_id, link.expected_output_index]
+        if target in source_targets:
+            errors.append(f"{label}: duplicate target")
+        source_targets.add(target)
+        if target in seen:
+            errors.append(f"{label}: target conflicts with a scalar native mapping or binding/route")
+        if link.expected_source_node_id not in graph:
+            errors.append(f"{label}: expected source node does not exist")
+        if link.node_id == link.expected_source_node_id or value != expected:
+            errors.append(f"{label}: target must match its expected source node and output index")
+    return errors
+
+
+class ControlTarget(StrictModel):
+    node_id: str = Field(alias="nodeId", min_length=1, max_length=80)
+    input_name: str = Field(alias="inputName", min_length=1, max_length=160)
+    path: list[str] = Field(default_factory=list, max_length=4)
+
+    @field_validator("path")
+    @classmethod
+    def bounded_keys(cls, value):
+        if any(not key or len(key) > 160 for key in value):
+            raise ValueError("Control path keys must be 1–160 characters")
+        return value
+
+
+class ExposedControl(StrictModel):
+    id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,79}$")
+    label: str = Field(min_length=1, max_length=160)
+    target: ControlTarget
+    type: Literal["boolean", "integer", "float", "enum"]
+    default_value: Any = Field(alias="defaultValue")
+    minimum: float | None = None
+    maximum: float | None = None
+    step: float | None = None
+    choices: list[Any] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def declaration(self):
+        if not self.label.strip():
+            raise ValueError("Control label must not be blank")
+        if self.type in {"integer", "float"}:
+            for bound in (self.minimum, self.maximum, self.step):
+                if bound is not None and not math.isfinite(bound):
+                    raise ValueError("Numeric control limits must be finite")
+            if self.step is not None and self.step <= 0:
+                raise ValueError("Control step must be positive")
+            if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
+                raise ValueError("Control minimum exceeds maximum")
+            if self.type == "integer" and any(bound is not None and not bound.is_integer() for bound in (self.minimum, self.maximum, self.step)):
+                raise ValueError("Integer control limits must be integers")
+        elif any(bound is not None for bound in (self.minimum, self.maximum, self.step)):
+            raise ValueError("Only numeric controls may have limits")
+        if self.type == "enum":
+            if not self.choices or any(type(v) not in (str, int, float, bool) or
+                                       (type(v) is str and len(v) > 512) or
+                                       (type(v) is float and not math.isfinite(v)) for v in self.choices):
+                raise ValueError("Enum requires finite scalar choices")
+            if len({(type(v), v) for v in self.choices}) != len(self.choices) or len({type(v) for v in self.choices}) != 1:
+                raise ValueError("Enum choices must be unique and have one scalar type")
+        elif self.choices:
+            raise ValueError("Choices apply only to enum controls")
+        control_value(self, self.default_value)
+        return self
+
+
+def control_value(control: ExposedControl, value: Any):
+    kind = control.type
+    finite_number = False
+    if type(value) in (int, float):
+        try:
+            finite_number = math.isfinite(value)
+        except OverflowError:
+            finite_number = False
+    valid = (type(value) is bool if kind == "boolean" else
+             type(value) is int if kind == "integer" else
+             type(value) in (int, float) and finite_number if kind == "float" else
+             type(value) is type(control.choices[0]) and value in control.choices)
+    if not valid:
+        raise ValueError(f"{control.id}: value does not match {kind} control")
+    if kind in {"integer", "float"} and ((control.minimum is not None and value < control.minimum)
+                                          or (control.maximum is not None and value > control.maximum)):
+        raise ValueError(f"{control.id}: value is outside configured bounds")
+    return float(value) if kind == "float" else value
+
+
+def control_target_value(graph: dict, target: ControlTarget):
+    inputs = graph.get(target.node_id, {}).get("inputs", {})
+    if target.input_name not in inputs:
+        raise ValueError("target node or input does not exist")
+    value = inputs[target.input_name]
+    for key in target.path:
+        if not isinstance(value, dict) or key not in value:
+            raise ValueError("structured dictionary path does not exist")
+        value = value[key]
+    if is_graph_link(value):
+        raise ValueError("graph link cannot be a control target")
+    if type(value) not in (str, int, float, bool):
+        raise ValueError("control target must be a scalar leaf")
+    return value
+
+
+def control_errors(graph, controls, bindings, native):
+    errors, ids, targets = [], set(), set()
+    owned = {(b.node_id, b.input_name) for b in bindings}
+    owned.update((r.node_id, r.input_name) for b in bindings if b.source.kind == "reference_asset" for r in binding_routes(b))
+    if native:
+        owned.update((m.node_id, m.input_name) for m in native.inputs.values())
+        owned.update((m.node_id, m.input_name) for m in native.source_links)
+    for control in controls:
+        target = control.target
+        key = (target.node_id, target.input_name, tuple(target.path))
+        if control.id in ids:
+            errors.append(f"Control {control.id}: duplicate ID")
+        if key in targets:
+            errors.append(f"Control {control.id}: duplicate target leaf")
+        if (target.node_id, target.input_name) in owned:
+            errors.append(f"Control {control.id}: target is owned by a semantic binding or native mapping")
+        ids.add(control.id); targets.add(key)
+        try:
+            leaf = control_target_value(graph, target)
+            if control.type != "enum" and (type(leaf) is not type(control.default_value)
+                                           and not (control.type == "float" and type(leaf) in (int, float))):
+                raise ValueError("target leaf type does not match control")
+            if control.type == "enum" and type(leaf) is not type(control.choices[0]):
+                raise ValueError("target leaf type does not match enum choices")
+        except ValueError as exc:
+            errors.append(f"Control {control.id}: {exc}")
+    return errors
+
+
+class WorkflowControlPreset(StrictModel):
+    name: str = Field(min_length=1, max_length=80)
+    values: dict[str, Any] = Field(max_length=128)
+
+    @field_validator("name")
+    @classmethod
+    def nonblank_name(cls, value):
+        if not value.strip():
+            raise ValueError("Preset name must not be blank")
+        return value
+
+
 class ProfileEdit(NamedConfig):
+    native_continuation: NativeCapability | None = Field(default=None, alias="nativeContinuation")
     description: str = Field(default="", max_length=4000)
     compatible_modes: list[H3Mode] = Field(alias="compatibleModes", min_length=1, max_length=len(H3Mode))
     bindings: list[Binding] = Field(default_factory=list, max_length=1000)
+    exposed_controls: list[ExposedControl] = Field(default_factory=list, alias="exposedControls", max_length=128)
+    workflow_control_presets: list[WorkflowControlPreset] = Field(default_factory=list, alias="workflowControlPresets", max_length=64)
+
+    @model_validator(mode="after")
+    def valid_presets(self):
+        if (self.native_continuation and self.native_continuation.picture_free_i2va
+                and self.compatible_modes != [H3Mode.I2VA]):
+            raise ValueError("Picture-free successor Profiles must declare only I2VA compatibility")
+        declared = {control.id: control for control in self.exposed_controls}
+        if not declared and self.workflow_control_presets:
+            raise ValueError("Workflow Control presets require exposed controls")
+        names = set()
+        for preset in self.workflow_control_presets:
+            folded = preset.name.strip().casefold()
+            if folded in names:
+                raise ValueError(f"Duplicate Workflow Control preset name: {preset.name}")
+            names.add(folded)
+            if set(preset.values) != set(declared):
+                raise ValueError(f"Preset {preset.name} must contain exactly every exposed control ID")
+            for key, value in preset.values.items():
+                control_value(declared[key], value)
+        return self
 
     @field_validator("compatible_modes")
     @classmethod
@@ -534,24 +797,27 @@ class Profile(ProfileEdit):
         check_graph(self.workflow)
         if self.fingerprint != workflow_fingerprint(self.workflow):
             raise ValueError("Workflow fingerprint does not match the source graph")
-        errors = binding_errors(self.workflow, self.bindings)
+        errors = (binding_errors(self.workflow, self.bindings) + native_mapping_errors(self.workflow, self.bindings, self.native_continuation)
+                  + control_errors(self.workflow, self.exposed_controls, self.bindings, self.native_continuation))
         if errors:
             raise ValueError("; ".join(errors))
         return self
 
 
 class ExecutionConfig(StrictModel):
-    schema_version: Literal[3] = Field(default=3, alias="schemaVersion")
+    schema_version: Literal[7] = Field(default=7, alias="schemaVersion")
     connections: list[Connection] = Field(default_factory=list)
     profiles: list[Profile] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
-    def migrate_v1_and_v2(cls, value):
+    def migrate_execution_config(cls, value):
         if not isinstance(value, dict):
             return value
         source_version = value.get("schemaVersion", 2)
-        value = {**value, "schemaVersion": 3}
+        if source_version not in (1, 2, 3, 4, 5, 6, 7):
+            raise ValueError("Unsupported execution configuration version")
+        value = {**value, "schemaVersion": 7}
         # v1 had no optional-reference ownership contract. Do not invent
         # direct or transitive destinations while upgrading it.
         if source_version == 1:
@@ -601,7 +867,7 @@ class ExecutionStore:
     def _write(self, config: ExecutionConfig):
         temporary = self.path.with_name(f".{self.path.name}.{uuid4().hex}.tmp")
         try:
-            # Persist the v3 shape even when a caller is still holding a
+            # Persist the current file with v3 reference mappings even when a caller holds a
             # v2-compatible in-memory model. This keeps legacy edits usable
             # without allowing the old wire concept to survive a mutation.
             payload = config.model_dump(mode="json", by_alias=True)
@@ -654,7 +920,8 @@ class ExecutionStore:
                 imported = getattr(data, "workflow_json", None)
                 graph = parse_workflow(imported) if imported is not None else old.workflow
                 metadata = data if isinstance(data, ProfileEdit) else old
-                errors = binding_errors(graph, metadata.bindings)
+                errors = (binding_errors(graph, metadata.bindings) + native_mapping_errors(graph, metadata.bindings, metadata.native_continuation)
+                          + control_errors(graph, metadata.exposed_controls, metadata.bindings, metadata.native_continuation))
                 if errors:
                     raise InvalidBindings(errors)
                 record = Profile(**metadata.model_dump(by_alias=True, include=set(ProfileEdit.model_fields)),
@@ -665,6 +932,30 @@ class ExecutionStore:
                 records[records.index(old)] = record
             self._write(config)
             return record
+
+    def duplicate_profile_draft(self, record_id: UUID) -> ProfileCreate:
+        """Read one coherent snapshot; return reusable configuration without identity.
+
+        Serialize the authoritative graph here, before JavaScript can round large
+        integers. Creation still goes through the ordinary validated save path.
+        """
+        with _LOCK:
+            profiles = self._read().profiles
+            source = next((item for item in profiles if item.id == record_id), None)
+            if source is None:
+                raise ConfigNotFound("Workflow Profile was not found")
+            names = {item.name.casefold() for item in profiles}
+            number = 1
+            while True:
+                suffix = " (Copy)" if number == 1 else f" (Copy {number})"
+                name = source.name[:160 - len(suffix)] + suffix
+                if name.casefold() not in names:
+                    break
+                number += 1
+            return ProfileCreate(**{
+                **source.model_dump(by_alias=True, include=set(ProfileEdit.model_fields)),
+                "name": name, "workflowJson": json.dumps(source.workflow, ensure_ascii=False, separators=(",", ":")),
+            })
 
     def delete(self, collection, record_id: UUID):
         with _LOCK:
@@ -678,7 +969,7 @@ class ExecutionStore:
 
 
 async def test_connection(connection: Connection, *, transport=None) -> dict:
-    """The only Comfy network operation: bounded GET /system_stats, no redirects."""
+    """Perform the explicit Connection test with a bounded GET /system_stats and no redirects."""
     try:
         async with asyncio.timeout(TEST_TIMEOUT_SECONDS):
             async with httpx.AsyncClient(transport=transport, timeout=TEST_TIMEOUT_SECONDS,

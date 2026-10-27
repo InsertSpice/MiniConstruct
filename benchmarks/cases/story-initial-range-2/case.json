@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "story-initial-range-2",
+  "version": "1",
+  "title": "Bounded initial Story range: G1 plus one new Generation",
+  "tags": ["story", "initial-range", "bounded", "memory"],
+  "operation": "build_initial_range",
+  "story": {
+    "storyIdea": "A courier carries a sealed letter through a rain-dark city before the gate closes.",
+    "sequenceContext": "The courier must preserve the letter's wax seal until delivery.",
+    "storyCreativeDirection": {
+      "toneMood": "Rainy, restrained urgency",
+      "pacingRhythm": "One clear action per Generation"
+    },
+    "generations": [
+      {
+        "workspacePath": "workspace.json","scenePlan": "A courier shields a sealed letter beneath a coat in steady rain outside a closed city gate.",
+        "planning": {"relationshipToPrevious": null, "cameraIntent": "A user-authored close view of the sealed letter."}
+      }
+    ],
+    "initialRange": {"requestedTotalCount": 2}
+  },
+  "expectations": {
+    "checks": [
+      {"kind": "story_item_count_equals", "value": 2},
+      {"kind": "story_existing_generation_count_equals", "value": 1},
+      {"kind": "story_existing_generation_ids_preserved"},
+      {"kind": "story_first_relationship_null"},
+      {"kind": "story_relationship_valid"},
+      {"kind": "story_recommendation_pairs_valid"}
+    ]
+  },
+  "humanReview": [
+    "Does saved G1 dialogue remain exact while the second Generation advances the courier's immediate goal?",
+    "Does the G1-to-G2 Story Memory projection record only current continuity, with no final-state leak backward?"
+  ]
+}

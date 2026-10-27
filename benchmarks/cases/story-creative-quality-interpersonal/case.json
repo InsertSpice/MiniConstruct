@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "id": "story-creative-quality-interpersonal",
+  "version": "1",
+  "title": "Story-aware scene planning quality: interpersonal disagreement",
+  "description": "Opt-in text-only review case for an interpersonal disagreement that changes through discovery.",
+  "tags": ["story", "initial-range", "scene-plan", "quality", "opt-in"],
+  "operation": "build_initial_range",
+  "story": {
+    "storyIdea": "Two sisters clear their late father's workshop before selling the house. Mara wants to discard a broken radio, while Lena wants to keep it. The disagreement gets personal; moving the radio reveals something inside that changes the tone of their argument.",
+    "sequenceContext": "",
+    "storyCreativeDirection": {
+      "toneMood": "",
+      "performanceEnergy": "Favor natural, low-amplitude performances with nuanced reactions and believable restraint.\n\nKeep performances restrained and low-key, favoring subtle reactions, controlled movement, and understated delivery over heightened or explosive expression.",
+      "pacingRhythm": "Keep narrative progression measured, allowing developments and reactions room to unfold before the next meaningful turn.",
+      "beatDurationDensity": "Keep beat density dense, packing several connected meaningful developments or pieces of information into each Generation without sacrificing clarity."
+    },
+    "narrativeSubjects": [
+      {"subjectId": "older_sister", "narrativeName": "Mara"},
+      {"subjectId": "younger_sister", "narrativeName": "Lena"}
+    ],
+    "generations": [{"workspacePath": "workspace.json", "planning": {"relationshipToPrevious": null}}],
+    "initialRange": {"requestedTotalCount": 3}
+  },
+  "expectations": {"checks": [
+    {"kind": "story_item_count_equals", "value": 3},
+    {"kind": "story_initial_range_new_generation_count_equals", "value": 2},
+    {"kind": "story_initial_range_ordered_slots"},
+    {"kind": "story_initial_range_memory_available"},
+    {"kind": "story_first_relationship_null"},
+    {"kind": "story_relationship_valid"},
+    {"kind": "story_field_not_empty", "field": "scenePlan"},
+    {"kind": "story_field_not_empty", "field": "incomingState"},
+    {"kind": "story_field_not_empty", "field": "intendedOutgoingState"},
+    {"kind": "story_field_not_empty", "field": "cameraIntent"},
+    {"kind": "forbidden_text_absent", "patterns": ["\\[Shot\\s*\\d+\\]", "<Picture\\s*\\d+>", "ComfyUI"]}
+  ]},
+  "humanReview": [
+    "Does the conflict develop through actions and reactions rather than only emotional adjectives?",
+    "Do Mara and Lena both participate meaningfully?",
+    "Does the radio and workshop participate causally in the disagreement?",
+    "Does the disagreement escalate or change for a visible reason?",
+    "Is the discovery inside the radio a plausible connective invention grounded in the supplied premise?",
+    "Does that discovery change subsequent behavior or interpretation?",
+    "Does the planner avoid an unrelated subplot?",
+    "Are Dialogue and creativeRequest conceptually separate?",
+    "Are Incoming and Outgoing State distinct from Main Prompt?",
+    "Are the proposed actions and dialogue feasible for the configured Generation duration?"
+  ]
+}

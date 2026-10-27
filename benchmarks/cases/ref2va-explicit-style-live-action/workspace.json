@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Visual Style reference-informed comparison",
+  "mode": "Ref2VA",
+  "durationSeconds": 8,
+  "shots": 2,
+  "aspectRatio": "auto",
+  "variations": 1,
+  "creativeRequest": "Subject 1 walks across a quiet rooftop at sunset, then stops at the railing and looks toward the skyline. Keep the outfit and recognizable design from Picture 1. Use two shots with clear progression.",
+  "dialogue": "",
+  "referenceLabels": "",
+  "assets": [
+    {
+      "id": "b9059e49-58b0-4d86-895e-17bc5c2f9552",
+      "kind": "image",
+      "filename": "Codex Image Sep 1, 2026, 05_50_19 AM.png",
+      "mimeType": "image/jpeg",
+      "durationSeconds": null,
+      "role": "subject_identity",
+      "notes": "",
+      "options": {},
+      "subjectIdentity": {
+        "subjectId": "subject-1",
+        "focus": "general",
+        "view": "unspecified",
+        "layout": "reference_sheet"
+      },
+      "order": 0,
+      "attached": true,
+      "image": {
+        "data_url": "data:image/jpeg,fixture-placeholder",
+        "width": 1600,
+        "height": 900
+      }
+    }
+  ],
+  "subjects": [
+    {
+      "id": "subject-1",
+      "number": 1
+    }
+  ],
+  "nextSubjectNumber": 2,
+  "creativeControls": {
+    "music": {
+      "mode": "off",
+      "description": ""
+    },
+    "camera": {},
+    "visualStyle": {
+      "preset": "live_action",
+      "custom": ""
+    },
+    "subjectIdentityFidelity": {
+      "level": "auto"
+    },
+    "tonePerformance": {
+      "sensuality": "auto",
+      "drama": "auto",
+      "horror": "auto",
+      "tension": "auto",
+      "romance": "auto",
+      "whimsy": "auto",
+      "performanceStyle": "auto",
+      "performanceEnergy": "auto"
+    }
+  }
+}

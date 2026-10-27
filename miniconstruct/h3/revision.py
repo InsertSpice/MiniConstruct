@@ -9,6 +9,7 @@ from miniconstruct.h3.builder import (
     inspector_text,
     instruction_layers,
     system_message_content,
+    STORY_DIRECTING_POLICY,
 )
 from miniconstruct.models.api import RevisionRequest, RevisionSelection
 
@@ -16,9 +17,9 @@ from miniconstruct.models.api import RevisionRequest, RevisionSelection
 REVISION_POLICY = """You are performing one selective edit inside an existing MiniMax H3 prompt.
 Return ONLY replacement text for the selected excerpt. Do not return the full prompt, explanations, a response heading such as "Replacement:", or Markdown fences.
 Text outside <MINICONSTRUCT_SELECTION> is immutable and is supplied only for continuity context. The selection markers exist only in this request: do not return them.
-Preserve existing Subject, Picture, Video, Audio, speaker, shot, and timeline identities unless the selected text itself requires a local correction.
+Preserve valid existing Subject, speaker, shot, and timeline identities unless the selected text itself requires a local correction. Picture, Video and Audio labels are valid only if they appear in the canonical current Workspace media allowlist. A nonexistent label in the existing H3 prompt is an error, not reference authority; do not repeat it in the replacement. Never create a new media label.
 Keep each stable Subject's grouped identity references intact: a multi-view reference sheet is evidence for one Subject, never several generated people, a panel layout, or a target composition. Preserve Character Comparison / Scale relationships as relative scale and body-proportion constraints, never as a requirement to copy its side-by-side staging or camera.
-The Exact Dialogue field is authoritative: preserve its wording and punctuation verbatim, including every selected <d>...</d> passage.
+The resolved Exact Dialogue field is authoritative: preserve its spoken wording and punctuation verbatim as the payload inside <d>[Language] ...</d>. The one leading official [Language] tag is required H3 metadata, not audible text; retain or add the appropriate tag without changing the payload. Do not add translation/pronunciation notes, commentary, emotion tags, or other annotations.
 The explicit Revision Request is authoritative within the selected excerpt and may intentionally override workspace Creative Controls there.
 Fit the replacement naturally between the immutable surrounding text. Do not create unrelated top-level sections or renumber unrelated shots."""
 
@@ -42,11 +43,13 @@ def validate_replacement(selection: RevisionSelection, replacement: str) -> str 
 
 
 def assemble_revision_prompt(request: RevisionRequest) -> AssembledPrompt:
-    base = assemble_prompt(request.prompt_workspace, request.llm.supports_vision)
+    base = assemble_prompt(request.prompt_workspace, request.llm.supports_vision, request.narrative_subjects, request.continuity_context, request.story_context)
     layers = [
-        layer for layer in instruction_layers(request.prompt_workspace, request.llm.supports_vision)
+        layer for layer in instruction_layers(request.prompt_workspace, request.llm.supports_vision, request.narrative_subjects, request.continuity_context)
         if layer[0] != "Generation policy"
     ]
+    if request.story_context is not None:
+        layers.append(("Story-aware directing policy", STORY_DIRECTING_POLICY))
     layers.append(("Selective revision policy", REVISION_POLICY))
     messages = [{"role": "system", "content": system_message_content(layers)}]
 

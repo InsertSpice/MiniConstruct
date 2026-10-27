@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "h3-observed-continuity",
+  "title": "Selected output observation to H3 (opt-in)",
+  "cases": [
+    "h3-observed-failed-plan",
+    "h3-observed-current-override"
+  ]
+}

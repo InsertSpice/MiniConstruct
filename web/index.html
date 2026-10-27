@@ -20,6 +20,7 @@
       <button id="project-save">Save</button>
       <button id="project-save-as" class="quiet">Save As</button>
       <button id="project-rename" class="quiet">Rename</button>
+      <button id="project-clear-generated" class="quiet danger">Clear generated state</button>
       <button id="project-delete" class="quiet danger">Delete</button>
       <button id="project-migrate" class="quiet" title="Import the selected legacy browser Project as a new filesystem Project" disabled>Import Legacy</button>
       <button id="project-export" class="icon-button" title="Export project" aria-label="Export project">⇩</button>
@@ -33,6 +34,23 @@
       <button id="open-execution" class="quiet">Execution / ComfyUI</button>
     </div>
   </header>
+
+  <dialog id="project-save-as-dialog" aria-labelledby="project-copy-heading">
+    <h2 id="project-copy-heading">Save As</h2>
+    <label>New Project name <input id="project-copy-name" maxlength="160" required></label>
+    <label>Copy mode <select id="project-copy-mode"><option value="full">Full copy</option><option value="fresh">Fresh working copy</option></select></label>
+    <p>Full copy keeps the whole Project history, including Takes, Sends, observations and Saved H3 Prompts. Native attempts start a new execution chain.</p>
+    <p>Fresh working copy keeps Project/Sequence authoring, settings, references and workflow setup. It starts without previous renders, Takes, Send history or native execution state. MiniConstruct-managed historical output media is not copied. Files in the external ComfyUI output directory are never modified.</p>
+    <label id="project-keep-prompts-row" hidden><input id="project-keep-prompts" type="checkbox"> <span>Keep Saved H3 Prompts (text history only)</span></label>
+    <div class="inline-row"><button id="project-copy-cancel" type="button" class="quiet">Cancel</button><button id="project-copy-confirm" type="button">Save copy</button></div>
+  </dialog>
+  <dialog id="project-clear-dialog" aria-labelledby="project-clear-heading">
+    <h2 id="project-clear-heading">Clear generated state?</h2>
+    <p>This clears MiniConstruct render/execution history and managed generated media from this Project. It does NOT delete files from the external ComfyUI output directory. Project authoring, Reference Assets and workflow setup are preserved.</p>
+    <p>Takes, observations, Send history, native attempts and execution selections will be removed. Generate → Use for execution → Prepare → Send to start again.</p>
+    <label><input id="project-clear-prompts" type="checkbox"> Also clear Saved H3 Prompts</label>
+    <div class="inline-row"><button id="project-clear-cancel" type="button" class="quiet">Cancel</button><button id="project-clear-confirm" type="button" class="danger">Clear generated state</button></div>
+  </dialog>
 
   <main class="workspace">
     <aside class="left-rail">
@@ -52,32 +70,45 @@
           <button id="generation-later" type="button" title="Move the active Generation later" aria-label="Move Generation later">↓</button>
           <button id="generation-delete" type="button" class="quiet danger" title="Delete the active Generation">Delete</button>
         </div>
+        <div class="sequence-prepare-action">
+          <button id="sequence-render-next" type="button">Prepare next ready Generation</button>
+          <p class="helper">Finds the earliest Sequence Generation with saved execution authority and runs Prepare only. It never generates H3 or sends to ComfyUI.</p>
+          <div id="sequence-render-next-status" class="helper" role="status"></div>
+        </div>
+        <label>Sequence Dialogue Language
+          <select id="dialogue-language" aria-label="Sequence Dialogue Language">
+            <option value="as_written">As Written</option><option value="ar">Arabic</option><option value="zh">Chinese</option><option value="en">English</option><option value="fr">French</option><option value="de">German</option><option value="it">Italian</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="pt">Portuguese</option><option value="ru">Russian</option><option value="es">Spanish</option>
+          </select>
+        </label>
          <p id="sequence-helper" class="helper">Save the Project to add more Generations.</p>
          <details class="continuity-section" id="story-planner-section">
            <summary>Story Planner <span class="muted">optional Sequence draft</span></summary>
-           <div id="story-planner"></div>
+           <div id="story-planner">
+             <button id="generate-story" class="primary"><span>Generate from Story</span></button>
+           </div>
          </details>
-         <details id="continuity-section" class="continuity-section" open>
-           <summary>Continuity <span class="muted">authoring notes</span></summary>
-           <p class="helper">These notes are saved with the Sequence and active Generation. They do not change H3 prompt generation yet.</p>
+         <details id="continuity-section" class="continuity-section">
+           <summary>Planned Continuity <span class="muted">H3 authoring guidance</span></summary>
+           <p class="helper">Save these fields to influence H3 authoring for this Generation. H3 uses the saved Project values. Planned Continuity describes intended state, not observed video output.</p>
            <label>Sequence Context
-             <span class="muted">Facts or rules that should remain consistent across the sequence.</span>
+             <span class="muted">Sequence-wide planning and world guidance; relevant constraints influence H3.</span>
              <textarea id="sequence-context" rows="3" maxlength="20000" placeholder="Alice wears a navy jacket throughout the sequence."></textarea>
            </label>
            <label>Incoming State — <span id="incoming-state-generation">Generation 1</span>
-             <span class="muted">Relevant state at the start of this Generation.</span>
+             <span class="muted">State expected to be true at the START of this Generation; H3 must respect it.</span>
              <textarea id="incoming-state" rows="3" maxlength="20000" placeholder="Alice is standing beside the machine."></textarea>
            </label>
            <label>Intended Outgoing State — <span id="outgoing-state-generation">Generation 1</span>
-             <span class="muted">State that should be true at the intended end of this Generation.</span>
+             <span class="muted">Desired state by the END; H3 authors a transition, not a frame-zero assumption.</span>
              <textarea id="intended-outgoing-state" rows="3" maxlength="20000" placeholder="The machine is powered off."></textarea>
            </label>
            <label>Relationship to Previous
-             <span class="muted">How this Generation relates to the preceding shot.</span>
+             <span class="muted">How this Generation relates temporally and visually to its predecessor.</span>
              <select id="relationship-to-previous" aria-label="Relationship to Previous"></select>
            </label>
-           <label>Camera / Shot Intent
-             <span class="muted">The planned camera setup and composition for this Generation.</span>
+           <div id="visual-handoff"></div>
+           <label>Shot Plan / Camera Intent
+             <span class="muted">Incoming State anchors the first shot; Intended Outgoing State anchors the final shot.</span>
              <textarea id="camera-intent" rows="4" maxlength="20000" placeholder="Describe the planned framing, angle, composition, and camera movement."></textarea>
            </label>
            <div class="inline-row wrap">
@@ -100,32 +131,45 @@
         <p id="mode-description" class="helper">Text-driven video and audio generation using the official three-field base format.</p>
         <div class="field-grid four">
           <label>Duration <span class="unit">seconds</span><input id="duration" type="number" min="4" max="15" step="1" value="6"></label>
-          <label>Shots <span class="muted">auto or integer</span><input id="shots" inputmode="numeric" placeholder="auto"></label>
-          <label>Aspect ratio<select id="aspect-ratio"><option value="auto">Automatic</option><option>16:9</option><option>9:16</option><option>1:1</option><option>4:3</option><option>3:4</option><option value="custom">Custom…</option></select></label>
-          <label>Variations<input id="variations" type="number" min="1" max="8" step="1" value="1"></label>
+          <label>Shots <span class="muted">auto or positive integer</span><input id="shots" type="number" min="1" step="1" inputmode="numeric" placeholder="auto"></label>
+          <p id="story-shot-mismatch" class="warning-banner" role="status" hidden></p>
+          <label>Aspect ratio<select id="aspect-ratio"><option value="auto">Automatic</option><option>16:9</option><option>9:16</option><option>1:1</option><option selected>4:3</option><option>3:4</option><option>3:2</option><option>2:3</option><option>21:9</option><option value="custom">Custom…</option></select></label>
+          <label>Variations<input id="variations" type="number" min="1" max="8" step="1" value="1"><span class="helper">Sets how many separate H3 prompts the writer generates. Candidates appear under Variation 1, Variation 2, etc.; they do not render videos or queue ComfyUI. Save any candidates you want to keep to Saved H3 Prompts.</span></label>
         </div>
         <label id="custom-ratio-wrap" class="hidden">Custom ratio<input id="custom-ratio" placeholder="e.g. 2.39:1"></label>
       </section>
 
       <section class="panel author-panel">
-        <div class="section-heading"><div><span class="eyebrow">Direction</span><h2>Main prompt / idea</h2></div><span id="char-count" class="muted">0</span></div>
+        <div class="section-heading"><div><span class="eyebrow">One-shot direction</span><h2>One-shot Main Prompt / Idea</h2></div><span id="char-count" class="muted">0</span></div>
+        <p class="helper">Used by “Generate from Main Prompt”. Story H3 generation uses the Story Planner Scene Plan instead.</p>
         <textarea id="creative-request" rows="8" placeholder="Describe what the target video should contain and do: action, staging, timing, camera behavior, performance, atmosphere…"></textarea>
+        <details id="continuation-drafting" hidden><summary>Draft Continuation</summary></details>
         <div class="creative-interpretation-control">
           <label>Creative Interpretation</label>
           <div id="creative-interpretation-controls" class="segmented" role="group" aria-label="Creative Interpretation"></div>
           <p class="helper">Controls how freely MiniConstruct fills in details you did not specify.</p>
+          <label>H3 Prompt Detail <span class="muted">Main Prompt only</span></label>
+          <div id="h3-prompt-detail-controls" class="segmented" role="group" aria-label="H3 Prompt Detail"></div>
+          <p class="helper">Controls how fully the H3 writer describes the chosen idea. It does not grant additional creative license. Story generation uses Scene Plan Detail instead.</p>
         </div>
-        <details>
+        <div class="inline-row authoring-actions">
+          <button id="generate" class="primary"><span>Generate from Main Prompt</span><kbd>Ctrl ↵</kbd></button>
+        </div>
+        <details id="exact-dialogue-section">
           <summary>Exact dialogue / lyrics</summary>
           <p class="helper">Keep conversational timing, reactions, pauses, and performance in Main Prompt. Enter only the exact words that must remain verbatim here; speaker IDs follow vocal-event order, not Subject numbers.</p>
-          <textarea id="dialogue" rows="4" placeholder="Subject 1: First exact line.&#10;Subject 2: Second exact line."></textarea>
+          <label id="dialogue-source-label">Dialogue / Lyrics — Source<textarea id="dialogue" rows="4" placeholder="Subject 1: First exact line.&#10;Subject 2: Second exact line."></textarea></label>
+          <div id="resolved-dialogue-wrap" class="hidden">
+            <label id="resolved-dialogue-label">Spoken Output<textarea id="resolved-dialogue" rows="4" placeholder="Translate source dialogue to preview exact spoken output."></textarea></label>
+            <div class="inline-row wrap"><button id="refresh-dialogue-translation" type="button" class="quiet">Translate / Refresh</button><span id="dialogue-resolution-status" class="helper" role="status"></span></div>
+          </div>
         </details>
       </section>
 
       <section id="creative-controls" class="panel creative-controls-panel">
         <details>
-          <summary>Creative Controls <span class="muted">optional precision</span></summary>
-          <div class="section-heading compact-heading"><div><span class="eyebrow">Workspace preferences</span><h2>Creative Controls</h2></div><button id="reset-creative-controls" type="button" class="quiet">Reset Creative Controls</button></div>
+          <summary>H3 Creative Controls <span class="muted">shared by Story and Main Prompt</span></summary>
+          <div class="section-heading compact-heading"><div><span class="eyebrow">Shared H3 preferences</span><h2>H3 Creative Controls</h2></div><button id="reset-creative-controls" type="button" class="quiet">Reset Creative Controls</button></div>
           <details class="creative-control-group">
             <summary>Music</summary>
             <div class="creative-control-content"><label>Non-diegetic music</label><div id="music-mode-controls" class="segmented" role="group" aria-label="Non-diegetic music"></div><label id="music-description-wrap" class="hidden">Music description<textarea id="music-description" rows="2" placeholder="dark electronic pulse with restrained industrial percussion"></textarea></label></div>
@@ -152,10 +196,11 @@
       <section id="references-panel" class="panel references-panel hidden">
         <div class="section-heading"><div><span class="eyebrow">Multimodal context</span><h2>Reference assets</h2></div><div id="asset-actions" class="inline-row"></div></div>
         <p id="reference-helper" class="helper"></p>
+        <p id="reference-order-helper" class="helper reference-order-helper hidden">Cards are grouped by meaning. Their arrows still control the canonical Picture, Video, or Audio order used by the H3 Input Map.</p>
         <div id="asset-drop-hint" class="asset-drop-hint" aria-hidden="true">Drop image, video or audio references here</div>
         <div id="asset-list" class="asset-list"></div>
         <details class="input-map">
-          <summary>H3 input wiring</summary>
+          <summary>H3 Input Map <span class="muted">physical reference order</span></summary>
           <div id="input-map-list" class="input-map-list"></div>
         </details>
         <details id="reference-labels-wrap" class="advanced-field">
@@ -167,12 +212,16 @@
     </aside>
 
     <section class="right-stage">
+      <div id="provider-activity" class="provider-activity" role="status" aria-live="polite" hidden>
+        <span class="provider-spinner" aria-hidden="true"></span>
+        <span id="provider-activity-label"></span>
+        <button id="provider-activity-cancel" type="button" class="quiet">Cancel</button>
+      </div>
       <div class="generate-bar">
         <div><span class="eyebrow">Structured result</span><h2>Generated H3 prompt</h2></div>
         <div class="inline-row wrap">
           <span id="generation-status" class="generation-status" data-state="idle" role="status" aria-live="polite">Idle</span>
           <button id="show-instructions" class="quiet">Show LLM Instructions</button>
-          <button id="generate" class="primary"><span>Generate prompt</span><kbd>Ctrl ↵</kbd></button>
         </div>
       </div>
       <div id="performance-summary" class="performance-summary hidden" aria-live="polite"></div>
@@ -190,7 +239,7 @@
         <div id="empty-output" class="empty-state">
           <div class="empty-icon">⌁</div>
           <h3>Your H3 prompt will appear here</h3>
-          <p>Connect a prompt-writing model, describe the target, then generate. MiniConstruct validates structure before marking the result ready.</p>
+          <p>Connect a prompt-writing model, describe the target, then generate. Format Audit reports structure findings to help you review the result.</p>
         </div>
         <div id="output-highlighted" class="output-highlighted hidden" role="textbox" tabindex="0" aria-label="Highlighted generated H3 prompt"></div>
         <textarea id="output" class="hidden" spellcheck="false" aria-label="Generated H3 prompt"></textarea>
@@ -200,11 +249,14 @@
         <div class="inline-row wrap">
           <button id="copy-output" class="quiet" disabled>Copy Prompt</button>
           <button id="download-output" class="quiet" disabled>Save .txt</button>
+          <button id="save-h3-prompt" class="quiet" title="Update the loaded saved prompt, or create its first save." disabled>Save H3 Prompt</button>
+          <button id="save-h3-prompt-as-new" class="quiet" title="Always create a new Saved H3 Prompt entry." disabled>Save As New</button>
           <button id="validate-output" class="quiet" disabled>Validate</button>
           <button id="repair-output" class="quiet" disabled>Repair Format</button>
           <button id="revise-selection" class="quiet" disabled>Revise Selection</button>
           <button id="regenerate" class="quiet" disabled>Regenerate</button>
         </div>
+        <span id="saved-h3-prompt-status" class="helper" role="status">No saved prompts</span>
       </div>
       <section id="revision-panel" class="revision-panel hidden" aria-labelledby="revision-heading">
         <div class="section-heading">
@@ -252,17 +304,23 @@
           <div class="section-heading"><div><span class="eyebrow">Format audit</span><h2>Validation</h2></div></div>
           <div id="validation-list" class="validation-list"><p class="muted">Generate or paste a prompt to inspect official H3 grammar and invariants.</p></div>
         </div>
-        <div class="panel history-panel">
-          <div class="section-heading"><div><span class="eyebrow">Local only</span><h2>History</h2></div><button id="load-history" class="text-button">Load History</button><button id="clear-history" class="text-button">Clear</button></div>
-          <div id="history-list" class="history-list"><p class="muted">Load browser History to browse earlier prompts. Execution selections load from your saved Project.</p></div>
+        <div class="panel saved-prompts-panel">
+          <div class="section-heading"><div><span class="eyebrow">This Generation</span><h2><label for="saved-h3-prompts">Saved H3 Prompts</label></h2></div></div>
+          <select id="saved-h3-prompts" class="saved-prompts-select" aria-label="Saved H3 Prompts" disabled></select>
+          <div id="saved-h3-prompt-details" class="saved-prompt-details"></div>
+          <div class="saved-prompt-actions"><button id="load-saved-h3-prompt" class="quiet" disabled>Load</button><button id="delete-saved-h3-prompt" class="quiet" disabled>Delete</button></div>
+          <p class="helper">Select an entry, then Load to edit its exact text. Loading does not select it for execution.</p>
         </div>
       </section>
-      <section id="workflow-preparation" class="workflow-preparation" aria-label="ComfyUI preparation"></section>
+      <section id="workflow-preparation-primary" class="workflow-preparation execution-primary-mount" aria-label="ComfyUI Execution actions"></section>
+      <section id="render-live-preview" class="workflow-preparation" aria-label="Live Render Preview" hidden></section>
+      <section id="workflow-preparation-details" class="workflow-preparation execution-details-mount" aria-label="ComfyUI Execution settings and history"></section>
+      <section id="rendered-takes" class="workflow-preparation" aria-label="Rendered Takes"></section>
     </section>
   </main>
 
   <dialog id="instructions-dialog">
-    <div class="dialog-head"><div><span class="eyebrow">Secrets excluded</span><h2>Assembled LLM instructions</h2></div><button class="icon-button" data-close-dialog aria-label="Close">×</button></div>
+    <div class="dialog-head"><div><span class="eyebrow">Secrets excluded</span><h2>Assembled LLM instructions</h2></div><label>Authoring path <select id="instructions-path" aria-label="LLM instruction path"><option value="one_shot">Main Prompt instructions</option><option value="story">Story instructions</option></select></label><button class="icon-button" data-close-dialog aria-label="Close">×</button></div>
     <pre id="instructions-output"></pre>
     <div class="dialog-actions"><button id="copy-instructions" class="quiet">Copy</button><button data-close-dialog>Close</button></div>
   </dialog>
@@ -272,21 +330,25 @@
     <div class="settings-content">
       <p class="helper">Choose a model together with its endpoint. MiniConstruct only probes known loopback local servers automatically; manual endpoints remain available.</p>
       <div class="field-grid two">
-        <label>Endpoint name<input id="endpoint-display-name" value="Manual endpoint" maxlength="160"></label>
-        <label>Base URL<input id="base-url" type="url" value="http://127.0.0.1:1234/v1" spellcheck="false"></label>
-        <label class="span-2">Pooled discovered models<select id="model-selector"><option value="">Manual / custom model ID</option></select></label>
-        <label class="span-2">Model ID<input id="model-id" placeholder="Discover or enter model ID" spellcheck="false"></label>
-        <label>API key <span class="muted">optional</span><input id="api-key" type="password" autocomplete="off" placeholder="Not stored by default"></label>
-        <label class="check settings-check"><input id="persist-key" type="checkbox"> Remember API key</label>
-        <label>Temperature<input id="temperature" type="number" min="0" max="2" step="0.05" value="0.4"></label>
-        <label>Max output tokens<input id="max-tokens" type="number" min="128" max="65536" step="128" value="4096"></label>
-        <label class="span-2">Reasoning<select id="reasoning-mode"><option value="off" selected>Off — recommended</option><option value="default">Backend default</option><option value="on">On</option></select></label>
-        <label>Seed<select id="seed-mode"><option value="backend_default" selected>Backend default</option><option value="random">Random each generation</option><option value="fixed">Fixed</option></select></label>
-        <label id="fixed-seed-wrap" class="hidden">Seed value<input id="fixed-seed" type="number" min="0" max="2147483647" step="1" inputmode="numeric" placeholder="3407"></label>
-        <p class="helper span-2">Seed affects supported stochastic backends. A fixed seed improves reproducibility; Random generates a new seed for each creative LLM request. Fully deterministic sampling (for example temperature 0) may still produce the same output regardless of seed.</p>
+        <label>Endpoint name<input id="endpoint-display-name" name="mc-llm-endpoint-label" autocomplete="off" data-1p-ignore data-lpignore="true" value="Manual endpoint" maxlength="160"></label>
+        <label>Base URL<input id="base-url" name="mc-llm-endpoint-url" autocomplete="off" data-1p-ignore data-lpignore="true" type="url" value="http://127.0.0.1:1234/v1" spellcheck="false"></label>
+        <label class="span-2">Pooled discovered models<select id="model-selector" name="mc-llm-model-choice" autocomplete="off"><option value="">Manual / custom model ID</option></select></label>
+        <label class="span-2">Model ID<input id="model-id" name="mc-llm-model-identifier" autocomplete="off" data-1p-ignore data-lpignore="true" placeholder="Discover or enter model ID" spellcheck="false"></label>
+        <label>Temperature<input id="temperature" name="mc-llm-temperature" autocomplete="off" type="number" min="0" max="2" step="0.05" value="0.4"></label>
+        <label>Max output tokens <span class="muted">completion budget</span><input title="Maximum tokens requested for this response's completion; input tokens are additional." id="max-tokens" name="mc-llm-output-budget" autocomplete="off" type="number" min="128" max="65536" step="128" value="4096"></label>
+        <label>Backend context capacity <span class="muted">optional</span><input title="Enter the context size the backend is already loaded with. Used for estimates, diagnostics, and warnings; provider tokenization is authoritative, and this does not resize or reload the server." id="context-window" name="mc-llm-context-capacity" autocomplete="off" type="number" min="1024" max="10000000" step="1024" placeholder="Unknown"></label>
+        <label class="span-2">Reasoning<select id="reasoning-mode" name="mc-llm-reasoning" autocomplete="off"><option value="off" selected>Off — recommended</option><option value="default">Backend default</option><option value="on">On</option></select></label>
+        <label>Prompt-writing seed<select id="seed-mode" name="mc-llm-seed-mode" autocomplete="off"><option value="backend_default" selected>Backend default</option><option value="random">Random each generation</option><option value="fixed">Fixed</option></select></label>
+        <label id="fixed-seed-wrap" class="hidden">Prompt-writing seed value<input id="fixed-seed" name="mc-llm-fixed-seed" autocomplete="off" type="number" min="0" max="2147483647" step="1" inputmode="numeric" placeholder="3407"></label>
+        <p class="helper span-2">This seed affects the prompt-writing LLM only, not ComfyUI rendering. A fixed seed improves reproducibility; Random generates a new seed for each creative LLM request. Fully deterministic sampling (for example temperature 0) may still produce the same output regardless of seed.</p>
+      </div>
+      <div class="credential-settings">
+        <label>API key <span class="muted">optional</span><input id="api-key" name="mc-llm-secret-entry" type="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" placeholder="Not stored by default"></label>
+        <label class="check settings-check"><input id="persist-key" name="mc-llm-remember-secret" type="checkbox" autocomplete="off"> Remember API key</label>
+        <button id="clear-api-key" class="quiet" type="button">Clear API key</button>
       </div>
       <div class="inline-row wrap settings-actions">
-        <label class="check"><input id="vision-support" type="checkbox"> Model accepts images</label>
+        <label class="check"><input id="vision-support" name="mc-llm-image-support" autocomplete="off" type="checkbox"> Model accepts images</label>
         <span class="spacer"></span>
         <button id="discover-local-endpoints" class="quiet">Discover local servers</button>
         <button id="discover-models" class="quiet">Discover this endpoint</button>
@@ -294,7 +356,7 @@
       </div>
       <p id="connection-message" class="helper" aria-live="polite">Supports LM Studio, Ollama, Unsloth Studio, and compatible Chat Completions endpoints.</p>
     </div>
-    <div class="dialog-actions"><button data-close-settings>Done</button></div>
+    <div class="dialog-actions"><button id="save-settings">Done</button></div>
   </dialog>
 
   <dialog id="execution-dialog" aria-labelledby="execution-heading">

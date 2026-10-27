@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "h3-continuity-bridge",
+  "title": "Planned continuity to H3 (opt-in)",
+  "cases": [
+    "h3-continuity-wardrobe",
+    "h3-continuity-bedroom"
+  ]
+}

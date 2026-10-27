@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Character Profile current-state authority",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "Alice has reached the municipal archive office to retrieve a ledger.",
+  "subjects": [{"id": "alice", "number": 1}],
+  "nextSubjectNumber": 2
+}

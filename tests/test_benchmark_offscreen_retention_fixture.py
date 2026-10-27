@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 from pathlib import Path
 
@@ -94,5 +95,8 @@ async def test_offscreen_case_skips_without_vision_and_sends_one_image_and_check
     assert item["status"] == "completed"
     assert item["expectations"]["passed"] is True
     assert item["modelInput"]["imageInputCount"] == 1
-    assert item["modelInput"]["images"][0]["sha256"] == EXPECTED_SHA256
-    assert len([part for part in instances[0].messages[1]["content"] if part.get("type") == "image_url"]) == 1
+    image_parts = [part for part in instances[0].messages[1]["content"] if part.get("type") == "image_url"]
+    assert len(image_parts) == 1
+    sent_digest = hashlib.sha256(base64.b64decode(image_parts[0]["image_url"]["url"].split(",", 1)[1])).hexdigest()
+    assert sent_digest != EXPECTED_SHA256
+    assert item["modelInput"]["images"][0]["sha256"] == sent_digest

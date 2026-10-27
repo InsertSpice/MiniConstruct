@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "story-tone-performance-scene-arc",
+  "version": "1",
+  "title": "Tone / Performance: maritime danger arc",
+  "description": "Build four compact story beats whose narrative moves from a calm signal observation through immediate danger to a quieter aftermath.",
+  "tags": ["story", "tone-performance", "h3-controls", "opt-in"],
+  "operation": "build_initial_range",
+  "story": {
+    "storyIdea": "At a remote harbour, Mara sees a distress lamp across the water, races through a sudden squall to free a trapped child from a drifting dinghy, then returns the child safely to the radio office as the storm eases.",
+    "sequenceContext": "Mara is an experienced harbour radio operator. The child is stranded offshore during a real storm; no supernatural threat is implied.",
+    "storyCreativeDirection": {
+      "toneMood": "Grounded maritime thriller with restraint before and after the rescue.",
+      "performanceEnergy": "Natural reactions that become urgent only when immediate action is required.",
+      "pacingRhythm": "Let the quiet observation establish the threat, then tighten during the rescue and release into calm.",
+      "beatDurationDensity": "One meaningful development per Generation."
+    },
+    "narrativeSubjects": [{"subjectId": "subject-1", "narrativeName": "Mara"}],
+    "generations": [{"workspacePath": "workspace.json","scenePlan": "At dusk, Mara locks the small harbour radio office and notices the signal lamp blinking across the water.", "planning": {"relationshipToPrevious": null}}],
+    "initialRange": {"requestedTotalCount": 4}
+  },
+  "expectations": {
+    "checks": [
+      {"kind": "story_item_count_equals", "value": 4},
+      {"kind": "story_initial_range_new_generation_count_equals", "value": 3},
+      {"kind": "story_initial_range_ordered_slots"},
+      {"kind": "story_tone_performance_controls_valid"},
+      {"kind": "story_recommendation_pairs_valid"}
+    ]
+  },
+  "humanReview": [
+    "Do tension, drama, and performance energy respond to the calm observation, dangerous rescue, and calmer aftermath rather than to ordinal position alone?",
+    "Do unrelated Sensuality, Romance, Horror, and Whimsy fields remain Auto unless the actual narrative justifies them?",
+    "Do Creative Requests avoid mechanically repeating tone or performance slider settings?",
+    "Does Story Creative Direction guide the arc without becoming the per-Generation controls themselves?"
+  ]
+}

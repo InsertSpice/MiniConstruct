@@ -10,7 +10,9 @@ from pydantic import ValidationError
 from miniconstruct.benchmark.runner import (
     BenchmarkCase,
     BenchmarkRunner,
+    BenchmarkProfile,
     PlannerFixture,
+    ProfileFile,
     load_planner_case,
     load_suite,
 )
@@ -40,6 +42,29 @@ def profile(*, vision: bool = False):
         "endpoint": {"id": "fake-endpoint", "displayName": "Fake endpoint", "baseUrl": "http://fake.test/v1"},
         "reasoningMode": "on",
     })
+
+
+@pytest.mark.parametrize("timeout", [600, 1200, 3600])
+def test_benchmark_profile_accepts_extended_local_timeouts(timeout):
+    value = profile().model_dump(by_alias=True)
+    value["timeoutSeconds"] = timeout
+    assert BenchmarkProfile.model_validate(value).timeout_seconds == timeout
+
+
+def test_benchmark_profile_rejects_timeout_above_extended_ceiling():
+    value = profile().model_dump(by_alias=True)
+    value["timeoutSeconds"] = 3601
+    with pytest.raises(ValidationError):
+        BenchmarkProfile.model_validate(value)
+
+
+def test_profile_file_keeps_qwen_1200_and_gemma_profiles_selectable():
+    qwen = profile().model_dump(by_alias=True)
+    qwen.update({"id": "qwen-thinking", "displayName": "Qwen thinking", "timeoutSeconds": 1200})
+    gemma = profile().model_dump(by_alias=True)
+    gemma.update({"id": "gemma", "displayName": "Gemma"})
+    profiles = ProfileFile.model_validate({"schemaVersion": 1, "profiles": [qwen, gemma]}).profiles
+    assert [(item.id, item.timeout_seconds) for item in profiles] == [("qwen-thinking", 1200), ("gemma", 120)]
 
 
 def plan(**overrides) -> str:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 from pathlib import Path
 
@@ -97,5 +98,8 @@ async def test_transient_expression_skips_without_vision_and_sends_one_image():
     assert item["status"] == "completed"
     assert item["expectations"] == {"checks": [], "passed": True}
     assert item["modelInput"]["imageInputCount"] == 1
-    assert item["modelInput"]["images"][0]["sha256"] == EXPECTED_SHA256
-    assert len([part for part in instances[0].messages[1]["content"] if part.get("type") == "image_url"]) == 1
+    images = [part for part in instances[0].messages[1]["content"] if part.get("type") == "image_url"]
+    assert len(images) == 1
+    sent_digest = hashlib.sha256(base64.b64decode(images[0]["image_url"]["url"].split(",", 1)[1])).hexdigest()
+    assert sent_digest != EXPECTED_SHA256
+    assert item["modelInput"]["images"][0]["sha256"] == sent_digest

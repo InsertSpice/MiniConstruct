@@ -12,10 +12,10 @@ def workspace_with_controls(workspace_factory, controls=None, **overrides):
     return workspace_factory(creativeControls=controls or {}, **overrides)
 
 
-def test_auto_controls_emit_no_model_visible_block(workspace_factory):
+def test_default_music_off_emits_the_model_visible_no_score_instruction(workspace_factory):
     assembled = assemble_prompt(workspace_factory(), False)
-    assert compile_creative_controls(workspace_factory()) == ""
-    assert "ACTIVE CREATIVE CONTROLS" not in assembled.inspector_text
+    assert "Non-diegetic music: forbidden." in compile_creative_controls(workspace_factory())
+    assert "ACTIVE CREATIVE CONTROLS" in assembled.inspector_text
 
 
 def test_music_and_camera_controls_compile_concisely_with_precedence(workspace_factory):
@@ -130,8 +130,8 @@ def test_reference_aware_style_uses_visible_specifics_without_preset_filler(work
     )
     text = compile_creative_controls(workspace, True)
     assert "2D-animated anime presentation" in text
-    assert "primary overall visual-style authority" in text
-    assert "facial or eye treatment, linework, coloring, shading" in text
+    assert "strongest overall visual-style authority" in text
+    assert "facial and eye rendering, hair rendering and highlights" in text
     assert "preset-only genre embellishment" in text
     assert "vibrant colors" not in text and "smooth cel shading" not in text
 
@@ -152,15 +152,136 @@ def test_reference_aware_style_scopes_roles_and_keeps_structural_references_out(
         assets=[subject, environment, structural],
     )
     text = compile_creative_controls(workspace, True)
-    assert "supporting character-design evidence" in text
-    assert "not treat it as authority for unrelated environment artwork" in text
-    assert "environment rendering and appearance only" in text
+    assert "strong evidence for the mapped character design" in text
+    assert "do not extend that authority to unrelated environment artwork" in text
+    assert "primarily for environment appearance and rendering" in text
     assert "Picture 3" not in text
 
 
-def test_auto_style_remains_zero_context_even_with_references(workspace_factory, image_asset_factory):
-    workspace = workspace_with_controls(workspace_factory, {}, mode="Ref2VA", assets=[image_asset_factory(role="style_appearance")])
-    assert "Visual Style" not in compile_creative_controls(workspace, True)
+def test_auto_style_uses_applicable_picture_roles_without_assuming_a_medium(workspace_factory, image_asset_factory):
+    text_only = workspace_with_controls(workspace_factory, {})
+    assert "Visual Style" not in compile_creative_controls(text_only, True)
+
+    scale = image_asset_factory("scale", "character_comparison_scale", order=6)
+    scale.comparison_subject_ids = ["subject-1", "subject-2"]
+    workspace = workspace_with_controls(
+        workspace_factory, {}, mode="Ref2VA", subjects=[{"id": "subject-1", "number": 1}, {"id": "subject-2", "number": 2}], assets=[
+            image_asset_factory("style", "style_appearance", order=1),
+            image_asset_factory("identity", "subject_identity", order=2),
+            image_asset_factory("environment", "environment", order=3),
+            image_asset_factory("general", "general_visual", order=4),
+            image_asset_factory("frame", "keyframe_anchor", order=5),
+            scale,
+        ],
+    )
+    text = compile_creative_controls(workspace, True)
+    assert "Visual Style (Auto)" in text
+    assert "strongest overall visual-style authority" in text
+    assert "strong evidence for the mapped character design" in text
+    assert "primarily for environment appearance and rendering" in text
+    assert "supporting visual-style evidence" in text
+    assert "do not force anime/cartoon labels" in text.lower()
+    assert "Distinguish photographic rendering from cinematic lighting" in text
+    assert "Picture 5" not in text and "Picture 6" not in text
+
+    unavailable = compile_creative_controls(workspace, False)
+    assert "Vision is unavailable" in unavailable
+    assert "visually inspect" not in unavailable
+    assert "filenames and reference-sheet layout do not establish a visual style" in unavailable
+
+    structural_only = workspace_with_controls(
+        workspace_factory, {}, mode="Ref2VA", assets=[
+            image_asset_factory("frame-only", "keyframe_anchor"),
+        ],
+    )
+    assert "Visual Style" not in compile_creative_controls(structural_only, True)
+
+
+def test_auto_style_policy_reaches_generation_story_revision_and_repair(workspace_factory, image_asset_factory):
+    identity = image_asset_factory("identity", "subject_identity")
+    workspace = workspace_with_controls(
+        workspace_factory,
+        {"visualStyle": {"preset": "auto"}},
+        mode="Ref2VA",
+        creativeRequest="Reinterpret the illustrated character as photoreal live action.",
+        assets=[identity],
+    )
+
+    generation = assemble_prompt(workspace, True)
+    generation_user = generation.messages[-1]["content"]
+    assert isinstance(generation_user, list)
+    generation_text = generation_user[0]["text"]
+    assert "ACTIVE CREATIVE CONTROLS" in generation_text
+    assert "Visual Style (Auto)" in generation_text
+    assert "Reinterpret the illustrated character as photoreal live action." in generation_text
+    assert any(part.get("type") == "image_url" for part in generation_user)
+    assert "follow explicit user style instructions" in generation_text
+
+    story_context = {"currentGeneration": {"scenePlan": "The character enters the station."}}
+    story = assemble_prompt(workspace, True, story_context=story_context)
+    story_user = story.messages[-1]["content"]
+    assert isinstance(story_user, list)
+    assert "Visual Style (Auto)" in story_user[0]["text"]
+    assert "The character enters the station." in story_user[0]["text"]
+    assert any(part.get("type") == "image_url" for part in story_user)
+
+    prompt = "integrated_multimodal_description:\n[Shot 1] An illustrated character waits."
+    start = prompt.index("[Shot 1]")
+    revision_request = RevisionRequest.model_validate({
+        "workspace": workspace.model_dump(mode="json", by_alias=True),
+        "llm": {"baseUrl": "http://test/v1", "model": "writer", "supportsVision": True},
+        "outputIndex": 0,
+        "selection": {
+            "fullPrompt": prompt,
+            "beforeSelection": prompt[:start],
+            "selectedText": prompt[start:],
+            "afterSelection": "",
+        },
+        "instruction": "Keep the photoreal reinterpretation.",
+    })
+    revision = assemble_revision_prompt(revision_request)
+    revision_user = revision.messages[-1]["content"]
+    assert isinstance(revision_user, list)
+    assert "Visual Style (Auto)" in revision_user[0]["text"]
+    assert "Return ONLY replacement text" in revision.messages[0]["content"]
+    assert "Text outside <MINICONSTRUCT_SELECTION> is immutable" in revision.messages[0]["content"]
+    assert any(part.get("type") == "image_url" for part in revision_user)
+
+    repair_request = RepairRequest.model_validate({
+        "workspace": workspace.model_dump(mode="json", by_alias=True),
+        "llm": {"baseUrl": "http://test/v1", "model": "writer", "supportsVision": True},
+        "prompt": prompt + "\n\noverall_soundscape:\nQuiet.\n\nnon_diegetic_music:\nN/A",
+        "findings": [],
+    })
+    repair = assemble_repair_prompt(repair_request, [])
+    repair_user = repair.messages[-1]["content"]
+    assert isinstance(repair_user, list)
+    assert "Visual Style (Auto)" in repair_user[0]["text"]
+    assert "Repair only the listed structural or syntactic" in repair.messages[0]["content"]
+    assert "Make the minimum textual changes" in repair.messages[0]["content"]
+    assert prompt in repair_user[0]["text"]
+    assert any(part.get("type") == "image_url" for part in repair_user)
+
+    no_vision = assemble_prompt(workspace, False)
+    no_vision_text = no_vision.messages[-1]["content"]
+    assert isinstance(no_vision_text, str)
+    assert "Vision is unavailable" in no_vision_text
+    assert "do not claim to have inspected" in no_vision_text
+    assert "Visual input for" not in no_vision_text
+
+
+def test_explicit_style_preset_and_custom_authority_remain_unchanged(workspace_factory):
+    preset = workspace_with_controls(
+        workspace_factory, {"visualStyle": {"preset": "animated_2d_anime"}},
+    )
+    custom = workspace_with_controls(
+        workspace_factory, {"visualStyle": {"preset": "custom", "custom": "hand-painted cel animation"}},
+    )
+    assert "Visual Style (authoritative)" in compile_creative_controls(preset)
+    assert "2D-animated anime presentation" in compile_creative_controls(preset)
+    assert "Visual Style (Auto)" not in compile_creative_controls(preset)
+    assert "Visual Style (authoritative)" in compile_creative_controls(custom)
+    assert "hand-painted cel animation" in compile_creative_controls(custom)
 
 
 def test_style_and_facial_policy_do_not_claim_visual_inspection_without_vision(workspace_factory, image_asset_factory):
@@ -212,7 +333,7 @@ def test_visual_style_presets_compile_only_when_active_with_shot_one_placement(w
     assert "2D-animated anime presentation" in text
     assert "beginning of Shot 1" in text
     assert "override conflicting freeform Creative Request wording" in assemble_prompt(workspace, False).inspector_text
-    assert compile_creative_controls(workspace_factory()) == ""
+    assert "Non-diegetic music: forbidden." in compile_creative_controls(workspace_factory())
 
 
 def test_visual_style_variants_and_custom_text_are_distinct(workspace_factory):
@@ -229,7 +350,7 @@ def test_visual_style_variants_and_custom_text_are_distinct(workspace_factory):
     custom = workspace_with_controls(workspace_factory, {"visualStyle": {"preset": "custom", "custom": "hand-painted cel animation"}})
     assert "hand-painted cel animation" in compile_creative_controls(custom)
     blank = workspace_with_controls(workspace_factory, {"visualStyle": {"preset": "custom", "custom": "   "}})
-    assert compile_creative_controls(blank) == ""
+    assert "Non-diegetic music: forbidden." in compile_creative_controls(blank)
 
 
 def test_all_visual_style_presets_validate(workspace_factory):
@@ -247,7 +368,7 @@ def test_old_workspace_defaults_controls_and_round_trips():
         "schemaVersion": 1, "projectName": "Old", "mode": "T2VA", "durationSeconds": 6,
         "shots": None, "aspectRatio": "auto", "variations": 1, "creativeRequest": "A cyclist", "assets": [],
     })
-    assert workspace.creative_controls.music.mode.value == "auto"
+    assert workspace.creative_controls.music.mode.value == "off"
     dumped = workspace.model_dump(mode="json", by_alias=True)
     assert dumped["creativeControls"]["camera"]["pedestal"] == "auto"
     assert dumped["creativeControls"]["visualStyle"]["preset"] == "auto"

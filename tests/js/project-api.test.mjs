@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 
 import { api } from "../../web/js/api.js";
 import { migrateLegacyProject } from "../../web/js/project-migration.js";
 import {
   continuityFromProject, freshUnsavedContinuity, freshUnsavedWorkspace, openFilesystemProjectSafely, openLegacyProjectSafely, persistFilesystemProject,
   deleteFilesystemProjectAndReset, deleteLegacyProjectAndReset, loadProjectSources, prepareImportedWorkspace,
-  resetUnsavedProjectState,
+  importedSequenceMetadata, clearImportedSequenceMetadata, resetUnsavedProjectState,
   projectIdFromLocation, projectLocation,
 } from "../../web/js/project-workflow.js";
 
@@ -21,7 +22,7 @@ test("refresh URL retains only the selected Project identity and preserves other
   assert.equal(projectIdFromLocation(projectLocation(url, null)), null);
 });
 
-test("create, Save, and Save As forward canonical Story idea outside Workspace", async () => {
+test("create, Save, and Save As forward canonical Story direction and Planning Style outside Workspace", async () => {
   const bodies = [], originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
     const body = JSON.parse(options.body); bodies.push(body);
@@ -29,10 +30,15 @@ test("create, Save, and Save As forward canonical Story idea outside Workspace",
   };
   try {
     const idea = "  Exact\nidea  ";
-    await api.createProject(workspace, undefined, undefined, idea);
-    await api.saveProject("saved", workspace, undefined, undefined, idea);
-    await api.saveProjectAs("saved", "Fork", workspace, undefined, undefined, idea);
-    assert.ok(bodies.every(body => body.storyIdea === idea && !Object.hasOwn(body.workspace, "storyIdea")));
+    const direction = { toneMood: "Uneasy", performanceEnergy: "Restrained", pacingRhythm: "Patient", beatDurationDensity: "One beat" };
+    const style = { creativity: "exploratory", scenePlanDetail: "detailed" };
+    await api.createProject(workspace, undefined, undefined, idea, undefined, direction, undefined, undefined, undefined, undefined, style);
+    await api.saveProject("saved", workspace, undefined, undefined, idea, undefined, {}, direction, undefined, undefined, style);
+    await api.saveProjectAs("saved", "Fork", workspace, undefined, undefined, idea, undefined, {}, direction, undefined, undefined, style);
+    assert.ok(bodies.every(body => body.storyIdea === idea && body.storyCreativeDirection.toneMood === "Uneasy"
+      && body.storyPlanningStyle.creativity === "exploratory"
+      && !Object.hasOwn(body.workspace, "storyIdea") && !Object.hasOwn(body.workspace, "storyCreativeDirection")
+      && !Object.hasOwn(body.workspace, "storyPlanningStyle")));
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -43,6 +49,80 @@ const workspace = {
   creativeRequest: "A cyclist crosses a wet street.",
   assets: [{ id: "image-1", kind: "image", image: { data_url: "data:image/png;base64,AA==" } }],
 };
+
+test("portable import preserves an explicit empty canonical cast through create and clears adoption state", async () => {
+  const appSource = await readFile(new URL("../../web/js/app.js", import.meta.url), "utf8");
+  assert.match(appSource, /importedSequenceMetadata\(payload, validated\)/);
+  assert.match(appSource, /Array\.isArray\(state\.importedSequenceSubjects\)/);
+  assert.match(appSource, /clearImportedSequenceMetadata\(state\)/);
+  const envelope = { workspace, sequenceSubjects: [], sequenceNextSubjectNumber: 9 };
+  const validated = { ...envelope, sequenceSubjects: [], sequenceNextSubjectNumber: 9 };
+  const imported = importedSequenceMetadata(envelope, validated);
+  assert.deepEqual(imported, { sequenceSubjects: [], sequenceNextSubjectNumber: 9 });
+
+  const state = { ...imported };
+  const originalFetch = globalThis.fetch;
+  let body;
+  globalThis.fetch = async (_url, options) => {
+    body = JSON.parse(options.body);
+    return { ok: true, status: 200, json: async () => ({ id: "imported", name: workspace.projectName, workspace }) };
+  };
+  try {
+    const saved = await persistFilesystemProject({
+      projectId: null, workspace, sequenceSubjects: state.sequenceSubjects,
+      sequenceNextSubjectNumber: state.sequenceNextSubjectNumber,
+      createProject: api.createProject, saveProject: async () => { throw new Error("save should not be called"); },
+    });
+    assert.equal(saved.projectId, "imported");
+  } finally { globalThis.fetch = originalFetch; }
+  assert.deepEqual(body.sequenceSubjects, []);
+  assert.equal(body.sequenceNextSubjectNumber, 9);
+  const adoptedState = { importedSequenceSubjects: state.sequenceSubjects,
+    importedSequenceNextSubjectNumber: state.sequenceNextSubjectNumber };
+  clearImportedSequenceMetadata(adoptedState);
+  assert.equal(adoptedState.importedSequenceSubjects, null);
+  assert.equal(adoptedState.importedSequenceNextSubjectNumber, null);
+});
+
+test("legacy portable envelopes without canonical fields retain the Workspace-only path", async () => {
+  const legacy = importedSequenceMetadata({ workspace }, { sequenceSubjects: [], sequenceNextSubjectNumber: null });
+  assert.deepEqual(legacy, { sequenceSubjects: null, sequenceNextSubjectNumber: null });
+  let body;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => {
+    body = JSON.parse(options.body);
+    return { ok: true, status: 200, json: async () => ({ id: "legacy-import", workspace }) };
+  };
+  try {
+    await persistFilesystemProject({ projectId: null, workspace,
+      sequenceSubjects: legacy.sequenceSubjects, sequenceNextSubjectNumber: legacy.sequenceNextSubjectNumber,
+      createProject: api.createProject, saveProject: async () => { throw new Error("save should not be called"); } });
+  } finally { globalThis.fetch = originalFetch; }
+  assert.equal(Object.hasOwn(body, "sequenceSubjects"), false);
+  assert.equal(Object.hasOwn(body, "sequenceNextSubjectNumber"), false);
+});
+
+test("normal Save and Save As send explicit selected memory UUID and loaded Project authority", async () => {
+  const bodies = [], original = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    bodies.push(JSON.parse(options.body));
+    return { ok: true, json: async () => ({ id: "project" }) };
+  };
+  const memory = { recentSummary: "G3 history", durableFacts: [], openThreads: [] };
+  const authority = { storyMemoryGenerationId: "g3", expectedProjectFingerprint: "loaded" };
+  try {
+    await api.saveProject("project", workspace, undefined, undefined, undefined, memory, authority);
+    await api.saveProjectAs("project", "Fork", workspace, undefined, undefined, undefined, memory, authority);
+    await api.saveProject("project", workspace, undefined, undefined, undefined, undefined, authority);
+  } finally { globalThis.fetch = original; }
+  for (const body of bodies) {
+    assert.equal(body.storyMemoryGenerationId, "g3");
+    assert.equal(body.expectedProjectFingerprint, "loaded");
+  }
+  assert.deepEqual(bodies[0].storyMemory, memory);
+  assert.deepEqual(bodies[1].storyMemory, memory);
+  assert.equal(Object.hasOwn(bodies[2], "storyMemory"), false);
+});
 
 test("filesystem Project API uses metadata listing, open, create, and active-ID save routes", async () => {
   const calls = [];
@@ -67,10 +147,39 @@ test("filesystem Project API uses metadata listing, open, create, and active-ID 
   assert.deepEqual(JSON.parse(calls[3].options.body).workspace, workspace);
 });
 
+test("Generation activation forwards the loaded Project fingerprint as a concurrency guard", async () => {
+  const originalFetch = globalThis.fetch; let call;
+  globalThis.fetch = async (url, options) => {
+    call = { url, method: options.method, body: JSON.parse(options.body) };
+    return { ok: true, json: async () => ({}) };
+  };
+  try {
+    await api.activateGeneration("project", "generation", "a".repeat(64));
+    assert.deepEqual(call, { url: "/api/projects/project/active-generation/generation", method: "PUT",
+      body: { expectedProjectFingerprint: "a".repeat(64) } });
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("Sequence Subject deletion uses the canonical Subject ID endpoint", async () => {
+  const calls = [], originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, status: 200, json: async () => ({ sequence: { subjects: [] } }) };
+  };
+  try {
+    await api.deleteSequenceSubject("project/id", "stable subject/id");
+  } finally { globalThis.fetch = originalFetch; }
+  assert.deepEqual(calls.map(call => [call.options.method, call.url]), [
+    ["DELETE", "/api/projects/project%2Fid/subjects"],
+  ]);
+  assert.deepEqual(JSON.parse(calls[0].options.body), { subjectId: "stable subject/id" });
+});
+
 test("New preparation is blank and resets Project ownership state", () => {
   const fresh = freshUnsavedWorkspace();
   assert.equal(fresh.projectId, null);
   assert.equal(fresh.projectName, "Untitled Project");
+  assert.equal(fresh.aspectRatio, "4:3");
   assert.equal(fresh.creativeRequest, "");
   const state = resetUnsavedProjectState({
     activeProjectType: "filesystem", currentProjectId: "old-id", currentProjectSavedName: "Old",
@@ -80,6 +189,14 @@ test("New preparation is blank and resets Project ownership state", () => {
     activeProjectType: "none", currentProjectId: null, currentProjectSavedName: null, currentLegacyProjectId: null,
   });
   assert.equal(freshUnsavedWorkspace().projectId, null);
+});
+
+test("Variations helper explains prompt candidates and explicit saving without changing generation behavior", async () => {
+  const html = await readFile(new URL("../../web/index.html", import.meta.url), "utf8");
+  assert.match(html, /how many separate H3 prompts the writer generates/);
+  assert.match(html, /Candidates appear under Variation 1, Variation 2/);
+  assert.match(html, /do not render videos or queue ComfyUI/);
+  assert.match(html, /Save any candidates you want to keep to Saved H3 Prompts/);
 });
 
 test("continuity defaults safely and loads only the active response fields", () => {
@@ -116,6 +233,25 @@ test("filesystem save submits active continuity separately from the Workspace", 
     workspace,
     continuity: { sequenceContext: "Shared rule", incomingState: "Start", intendedOutgoingState: "End" },
   });
+});
+
+test("filesystem save forwards the complete typed Visual Handoff planning policy", async () => {
+  const originalFetch = globalThis.fetch;
+  let body;
+  globalThis.fetch = async (_url, options) => {
+    body = JSON.parse(options.body);
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+  const planning = {
+    relationshipToPrevious: "continue_previous_shot",
+    cameraIntent: "Pan with the subject.",
+    visualHandoff: { strategy: "endpoint_then_immediate_cut", tailSeconds: 1.75, immediateCutMilliseconds: 240 },
+  };
+  try {
+    await api.saveProject("project-id", workspace, undefined, planning);
+  } finally { globalThis.fetch = originalFetch; }
+  assert.deepEqual(body.planning, planning);
+  assert.equal(Object.hasOwn(body.workspace, "planning"), false);
 });
 
 test("filesystem and legacy Project discovery fail independently", async () => {

@@ -1,0 +1,142 @@
+{
+  "schema": 1,
+  "remote": "https://github.com/InsertSpice/MiniConstruct.git",
+  "branch": "master",
+  "max_file_bytes": 5000000,
+  "exclude": {
+    "benchmarks/send-*.json": "recorded benchmark execution results, not reusable cases",
+    "docs/saved-profile-32-regression.md": "machine-local Profile identity and saved Project diagnosis",
+    "docs/release-audit-2026-10-28.md": "maintainer audit contains local repository identity"
+  },
+  "copy": {
+    "LICENSE": "files/LICENSE",
+    "THIRD_PARTY_NOTICES.md": "files/THIRD_PARTY_NOTICES.md",
+    "miniconstruct/h3/guides/README.md": "files/guides-README.md"
+  },
+  "append": {
+    "README.md": "files/README-public.md"
+  },
+  "replace": [
+    {
+      "path": "pyproject.toml",
+      "before": "license = { text = \"MIT\" }",
+      "after": "license = \"GPL-3.0-or-later\""
+    },
+    {
+      "path": "miniconstruct/app.py",
+      "before": "from pathlib import Path",
+      "after": "from contextlib import asynccontextmanager\nfrom pathlib import Path\nfrom miniconstruct.h3.guide_acquisition import require_guides"
+    },
+    {
+      "path": "miniconstruct/app.py",
+      "before": "app = FastAPI(",
+      "after": "@asynccontextmanager\nasync def lifespan(_: FastAPI):\n    require_guides()\n    yield\n\n\napp = FastAPI("
+    },
+    {
+      "path": "miniconstruct/app.py",
+      "before": "    redoc_url=None,",
+      "after": "    redoc_url=None,\n    lifespan=lifespan,"
+    },
+    {
+      "path": "miniconstruct/__main__.py",
+      "before": "import uvicorn",
+      "after": "import uvicorn\nfrom miniconstruct.h3.guide_acquisition import GuideAcquisitionError, require_guides"
+    },
+    {
+      "path": "miniconstruct/__main__.py",
+      "before": "    args = parser.parse_args()",
+      "after": "    args = parser.parse_args()\n    try:\n        require_guides()\n    except GuideAcquisitionError as exc:\n        parser.exit(status=2, message=f\"\\n{exc}\\n\")"
+    },
+    {
+      "path": "miniconstruct/h3/__init__.py",
+      "before": "from .builder import AssembledPrompt, assemble_prompt\n",
+      "after": ""
+    },
+    {
+      "path": "miniconstruct/h3/__init__.py",
+      "before": "__all__ = [\"AssembledPrompt\", \"assemble_prompt\", \"validate_prompt\"]",
+      "after": "__all__ = [\"AssembledPrompt\", \"assemble_prompt\", \"validate_prompt\"]\n\n\ndef __getattr__(name: str):\n    if name in {\"AssembledPrompt\", \"assemble_prompt\"}:\n        from .builder import AssembledPrompt, assemble_prompt\n        return {\"AssembledPrompt\": AssembledPrompt, \"assemble_prompt\": assemble_prompt}[name]\n    raise AttributeError(name)"
+    },
+    {
+      "path": "miniconstruct/h3/builder.py",
+      "before": "from typing import Any",
+      "after": "from typing import Any\nfrom miniconstruct.h3.guide_acquisition import GuideAcquisitionError, guide_setup_message"
+    },
+    {
+      "path": "miniconstruct/h3/builder.py",
+      "before": "    official_path = GUIDES / (\"ref-en.txt\" if workspace.mode == H3Mode.REF2VA else \"base-en.txt\")",
+      "after": "    official_path = GUIDES / (\"ref-en.txt\" if workspace.mode == H3Mode.REF2VA else \"base-en.txt\")\n    if not official_path.is_file():\n        raise GuideAcquisitionError(guide_setup_message([official_path]))"
+    },
+    {
+      "path": "start-miniconstruct.bat",
+      "before": "-m uvicorn miniconstruct.app:app",
+      "after": "-m miniconstruct"
+    },
+    {
+      "path": "README.md",
+      "before": "The development snapshot currently corresponds to upstream commit:",
+      "after": "The public release acquires official guides at upstream commit:"
+    },
+    {
+      "path": "README.md",
+      "before": "Exact upstream paths and SHA-256 hashes are recorded in `provenance.json`.",
+      "after": "Exact upstream paths and SHA-256 hashes are recorded in `miniconstruct/h3/guides/provenance.json`. Complete official guides are acquired during setup and are not redistributed."
+    }
+  ],
+  "version_fields": {
+    "pyproject.toml": "^(version = \")[^\"\\n]+(\")$",
+    "miniconstruct/__init__.py": "^(__version__ = \")[^\"\\n]+(\")$",
+    "miniconstruct/app.py": "^(    version=\")[^\"\\n]+(\",)$",
+    "miniconstruct/api/routes.py": "(\"version\": \")[^\"\\n]+(\")"
+  },
+  "binary_sha256": {
+    "benchmarks/cases/h3-continuity-bedroom/assets/bedroom-desk-wide.png": "1760db8aaa67b6d2bc03006f7920e8a14cb9fe0007f356c9846a22d983fb3c13",
+    "benchmarks/cases/h3-continuity-wardrobe/assets/alice-jacket.png": "d939cf2eeb339a7a1ab745f5dcfa26e3cd886db100eda8c32d7a66aa1ebeef83",
+    "benchmarks/cases/h3-observed-current-override/assets/kent-jacket.png": "d939cf2eeb339a7a1ab745f5dcfa26e3cd886db100eda8c32d7a66aa1ebeef83",
+    "benchmarks/cases/h3-observed-failed-plan/assets/kent-jacket.png": "d939cf2eeb339a7a1ab745f5dcfa26e3cd886db100eda8c32d7a66aa1ebeef83",
+    "benchmarks/cases/h3-visual-cut/assets/subject-1.png": "c101be6668063588531318a48cdef0dfc45610f1806212d5509392137becddec",
+    "benchmarks/cases/h3-visual-endpoint/assets/subject-1.png": "c101be6668063588531318a48cdef0dfc45610f1806212d5509392137becddec",
+    "benchmarks/cases/h3-visual-independent/assets/subject-1.png": "c101be6668063588531318a48cdef0dfc45610f1806212d5509392137becddec",
+    "benchmarks/cases/h3-visual-tail/assets/subject-1.png": "c101be6668063588531318a48cdef0dfc45610f1806212d5509392137becddec",
+    "benchmarks/cases/ref2va-camera-multishot-controls/assets/subject-1-reference-sheet.jpg": "e441aa5056af889b27500b9f223f8c73320461c8d9ca3bc117eaeb0d6127dd19",
+    "benchmarks/cases/ref2va-continuation-state/assets/subject-1-reference-sheet.jpg": "06d9d07d9b62a96fe99009462bdd2c8838d31e513f3d5f02212eeb396646601b",
+    "benchmarks/cases/ref2va-creative-inference-baseline/assets/subject-1-reference-sheet.jpg": "e441aa5056af889b27500b9f223f8c73320461c8d9ca3bc117eaeb0d6127dd19",
+    "benchmarks/cases/ref2va-creative-inference-conservative/assets/subject-1-reference-sheet.jpg": "e441aa5056af889b27500b9f223f8c73320461c8d9ca3bc117eaeb0d6127dd19",
+    "benchmarks/cases/ref2va-creative-inference-expansive/assets/subject-1-reference-sheet.jpg": "e441aa5056af889b27500b9f223f8c73320461c8d9ca3bc117eaeb0d6127dd19",
+    "benchmarks/cases/ref2va-height-comparison/assets/height-scale-comparison.jpg": "0e56cbaab55817db697569eadfed9d234bd627a0430151689d4e675b94c96b28",
+    "benchmarks/cases/ref2va-height-comparison/assets/subject-1-reference-sheet.jpg": "06d9d07d9b62a96fe99009462bdd2c8838d31e513f3d5f02212eeb396646601b",
+    "benchmarks/cases/ref2va-height-comparison/assets/subject-2-reference-sheet.jpg": "e441aa5056af889b27500b9f223f8c73320461c8d9ca3bc117eaeb0d6127dd19",
+    "benchmarks/cases/ref2va-offscreen-retention/assets/subject-1-reference-sheet.jpg": "06d9d07d9b62a96fe99009462bdd2c8838d31e513f3d5f02212eeb396646601b",
+    "benchmarks/cases/ref2va-reference-sheet-identity/assets/subject-1-reference-sheet.jpg": "06d9d07d9b62a96fe99009462bdd2c8838d31e513f3d5f02212eeb396646601b",
+    "benchmarks/cases/ref2va-transient-expression-identity/assets/subject-1-reference-sheet.jpg": "06d9d07d9b62a96fe99009462bdd2c8838d31e513f3d5f02212eeb396646601b",
+    "benchmarks/cases/ref2va-wardrobe-authority/assets/subject-1-reference-sheet.jpg": "06d9d07d9b62a96fe99009462bdd2c8838d31e513f3d5f02212eeb396646601b",
+    "benchmarks/character-performance/assets/neutral-subject-sheet.png": "0c0ccb9216e2e172ec0d9e13f04e3209af2bd7c469409bc9f7954944a7dfc774",
+    "benchmarks/environment-consistency/assets/anime-bedroom-panorama.png": "03586b630a7d8dbd8809a2b358c34a5125c41c9d528a2524bd628d4f6ddf9a4d",
+    "benchmarks/environment-consistency/assets/anime-bedroom.png": "933362ba96d62de38ca5c13991af95deb83fbb5d745beb08e0f98182114acc75",
+    "benchmarks/natural-liveliness/assets/anime-fixed-first-frame.png": "f7f1d67b74b538ec1d7fdef2cb021d8df7172212b9f380125c228e2f84042263",
+    "benchmarks/natural-liveliness/assets/neutral-subject-sheet.png": "0c0ccb9216e2e172ec0d9e13f04e3209af2bd7c469409bc9f7954944a7dfc774",
+    "benchmarks/temporal-directing/assets/kent-subject-1.png": "eb78ad38b4969a6b045cff06e6a95035324e3f6aebffc90aec9713399285e024",
+    "benchmarks/temporal-directing/assets/maki-subject-3.png": "178a9c01f6e6bda30d41688663b79c3b109d2f9824f38e1f054123c77fb62d6e",
+    "benchmarks/temporal-directing/assets/takina-subject-2.png": "eed88b0176e3da6ee51675c7cc876cd367b6296597bc4f9a9431e79bc79ce09c",
+    "web/assets/favicon.png": "df1c4216d4a3f14df5351fa547814c28f2f42f7e89b55cfcaad355f921858111"
+  },
+  "text_exceptions": {
+    "tests/test_discovery.py": {
+      "sha256": "0398d8442970557b44ea61e1beeacd54daf819468ea6d6dda478d229290a77e2",
+      "rules": [
+        "credential literal"
+      ],
+      "reason": "Synthetic fake-unsloth-key used only with mocked endpoint discovery; verified no real credential."
+    },
+    "tests/test_setup_script.py": {
+      "sha256": "211b2d78c59458e86630a358da57c5d113c542641a5a720ce5c6cccea2bc8017",
+      "rules": [
+        "personal absolute path"
+      ],
+      "reason": "Negative regression assertion rejects a formerly hardcoded setup path; no machine data or configuration is included."
+    }
+  },
+  "strip_png_metadata": {
+    "benchmarks/environment-consistency/assets/anime-bedroom.png": "1d926e21e663c1b3de53ba216c16d2175b1e5735aa134d894d1f34aeb257ecbe"
+  }
+}

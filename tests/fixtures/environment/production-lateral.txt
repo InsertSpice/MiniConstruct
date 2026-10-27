@@ -1,0 +1,12 @@
+subject_definitions:
+<Subject 1> is the bedroom from <Picture 1>. Preserve its design, furniture identity, materials, colors, lighting and anime style. Do not preserve the source camera angle, framing, perspective or composition; reconstruct the same room from the requested viewpoint.
+summary:
+[reference generation] Hatsune Miku rests on the bed in <Subject 1> from a lateral bedside viewpoint.
+retention_analysis:
+<Subject 1> (appears in [Shot 1]): partially_preserved - preserve stable room and furniture identity, colors, materials, lighting and style; freely change camera viewpoint and perspective without redesigning the room.
+detailed_description:
+[Shot 1] In <Subject 1>, Hatsune Miku lies lengthwise on the bed, her full body visible head-to-toe horizontally across the frame. The camera is beside the long side of the bed at mattress height, looking horizontally across the mattress in a true lateral side view. She rests quietly through the continuous shot.
+overall_soundscape:
+Quiet room tone.
+non_diegetic_music:
+None.

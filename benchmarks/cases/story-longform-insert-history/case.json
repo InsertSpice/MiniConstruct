@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform-insert-history",
+  "version": "1",
+  "title": "Insert Between uses upstream historical state",
+  "description": "An Insert after A must use A's intact bridge and unresolved delivery memory, not later terminal truth.",
+  "tags": ["story", "longform", "insert", "historical-correctness"],
+  "operation": "plan_story_insert",
+  "story": {
+    "storyIdea":"Alice must deliver a package across the river district.",
+    "sequenceContext":"Inserted beats must respect their protected upstream and downstream boundaries.",
+    "generations":[
+      {"workspacePath":"workspace.json","scenePlan":"Alice accepts a package for Bob.","planning":{"relationshipToPrevious":null}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice reaches the pedestrian bridge with the package."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice pauses at the intact bridge before the delivery.","storyMemoryAfter":{"recentSummary":"Alice is at the intact bridge with Bob's undelivered package.","durableFacts":[{"id":"77777777-7777-4777-8777-777777777777","text":"The pedestrian bridge is intact."}],"openThreads":[{"id":"88888888-8888-4888-8888-888888888888","text":"The package delivery to Bob is unresolved."}]}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice considers how to cross the river."},
+      {"workspacePath":"workspace.json","scenePlan":"A passer-by points Alice toward the bridge stairs."},
+      {"workspacePath":"workspace.json","scenePlan":"Much later, Alice takes a different route through the river district.","storyMemoryAfter":{"recentSummary":"The bridge collapsed later and the package was delivered to Bob.","durableFacts":[{"id":"77777777-7777-4777-8777-777777777777","text":"The pedestrian bridge has collapsed."}]}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice walks home after the completed delivery."},
+      {"workspacePath":"workspace.json","scenePlan":"The quiet river district settles for the night."}
+    ],
+    "insert":{"upstreamGeneration":3,"requestedCount":1,"instruction":"Insert one natural bridge beat after A and before the protected next Generation."}
+  },
+  "expectations":{"checks":[{"kind":"story_item_count_equals","value":1},{"kind":"story_recommendation_pairs_valid"}]},
+  "behavioralChecks":[
+    {"id":"insert-uses-intact-memory","description":"The Insert authority receives A's intact-bridge memory.","kind":"request_memory_contains","text":"bridge is intact"},
+    {"id":"insert-excludes-future-memory","description":"Later collapsed-bridge truth is absent from the Insert Story Memory authority.","kind":"request_memory_absent","text":"bridge has collapsed"},
+    {"id":"insert-delivery-open","description":"The Insert authority retains the package-delivery thread as unresolved.","kind":"request_memory_contains","text":"delivery to Bob is unresolved"},
+    {"id":"insert-apply-safety","description":"Proposal-only execution validates trusted inserted memory states and preserves downstream snapshots while reporting their Apply-time review status.","kind":"insert_apply_projection"},
+    {"id":"insert-prose-history","description":"Review whether inserted prose respects the intact bridge and unresolved delivery without leaking later facts.","expectedConcepts":["bridge","package"],"forbiddenConcepts":["collapsed","delivered"]}
+  ],
+  "humanReview":["Does the inserted beat obey A's historical truth and avoid using later bridge-collapse or delivery-completion state?"]
+}

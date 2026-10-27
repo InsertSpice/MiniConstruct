@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "story-initial-range-extended",
+  "title": "Extended Initial Build decomposition benchmark",
+  "cases": [
+    "story-initial-range-extended-4",
+    "story-initial-range-extended-8",
+    "story-initial-range-extended-12"
+  ]
+}

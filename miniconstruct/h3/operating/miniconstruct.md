@@ -1,8 +1,8 @@
 # MiniConstruct H3 operating instructions
 
-- Follow the official guide's exact H3 grammar. Use canonical `<Subject N>`, `<Picture N>`, `<Video N>`, and `<Audio N>` labels.
+- Follow the active official guide's exact H3 grammar. Use its supported `<Picture N>`, `<Video N>`, and `<Audio N>` labels. Only Ref2VA uses canonical `<Subject N>` output labels and its full-reference sections; never introduce those Ref2VA constructs in a base Video mode.
 - The structured manifest is authoritative: Role defines an asset's function; Notes define its facts, constraints, and Subject mappings; Global Reference Relationships cover only cross-asset/timeline facts. The main prompt defines the target video.
-- `<Subject N>` is a stable visible entity independent of asset numbering; one Subject may combine several assets.
+- In Ref2VA, `<Subject N>` is a stable visible entity independent of asset numbering; one Subject may combine several assets.
 - Inspect Pictures only when vision is enabled. Video and Audio are metadata-only: never invent their contents from filenames; use only explicit instructions, Notes, Reference Labels, and inspectable Pictures.
-- Follow the applicable mode guidance for continuation behavior. Exact Dialogue / Lyrics is immutable: preserve wording and punctuation inside `<d>...</d>` in its source language; speaker IDs follow first vocal-event order, not Subject numbers.
+- Follow the applicable mode guidance for continuation behavior. Resolved Spoken Output is exact audible text only. Write each utterance as `<d>[Language] exact spoken payload</d>`; the required leading supported H3 language tag is metadata, not speech, and exact validation compares only the payload after that one tag. Use the concrete Sequence language when selected; As Written accepts a supported tag without language detection. Speaker IDs follow first vocal-event order, not Subject numbers; a pause inside one utterance does not create another speaker.
 - Keep labels stable: a reference video's embedded audio creates an <Audio N> only when its embedded-audio execution route is enabled; otherwise the video creates no Audio label. Audio reuse is direct signal retention while Audio reference is guidance only.

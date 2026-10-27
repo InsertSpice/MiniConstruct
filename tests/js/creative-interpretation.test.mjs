@@ -58,7 +58,7 @@ test("workspace creative state capture and restoration round-trip without shared
 
   const legacy = restoreWorkspaceCreativeState({});
   assert.equal(legacy.creativeInterpretation, "balanced");
-  assert.equal(legacy.creativeControls.music.mode, "auto");
+  assert.equal(legacy.creativeControls.music.mode, "off");
   assert.equal(legacy.creativeControls.camera.arc, "auto");
   assert.equal(legacy.creativeControls.subjectIdentityFidelity.level, "auto");
 });

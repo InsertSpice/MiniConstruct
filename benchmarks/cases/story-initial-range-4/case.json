@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "story-initial-range-4",
+  "version": "1",
+  "title": "Bounded initial Story range: G1 plus three new Generations",
+  "tags": ["story", "initial-range", "bounded", "creative-direction", "dialogue"],
+  "operation": "build_initial_range",
+  "story": {
+    "storyIdea": "A cartographer follows a brass compass through a flooded station to deliver a map before dawn.",
+    "sequenceContext": "The brass compass must remain with the cartographer; the final delivery is not yet complete.",
+    "storyCreativeDirection": {
+      "toneMood": "Nocturnal civic mystery",
+      "performanceEnergy": "Focused and quietly determined",
+      "pacingRhythm": "Measured escalation",
+      "beatDurationDensity": "One navigational obstacle per beat"
+    },
+    "generations": [
+      {
+        "workspacePath": "workspace.json","scenePlan": "A cartographer grips a brass compass at the edge of a flooded underground station.",
+        "planning": {"relationshipToPrevious": null, "cameraIntent": "User-authored waist-level view of the compass."}
+      }
+    ],
+    "initialRange": {"requestedTotalCount": 4}
+  },
+  "expectations": {
+    "checks": [
+      {"kind": "story_item_count_equals", "value": 4},
+      {"kind": "story_existing_generation_count_equals", "value": 1},
+      {"kind": "story_existing_generation_ids_preserved"},
+      {"kind": "story_first_relationship_null"},
+      {"kind": "story_relationship_valid"},
+      {"kind": "story_recommendation_pairs_valid"}
+    ]
+  },
+  "humanReview": [
+    "Do projected G1, G2, G3, and G4 memory snapshots evolve sequentially without carrying G4 facts back into G1?",
+    "Does the soft creative direction influence presentation without replacing saved G1 exact dialogue or camera authority?",
+    "If G1 includes eligible Pictures in a provider run, are recommendations limited to actual G1 source pairs?"
+  ]
+}

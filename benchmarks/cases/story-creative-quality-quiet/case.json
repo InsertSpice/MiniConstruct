@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "story-creative-quality-quiet",
+  "version": "1",
+  "title": "Story-aware scene planning quality: quiet persistence",
+  "description": "Opt-in text-only review case for restrained, intimate progression through a small repair.",
+  "tags": ["story", "initial-range", "scene-plan", "quality", "opt-in"],
+  "operation": "build_initial_range",
+  "story": {
+    "storyIdea": "Late at night, a man repairs an old pocket watch. His first attempt fails, and he considers giving up. He makes one last adjustment and eventually hears the watch tick. The progression should stay restrained and intimate rather than triumphant.",
+    "sequenceContext": "",
+    "storyCreativeDirection": {
+      "toneMood": "",
+      "performanceEnergy": "Keep performances understated and controlled, favoring small expressions, measured movement, and restrained delivery over theatrical display.\n\nKeep performances calm and composed, with quiet reactions and low-intensity movement; this does not require slow story progression.",
+      "pacingRhythm": "Let narrative progression unfold very gradually, allowing developments, atmosphere, and consequences time to settle while preserving meaningful movement.",
+      "beatDurationDensity": "Keep beat density very sparse. Center each Generation on one primary development and leave generous room for atmosphere, reactions, and transitions."
+    },
+    "narrativeSubjects": [{"subjectId": "man", "narrativeName": "Man"}],
+    "generations": [{"workspacePath": "workspace.json", "planning": {"relationshipToPrevious": null}}],
+    "initialRange": {"requestedTotalCount": 3}
+  },
+  "expectations": {"checks": [
+    {"kind": "story_item_count_equals", "value": 3},
+    {"kind": "story_initial_range_new_generation_count_equals", "value": 2},
+    {"kind": "story_initial_range_ordered_slots"},
+    {"kind": "story_initial_range_memory_available"},
+    {"kind": "story_first_relationship_null"},
+    {"kind": "story_relationship_valid"},
+    {"kind": "story_field_not_empty", "field": "scenePlan"},
+    {"kind": "story_field_not_empty", "field": "incomingState"},
+    {"kind": "story_field_not_empty", "field": "intendedOutgoingState"},
+    {"kind": "story_field_not_empty", "field": "cameraIntent"},
+    {"kind": "forbidden_text_absent", "patterns": ["\\[Shot\\s*\\d+\\]", "<Picture\\s*\\d+>", "ComfyUI"]}
+  ]},
+  "humanReview": [
+    "Does the planner respect sparse pacing rather than stuffing each Generation with incidents?",
+    "Is there still meaningful progression despite the quiet tone?",
+    "Does the failed attempt have a visible consequence?",
+    "Is the final attempt motivated rather than feeling like an arbitrary reset?",
+    "Is the successful tick treated with restraint?",
+    "Does the planner avoid unnecessary ornamental drama?",
+    "Do small invented details support the repair rather than distract from it?",
+    "Are Scene Plan, Incoming State, and Intended Outgoing State distinct?",
+    "Are the Generation requests feasible for the configured duration?",
+    "Does Scene Plans remain narrative prose rather than H3 syntax?"
+  ]
+}

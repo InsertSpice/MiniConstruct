@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "story-tone-performance-authority",
+  "version": "1",
+  "title": "Tone / Performance: saved authority",
+  "description": "Build two beats from a saved G1 with deliberate Drama and otherwise Auto Tone / Performance controls.",
+  "tags": ["story", "tone-performance", "authority", "opt-in"],
+  "operation": "build_initial_range",
+  "story": {
+    "storyIdea": "Nia hears the stalled train begin moving again and chooses whether to stay by the lift or guide an elderly passenger along the empty platform.",
+    "sequenceContext": "The station is operational but delayed. The situation is tense because the passenger needs help, not because of anything supernatural.",
+    "generations": [{"workspacePath": "workspace.json","scenePlan": "Nia waits beside a disabled lift in a quiet underground station, listening for the returning service train.", "planning": {"relationshipToPrevious": null}}],
+    "initialRange": {"requestedTotalCount": 2}
+  },
+  "expectations": {
+    "checks": [
+      {"kind": "story_item_count_equals", "value": 2},
+      {"kind": "story_initial_range_ordered_slots"},
+      {"kind": "story_tone_performance_controls_valid"},
+      {"kind": "story_tone_performance_protected_non_auto_preserved"},
+      {"kind": "story_recommendation_pairs_valid"}
+    ]
+  },
+  "humanReview": [
+    "Does the saved G1 Drama value remain exact while eligible Auto Tone / Performance fields may be filled or remain Auto?",
+    "Do no Camera, Music, Visual Style, or Subject Identity Fidelity values appear as Story-authored output?",
+    "Does the model choose scene-appropriate controls without turning the controls into copied Creative Request prose?"
+  ]
+}

@@ -3,11 +3,17 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr, SkipValidation, field_validator, model_validator
 
+from .story_memory import StoryContinuityMemory
+from .h3_continuity import H3ContinuityContext
+from .story_creative_direction import StoryCreativeDirection
+from .story_planning_style import StoryPlanningStyle
+from .sequence_subject import CharacterProfile, SequenceSubject, validate_narrative_name
 from .planning import GenerationPlanning, ReferenceRecommendation, RelationshipToPrevious
+from .visual_handoff import VisualHandoffPolicy
 from miniconstruct.execution_routing import GenerationRouting, EffectiveReference
-from .workspace import AssetKind, H3Mode, ReferenceAsset, SubjectIdentityReference, SubjectRecord, Workspace, validate_authoring_workspace
+from .workspace import AssetKind, H3Mode, ReferenceAsset, SubjectIdentityReference, SubjectRecord, Workspace, DialogueLanguage, DialogueResolution, validate_authoring_workspace
 
 
 class EndpointSource(StrEnum):
@@ -73,8 +79,10 @@ class LLMSettings(BaseModel):
     model: str = Field(default="", max_length=500)
     temperature: float = Field(default=0.4, ge=0, le=2)
     max_tokens: int = Field(default=4096, alias="maxTokens", ge=128, le=65536)
-    timeout_seconds: float = Field(default=120, alias="timeoutSeconds", ge=1, le=600)
+    context_window: int | None = Field(default=None, alias="contextWindow", ge=1024, le=10_000_000)
+    timeout_seconds: float = Field(default=120, alias="timeoutSeconds", ge=1, le=3600)
     supports_vision: bool | None = Field(default=None, alias="supportsVision")
+    story_planner_vision: bool = Field(default=False, alias="storyPlannerVision")
     reasoning_mode: ReasoningMode = Field(default=ReasoningMode.OFF, alias="reasoningMode")
     seed_mode: SeedMode = Field(default=SeedMode.BACKEND_DEFAULT, alias="seedMode")
     fixed_seed: int | None = Field(default=None, alias="fixedSeed", ge=0, le=SEED_MAX)
@@ -108,6 +116,10 @@ class LLMSettings(BaseModel):
     def selected_model_id(self) -> str:
         return self.model_id or self.model
 
+    @property
+    def story_vision_enabled(self) -> bool:
+        return self.supports_vision is True and self.story_planner_vision is True
+
 
 class EndpointDiscoveryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -132,29 +144,80 @@ class EndpointDiscoveryResponse(BaseModel):
 
 
 class RoutingPromptRequest(BaseModel):
+    filesystem_project_id: str | None = Field(default=None, alias="filesystemProjectId", max_length=128)
+    generation_id: str | None = Field(default=None, alias="generationId", max_length=128)
+    authoring_path: Literal["one_shot", "story"] = Field(default="one_shot", alias="authoringPath")
+    _narrative_resolved: bool = PrivateAttr(default=False)
+    _narrative_subjects: list[SequenceSubject] = PrivateAttr(default_factory=list)
+    _continuity_context: H3ContinuityContext | None = PrivateAttr(default=None)
+    _visual_handoff: Any = PrivateAttr(default=None)
+    _story_context: dict[str, Any] | None = PrivateAttr(default=None)
+
+    @property
+    def effective_workspace(self):
+        return self._visual_handoff.workspace(self.workspace) if self._visual_handoff else self.workspace
+
+    @property
+    def continuity_context(self):
+        return self._continuity_context
+
+    @property
+    def narrative_subjects(self):
+        return self._narrative_subjects
+
+    @property
+    def story_context(self):
+        return self._story_context
+
+    @property
+    def source_fingerprint(self):
+        from miniconstruct.execution_authoring import execution_authoring_fingerprint
+        return execution_authoring_fingerprint(self.workspace, self.narrative_subjects, self.continuity_context,
+            self._visual_handoff.identity if self._visual_handoff else None,
+            authoring_path=self.authoring_path, story_context=self.story_context)
+
     # Request-only projection; neither Workspace nor authoring fingerprints include routing.
     execution_routing: "GenerationRouting" = Field(default_factory=lambda: GenerationRouting(), alias="executionRouting")
 
     @model_validator(mode="after")
     def validate_execution_labels(self):
-        self.reference_map
+        # Filesystem Project requests can receive transient endpoint/tail inputs
+        # only after canonical Selected-Take resolution. Validate that final set
+        # in resolve_narrative_request, never this raw pre-resolution Workspace.
+        if self.filesystem_project_id is None:
+            self.reference_map
         return self
 
     @property
     def prompt_workspace(self):
         from miniconstruct.execution_routing import prompt_projection
-        return prompt_projection(self.workspace, self.execution_routing)
+        return prompt_projection(self.effective_workspace, self.execution_routing)
 
     @property
     def reference_map(self):
         from miniconstruct.execution_routing import effective_references
-        return effective_references(self.workspace, self.execution_routing)
+        return effective_references(self.effective_workspace, self.execution_routing)
 
 
 class GenerationRequest(RoutingPromptRequest):
     model_config = ConfigDict(extra="forbid")
-    workspace: Workspace
+    workspace: SkipValidation[Workspace]
+
+    @field_validator("workspace", mode="before")
+    @classmethod
+    def validate_request_workspace(cls, value, info):
+        # Project handoff can fill a free frame slot; validate the complete
+        # effective input after canonical resolution, before any provider call.
+        if info.data.get("filesystem_project_id"):
+            result = validate_authoring_workspace(value)
+            if info.data.get("authoring_path") != "story" and not result.creative_request.strip():
+                raise ValueError("main prompt / idea is required")
+            return result
+        return Workspace.model_validate(value)
     llm: LLMSettings
+    # Request-only authority for unsaved normal-generation language changes.
+    # Project persistence remains owned by SequenceManifest.dialogueLanguage.
+    sequence_dialogue_language: DialogueLanguage | None = Field(default=None, alias="sequenceDialogueLanguage")
     resolved_seeds: list[int | None] = Field(default_factory=list, alias="resolvedSeeds")
 
     @model_validator(mode="after")
@@ -162,6 +225,32 @@ class GenerationRequest(RoutingPromptRequest):
         if self.resolved_seeds and len(self.resolved_seeds) != self.workspace.variations:
             raise ValueError("resolvedSeeds must contain one seed per variation")
         return self
+
+
+class DialogueResolutionRequest(BaseModel):
+    """Explicit refresh endpoint; generate also uses this same resolver lazily."""
+    model_config = ConfigDict(extra="forbid")
+    filesystem_project_id: str | None = Field(default=None, alias="filesystemProjectId", max_length=128)
+    generation_id: str | None = Field(default=None, alias="generationId", max_length=128)
+    authoring_path: Literal["one_shot", "story"] = Field(default="one_shot", alias="authoringPath")
+    workspace: SkipValidation[Workspace]
+    llm: LLMSettings
+
+    @field_validator("workspace", mode="before")
+    @classmethod
+    def validate_dialogue_workspace(cls, value, info):
+        if info.data.get("filesystem_project_id"):
+            return GenerationRequest.validate_request_workspace(value, info)
+        # Resolution also serves saved Story authoring, where the Story Plan
+        # supplies authority and Main Prompt / Idea may legitimately be blank.
+        if info.data.get("authoring_path") == "story":
+            return validate_authoring_workspace(value)
+        return Workspace.model_validate(value)
+
+
+class DialogueResolutionResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    resolution: DialogueResolution | None
 
 
 class RevisionSelection(BaseModel):
@@ -184,7 +273,12 @@ class RevisionSelection(BaseModel):
 class RevisionRequest(RoutingPromptRequest):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    workspace: Workspace
+    workspace: SkipValidation[Workspace]
+
+    @field_validator("workspace", mode="before")
+    @classmethod
+    def validate_request_workspace(cls, value, info):
+        return GenerationRequest.validate_request_workspace(value, info)
     llm: LLMSettings
     output_index: int = Field(alias="outputIndex", ge=0)
     selection: RevisionSelection
@@ -201,12 +295,16 @@ class RevisionRequest(RoutingPromptRequest):
 class ValidationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
     execution_routing: GenerationRouting = Field(default_factory=GenerationRouting, alias="executionRouting")
+    filesystem_project_id: str | None = Field(default=None, alias="filesystemProjectId", max_length=128)
+    generation_id: str | None = Field(default=None, alias="generationId", max_length=128)
     prompt: str
     mode: H3Mode
     duration_seconds: float = Field(alias="durationSeconds", ge=4, le=15)
     shots: int | None = Field(default=None, gt=0, strict=True)
     assets: list[ReferenceAsset] = Field(default_factory=list)
     dialogue: str = ""
+    dialogue_language: DialogueLanguage = Field(default=DialogueLanguage.AS_WRITTEN, alias="dialogueLanguage")
+    dialogue_resolution: DialogueResolution | None = Field(default=None, alias="dialogueResolution")
 
 
 class ReferenceManifestAsset(BaseModel):
@@ -229,6 +327,8 @@ class ReferenceManifestRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     mode: H3Mode
+    filesystem_project_id: str | None = Field(default=None, alias="filesystemProjectId", max_length=128)
+    generation_id: str | None = Field(default=None, alias="generationId", max_length=128)
     assets: list[ReferenceManifestAsset] = Field(default_factory=list)
     subjects: list[SubjectRecord] = Field(default_factory=list)
     execution_routing: "GenerationRouting" = Field(default_factory=lambda: GenerationRouting(), alias="executionRouting")
@@ -254,8 +354,10 @@ class ValidationResult(BaseModel):
 class GeneratedVariation(BaseModel):
     reference_map: list["EffectiveReference"] | None = Field(default=None, alias="referenceMap")
     source_fingerprint: str | None = Field(default=None, alias="sourceFingerprint")
+    authoring_path: Literal["one_shot", "story"] = Field(default="one_shot", alias="authoringPath")
     prompt: str
     validation: ValidationResult
+    warnings: list[str] = Field(default_factory=list)
 
 
 class GenerationResponse(BaseModel):
@@ -265,13 +367,24 @@ class GenerationResponse(BaseModel):
 
 class ProjectEnvelope(BaseModel):
     story_idea: str = Field(default="", alias="storyIdea", max_length=20000)
+    story_creative_direction: StoryCreativeDirection = Field(
+        default_factory=StoryCreativeDirection, alias="storyCreativeDirection",
+    )
+    story_planning_style: StoryPlanningStyle = Field(default_factory=StoryPlanningStyle, alias="storyPlanningStyle")
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
     format: Literal["MiniConstruct Project"]
     schema_version: Literal[1] = Field(alias="schemaVersion")
     exported_at: str | None = Field(default=None, alias="exportedAt")
-    workspace: Workspace
+    # Portable exports retain canonical profile ownership without putting it
+    # inside the Generation-local Workspace.
+    sequence_subjects: list[SequenceSubject] = Field(default_factory=list, alias="sequenceSubjects")
+    sequence_next_subject_number: int | None = Field(default=None, alias="sequenceNextSubjectNumber", ge=1)
+    # The before validator below performs the authoring-context validation and
+    # returns a real Workspace. SkipValidation prevents Pydantic from running
+    # strict generation validators a second time without that context.
+    workspace: SkipValidation[Workspace]
 
-    @field_validator("workspace", mode="plain")
+    @field_validator("workspace", mode="before")
     @classmethod
     def validate_authoring_state(cls, value: Any) -> Workspace:
         return validate_authoring_workspace(value)
@@ -280,12 +393,21 @@ class ProjectEnvelope(BaseModel):
 class FilesystemProjectWriteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    story_memory: StoryContinuityMemory | None = Field(default=None, alias="storyMemory")
+    story_memory_generation_id: str | None = Field(default=None, alias="storyMemoryGenerationId")
+    expected_project_fingerprint: str | None = Field(default=None, alias="expectedProjectFingerprint", pattern=r"^[0-9a-f]{64}$")
     story_idea: str | None = Field(default=None, alias="storyIdea", max_length=20000)
-    workspace: Workspace
+    story_creative_direction: StoryCreativeDirection | None = Field(default=None, alias="storyCreativeDirection")
+    story_planning_style: StoryPlanningStyle | None = Field(default=None, alias="storyPlanningStyle")
+    character_profiles: list["CharacterProfileUpdate"] | None = Field(default=None, alias="characterProfiles")
+    sequence_subjects: list[SequenceSubject] | None = Field(default=None, alias="sequenceSubjects")
+    sequence_next_subject_number: int | None = Field(default=None, alias="sequenceNextSubjectNumber", ge=1)
+    dialogue_language: DialogueLanguage | None = Field(default=None, alias="dialogueLanguage")
+    workspace: SkipValidation[Workspace]
     continuity: "ContinuityWriteRequest | None" = None
     planning: "PlanningWriteRequest | None" = None
 
-    @field_validator("workspace", mode="plain")
+    @field_validator("workspace", mode="before")
     @classmethod
     def validate_authoring_state(cls, value: Any) -> Workspace:
         return validate_authoring_workspace(value)
@@ -306,12 +428,17 @@ class PlanningWriteRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
+    scene_plan: str | None = Field(default=None, alias="scenePlan", max_length=50000)
     relationship_to_previous: RelationshipToPrevious | None = Field(default=None, alias="relationshipToPrevious")
     camera_intent: str | None = Field(default=None, alias="cameraIntent", max_length=20000)
+    # Keep this typed and optional: exclude_unset in the route makes omission a
+    # no-op while an explicit policy replaces the active Generation policy.
+    visual_handoff: VisualHandoffPolicy | None = Field(default=None, alias="visualHandoff")
 
 
 class PlanningRevisionScope(StrEnum):
     MAIN_PROMPT = "main_prompt"
+    DIALOGUE = "dialogue"
     INCOMING_STATE = "incoming_state"
     INTENDED_OUTGOING_STATE = "intended_outgoing_state"
     RELATIONSHIP_TO_PREVIOUS = "relationship_to_previous"
@@ -324,6 +451,10 @@ class AssistedGenerationPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     creative_request: str = Field(alias="creativeRequest", max_length=50000)
+    # Revision requires explicit presence when dialogue is selected.  A default
+    # keeps existing inference responses and unselected revisions compatible;
+    # planning.validate_revision_result checks model_fields_set where required.
+    dialogue: str = Field(default="", max_length=30000)
     incoming_state: str = Field(alias="incomingState", max_length=20000)
     intended_outgoing_state: str = Field(alias="intendedOutgoingState", max_length=20000)
     relationship_to_previous: RelationshipToPrevious | None = Field(alias="relationshipToPrevious")
@@ -336,12 +467,17 @@ class AssistedGenerationPlan(BaseModel):
 class PlanningInferenceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    workspace: Workspace
+    workspace: SkipValidation[Workspace]
     llm: LLMSettings
     continuity: ContinuityWriteRequest = Field(default_factory=ContinuityWriteRequest)
     planning: GenerationPlanning = Field(default_factory=GenerationPlanning)
+    _narrative_subjects: list[SequenceSubject] = PrivateAttr(default_factory=list)
 
-    @field_validator("workspace", mode="plain")
+    @property
+    def narrative_subjects(self):
+        return self._narrative_subjects
+
+    @field_validator("workspace", mode="before")
     @classmethod
     def validate_authoring_state(cls, value: Any) -> Workspace:
         return validate_authoring_workspace(value)
@@ -363,9 +499,9 @@ class GenerationCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     insert_index: int | None = Field(default=None, alias="insertIndex", ge=0)
-    workspace: Workspace | None = None
+    workspace: SkipValidation[Workspace] | None = None
 
-    @field_validator("workspace", mode="plain")
+    @field_validator("workspace", mode="before")
     @classmethod
     def validate_authoring_state(cls, value: Any) -> Workspace | None:
         return None if value is None else validate_authoring_workspace(value)
@@ -377,16 +513,61 @@ class GenerationOrderRequest(BaseModel):
     generation_ids: list[str] = Field(alias="generationIds")
 
 
+class GenerationActivationRequest(BaseModel):
+    """Optional snapshot guard for activation writes from an open browser context."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    expected_project_fingerprint: str | None = Field(
+        default=None, alias="expectedProjectFingerprint", pattern=r"^[0-9a-f]{64}$",
+    )
+
+
+class SequenceSubjectDeleteRequest(BaseModel):
+    """Body transport keeps opaque Subject IDs out of URL path parsing."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    subject_id: str = Field(alias="subjectId", min_length=1, max_length=128)
+
+
+class SequenceSubjectNameRequest(SequenceSubjectDeleteRequest):
+    narrative_name: str = Field(alias="narrativeName")
+
+    @field_validator("narrative_name")
+    @classmethod
+    def valid_name(cls, value):
+        return validate_narrative_name(value)
+
+
+class CharacterProfileUpdate(BaseModel):
+    """Explicit canonical Profile edits sent through normal Project Save."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    subject_id: str = Field(alias="subjectId", min_length=1, max_length=128)
+    character_profile: CharacterProfile = Field(alias="characterProfile")
+
+
 class ProjectSaveAsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     name: str = Field(min_length=1, max_length=160)
+    copy_mode: Literal["full", "fresh"] = Field(default="full", alias="copyMode")
+    keep_saved_prompts: bool = Field(default=False, alias="keepSavedPrompts", strict=True)
+    story_memory: StoryContinuityMemory | None = Field(default=None, alias="storyMemory")
+    story_memory_generation_id: str | None = Field(default=None, alias="storyMemoryGenerationId")
+    expected_project_fingerprint: str | None = Field(default=None, alias="expectedProjectFingerprint", pattern=r"^[0-9a-f]{64}$")
     story_idea: str | None = Field(default=None, alias="storyIdea", max_length=20000)
-    workspace: Workspace | None = None
+    story_creative_direction: StoryCreativeDirection | None = Field(default=None, alias="storyCreativeDirection")
+    story_planning_style: StoryPlanningStyle | None = Field(default=None, alias="storyPlanningStyle")
+    character_profiles: list[CharacterProfileUpdate] | None = Field(default=None, alias="characterProfiles")
+    dialogue_language: DialogueLanguage | None = Field(default=None, alias="dialogueLanguage")
+    workspace: SkipValidation[Workspace] | None = None
     continuity: ContinuityWriteRequest | None = None
     planning: PlanningWriteRequest | None = None
 
-    @field_validator("workspace", mode="plain")
+    @field_validator("workspace", mode="before")
     @classmethod
     def validate_authoring_state(cls, value: Any) -> Workspace | None:
         return None if value is None else validate_authoring_workspace(value)
@@ -402,6 +583,7 @@ class FilesystemProjectSummary(BaseModel):
 
 
 class GenerationSummary(BaseModel):
+    story_memory_status: Literal["trusted", "needs_review", "legacy_unknown"] = Field(default="trusted", alias="storyMemoryStatus")
     reference_assets: list[dict[str, str]] = Field(default_factory=list, alias="referenceAssets")
     model_config = ConfigDict(populate_by_name=True)
 
@@ -415,16 +597,27 @@ class SequenceSummary(BaseModel):
 
     active_generation_id: str = Field(alias="activeGenerationId")
     generations: list[GenerationSummary]
+    subjects: list[SequenceSubject]
+    next_subject_number: int = Field(alias="nextSubjectNumber")
 
 
 class FilesystemProjectResponse(FilesystemProjectSummary):
+    outputs: dict[str, Any] = Field(default_factory=dict)
+    story_memory_after: StoryContinuityMemory = Field(alias="storyMemoryAfter")
+    project_fingerprint: str = Field(alias="projectFingerprint")
+    project_edit_fingerprint: str = Field(default="", alias="projectEditFingerprint")
     story_idea: str = Field(default="", alias="storyIdea", max_length=20000)
-    workspace: Workspace
+    story_creative_direction: StoryCreativeDirection = Field(
+        default_factory=StoryCreativeDirection, alias="storyCreativeDirection",
+    )
+    story_planning_style: StoryPlanningStyle = Field(default_factory=StoryPlanningStyle, alias="storyPlanningStyle")
+    workspace: SkipValidation[Workspace]
     sequence: SequenceSummary
     continuity: "ContinuityResponse"
     planning: GenerationPlanning
+    dialogue_language: DialogueLanguage = Field(default=DialogueLanguage.AS_WRITTEN, alias="dialogueLanguage")
 
-    @field_validator("workspace", mode="plain")
+    @field_validator("workspace", mode="before")
     @classmethod
     def validate_authoring_state(cls, value: Any) -> Workspace:
         return validate_authoring_workspace(value)

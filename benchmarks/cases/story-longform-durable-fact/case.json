@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform-durable-fact",
+  "version": "1",
+  "title": "Durable fact recall outside Plan Next local context",
+  "description": "Alice's brass-key access fact is old Story Memory, while the last three saved Generations never restate it.",
+  "tags": ["story", "longform", "next", "durable-fact"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea": "Alice must reach the old archive after a difficult journey.",
+    "sequenceContext": "A grounded archival adventure with causally consistent access.",
+    "storyMemory": {"recentSummary": "Alice has arrived at the sealed archive entrance.", "durableFacts": [{"id":"11111111-1111-4111-8111-111111111111","text":"Alice carries the brass key that opens the old archive."}]},
+    "generations": [
+      {"workspacePath":"workspace.json","scenePlan":"Alice receives a brass key from the retired archivist.","planning":{"relationshipToPrevious":null}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice crosses the foggy causeway toward the city.","repeat":5},
+      {"workspacePath":"workspace.json","scenePlan":"Alice shelters from rain under an abandoned toll gate."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice follows faded archive signs through a silent quarter."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice reaches the locked door of the old archive."}
+    ],
+    "next": {"requestedCount": 2, "instruction":"Continue naturally from the archive entrance."}
+  },
+  "expectations": {"checks": [{"kind":"story_item_count_equals","value":2},{"kind":"story_recommendation_pairs_valid"}]},
+  "behavioralChecks": [
+    {"id":"key-memory-transmitted","description":"The old brass-key fact is present in Story Memory authority, not in the local three-Generation narrative window.","kind":"request_memory_contains","text":"brass key"},
+    {"id":"key-used-consistently","description":"Review whether the continuation uses or acknowledges the brass key without inventing a contradictory access method.","expectedConcepts":["brass key","archive"],"forbiddenConcepts":["door already open","key was lost"]}
+  ],
+  "humanReview": ["Does the generated continuation use the brass key naturally, rather than inventing coincidence or a conflicting way into the archive?"]
+}

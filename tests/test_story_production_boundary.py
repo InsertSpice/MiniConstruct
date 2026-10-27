@@ -13,7 +13,7 @@ import pytest
 from miniconstruct.api import routes
 from miniconstruct.app import app
 from miniconstruct.llm.client import OpenAICompatibleClient
-from miniconstruct.models.story_planning import StoryBuildRequest, StoryBuildResponse, StoryPlanProposal
+from miniconstruct.models.story_planning import LegacyStoryBuildResponse, StoryBuildRequest, StoryPlanProposal
 from miniconstruct.models.workspace import validate_authoring_workspace
 from miniconstruct.project_store import ProjectStore, _blank_workspace
 from miniconstruct.story_planning import (
@@ -70,11 +70,13 @@ def dog(tmp_path):
     request = StoryBuildRequest(idea=IDEA, desiredGenerationCount=4, llm={
         "endpoint": {"id": "offline", "displayName": "Offline", "baseUrl": "http://never-call.test/v1",
                      "apiKey": SECRET, "source": "unsloth_studio"},
-        "modelId": "offline", "supportsVision": True,
+        "modelId": "offline", "supportsVision": True, "storyPlannerVision": True,
     })
     # Synthetic images necessarily change the canonical manifest hash. No identity,
     # narrative, warning or recommendation in the captured response is otherwise changed.
     raw["baseSequenceFingerprint"] = store.read_story_snapshot(PROJECT_ID).fingerprint
+    for item in raw["items"]:
+        item.setdefault("shotCount", 1)
     return store, request, raw
 
 
@@ -84,6 +86,7 @@ def compact(raw):
         data.pop(key)
     for item in data["items"]:
         item.pop("existingGenerationId")
+        item.setdefault("shotCount", 1)
     return data
 
 
@@ -105,7 +108,7 @@ def test_literal_gemma_reply_passes_original_schema_and_authority(dog):
     # Evaluate the literal captured envelope, with synthetic media outside that check.
     initial.base_sequence_fingerprint = parsed.base_sequence_fingerprint
     validate_build_authority(snapshot, initial, parsed)
-    assert parsed.items[0].creative_request == parsed.items[0].camera_intent == ""
+    assert parsed.items[0].scene_plan == parsed.items[0].camera_intent == ""
 
 
 @pytest.mark.parametrize("small_contract", [False, True])
@@ -132,7 +135,8 @@ async def test_dogtest_real_client_payload_reply_and_apply(dog, small_contract):
     parts = payload["messages"][1]["content"]
     context = json.loads(parts[0]["text"])
     assert context["idea"] == IDEA and context["desiredGenerationCount"] == 4
-    assert context["responseSchema"] == StoryBuildResponse.model_json_schema(by_alias=True)
+    assert context["responseSchema"] == LegacyStoryBuildResponse.model_json_schema(by_alias=True)
+    assert "tonePerformance" not in json.dumps(context["responseSchema"])
     assert "..." not in parts[0]["text"]
     assert "base64" not in parts[0]["text"] and "data_url" not in parts[0]["text"]
     assert len([p for p in parts if p["type"] == "image_url"]) == 2
@@ -141,16 +145,18 @@ async def test_dogtest_real_client_payload_reply_and_apply(dog, small_contract):
         assert asset["subjectIdentity"]["subjectId"] == f"subject-{index + 1}"
         assert GENERATION_ID in parts[1 + 2 * index]["text"]
         assert asset["id"] in parts[1 + 2 * index]["text"]
-        assert parts[2 + 2 * index]["image_url"]["url"] == png(index * 255)
-    assert set(context["draft"]["items"][0]) == {"planItemId", "existingGenerationId", "relationshipToPrevious"}
-    assert all(set(i) == {"planItemId", "existingGenerationId"} for i in context["draft"]["items"][1:])
+        assert parts[2 + 2 * index]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert set(context["draft"]["items"][0]) == {"planItemId", "existingGenerationId", "relationshipToPrevious", "durationSeconds", "shotCount"}
+    assert all(
+        set(i) == {"planItemId", "existingGenerationId", "durationSeconds", "shotCount"}
+        for i in context["draft"]["items"][1:]
+    )
     assert all(len(i.reference_recommendations) == 2 for i in result.items)
     assert result.consistency_warnings[0].model_dump(by_alias=True) == raw["consistencyWarnings"][0]
     warning = result.consistency_warnings[-1]
     assert warning.plan_item_id == warning.related_plan_item_id == result.items[0].plan_item_id
-    for field in ("Creative Request", "Incoming State", "Intended Outgoing State", "Camera Intent"):
-        assert field in warning.message
-    assert result.items[0].creative_request == result.items[0].incoming_state == ""
+    assert "Scene Plan" in warning.message
+    assert result.items[0].scene_plan == result.items[0].incoming_state == ""
     assert SECRET not in result.model_dump_json() and "base64" not in result.model_dump_json()
     assert result.base_sequence_fingerprint == raw["baseSequenceFingerprint"]
     # The unchanged transactional Apply can accept the editable incomplete draft.
@@ -161,6 +167,37 @@ async def test_dogtest_real_client_payload_reply_and_apply(dog, small_contract):
         assert generation.workspace.mode == "Ref2VA"
         assert len(generation.workspace.assets) == 2
         assert generation.workspace.subjects == applied.workspace.subjects
+
+
+async def test_legacy_story_build_salvages_unknown_memory_patch_extras(dog):
+    store, request, raw = dog
+    response = compact(raw)
+    for item in response["items"]:
+        item["memoryPatchAfter"] = {"field": "invented value"}
+
+    class OfflineClient:
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, _settings):
+            return self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def generate(self, messages, *, response_instruction=None):
+            self.calls.append(messages)
+            return json.dumps(response)
+
+    client = OfflineClient()
+    ids = identities()
+    proposal = await build_story_plan(store, PROJECT_ID, request, client, item_id_factory=lambda: next(ids))
+    assert len(client.calls) == 1
+    assert any("Generations 1" in warning.message and "field" in warning.message
+               for warning in proposal.consistency_warnings)
 
 
 def post_build(monkeypatch, dog, handler, *, request_patch=None):
@@ -295,7 +332,7 @@ def test_small_contract_projects_all_saved_authority_without_model_envelope(dog,
     before = files(store)
     proposed = compact(raw)
     proposed["sequenceContext"] = "Model paraphrase"
-    proposed["items"][0].update(creativeRequest="Model rewrite", incomingState="Changed",
+    proposed["items"][0].update(scenePlan="Model rewrite", incomingState="Changed",
                                 intendedOutgoingState="Changed", cameraIntent="Changed",
                                 relationshipToPrevious="independent")
     proposed["items"][1]["relationshipToPrevious"] = None
@@ -307,13 +344,13 @@ def test_small_contract_projects_all_saved_authority_without_model_envelope(dog,
     result = StoryPlanProposal.model_validate(response.json())
     assert files(store) == before
     assert result.sequence_context == "  Exact world.\n"
-    assert result.items[0].creative_request == "  Exact first shot.\n"
+    assert result.items[0].scene_plan == "Model rewrite"
     assert result.items[0].incoming_state == "Exact start"
     assert result.items[0].intended_outgoing_state == "Exact ending"
     assert result.items[0].camera_intent == "Exact camera"
     assert result.items[0].relationship_to_previous is None
     assert result.items[1].relationship_to_previous == "continue_previous_shot"
-    assert result.items[1].creative_request == raw["items"][1]["creativeRequest"]
+    assert result.items[1].scene_plan == raw["items"][1]["scenePlan"]
     assert [i.existing_generation_id for i in result.items] == [GENERATION_ID, second.active_generation_id, None, None]
     assert result.base_project_id == PROJECT_ID and result.base_project_updated_at == snapshot.manifest.updated_at
     assert result.base_sequence_fingerprint == snapshot.fingerprint
@@ -325,7 +362,7 @@ def test_incomplete_warnings_respect_public_limit_without_filling_text(dog, monk
     proposed["sequenceContext"] = "  "
     proposed["consistencyWarnings"] *= 256
     for item in proposed["items"]:
-        for key in ("creativeRequest", "incomingState", "intendedOutgoingState", "cameraIntent"):
+        for key in ("scenePlan", "incomingState", "intendedOutgoingState", "cameraIntent"):
             item[key] = " \n "
     response = post_build(monkeypatch, dog, lambda _: httpx.Response(200, json={
         "choices": [{"message": {"content": json.dumps(proposed)}}],
@@ -333,6 +370,6 @@ def test_incomplete_warnings_respect_public_limit_without_filling_text(dog, monk
     assert response.status_code == 200, response.text
     result = StoryPlanProposal.model_validate(response.json())
     assert len(result.consistency_warnings) == 256
-    assert "Sequence Context" in result.consistency_warnings[-4].message
-    assert all(i.creative_request == " \n " for i in result.items)
+    assert "Scene Plan" in result.consistency_warnings[-4].message
+    assert all(i.scene_plan == " \n " for i in result.items)
     assert [w.plan_item_id for w in result.consistency_warnings[-4:]] == [i.plan_item_id for i in result.items]

@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "story-character-profile-returning-subject",
+  "version": "1",
+  "title": "Returning Subject receives Profile and historical identity",
+  "description": "Alice returns to the municipal archive's railway-station annex after disappearing beyond the local planning window.",
+  "tags": ["story", "character-profile", "longform", "returning-subject", "identity", "vision"],
+  "requirements": {"vision": true},
+  "fixtureAssets": [
+    {"assetId": "alice-identity", "path": "assets/alice_station_identity.png", "source": "external"}
+  ],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea": "Alice returns to the municipal archive's railway-station annex after a long absence.",
+    "sequenceContext": "The annex sits beside the same rain-slick station platform. Preserve Alice's stable identity when she returns.",
+    "storyMemory": {"recentSummary": "Alice is returning to the old archive annex.", "durableFacts": [
+      {"id": "88888888-8888-4888-8888-888888888888", "text": "Alice is returning to the old archive annex.", "relatedSubjectIds": ["alice"]}
+    ], "openThreads": []},
+    "narrativeSubjects": [
+      {"subjectId": "alice", "narrativeName": "Alice", "characterProfile": {
+        "roleBackground": "Senior conservator at a municipal archive. Trained to document evidence carefully before drawing conclusions.",
+        "personality": "Calm, methodical, observant and skeptical of dramatic explanations.",
+        "appearance": "Silver-streaked braid, narrow rectangular glasses, composed posture.",
+        "speechMannerisms": "Speaks in measured, concise sentences and pauses to inspect details before answering.",
+        "notes": "Protective of fragile documents. Admits uncertainty rather than bluffing."
+      }}
+    ],
+    "generations": [
+      {"workspacePath": "identity-workspace.json", "scenePlan": "Alice leaves the archive annex with a map and her identity is established.", "planning": {"relationshipToPrevious": null}},
+      {"workspacePath": "workspace.json", "scenePlan": "Unrelated travellers cross distant landscapes.", "repeat": 5},
+      {"workspacePath": "workspace.json", "scenePlan": "The archive town prepares for rain."},
+      {"workspacePath": "workspace.json", "scenePlan": "A lantern burns beside the archive annex gate."},
+      {"workspacePath": "workspace.json", "scenePlan": "Alice returns to the old archive annex carrying her map."}
+    ],
+    "next": {"requestedCount": 1, "instruction": "Continue naturally as Alice returns to the archive annex."}
+  },
+  "expectations": {"checks": [
+    {"kind": "story_item_count_equals", "value": 1},
+    {"kind": "story_recommendation_pairs_valid"},
+    {"kind": "image_input_count_equals", "value": 1},
+    {"kind": "story_relevant_subject_ids_equals", "value": ["alice"]},
+    {"kind": "story_character_profile_present", "value": "alice"}
+  ]},
+  "behavioralChecks": [
+    {"id": "alice-historical-identity-available", "description": "Alice's selected historical identity record is available when the bounded operation makes her relevant.", "kind": "historical_subject_available", "subjectId": "alice"}
+  ],
+  "humanReview": [
+    "Does Gemma use Alice's textual characterization and visual identity evidence compatibly without mechanically narrating either source?",
+    "Is Alice the relevant returning Subject, and does any recommended identity reference retain its sourceGenerationId plus assetId pair?",
+    "Does the plan remain coherent with the archive-annex setting and avoid treating the historical Picture as current plot text?"
+  ]
+}

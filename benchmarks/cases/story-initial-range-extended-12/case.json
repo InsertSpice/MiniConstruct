@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "story-initial-range-extended-12",
+  "version": "1",
+  "title": "Extended Initial Build decomposition: twelve total Generations",
+  "description": "Matched one-call maximum initial decomposition case; only requested total Generation count differs from the four-Generation case.",
+  "tags": ["story", "initial-range", "extended", "decomposition", "count-isolation"],
+  "operation": "build_initial_range",
+  "story": {
+    "storyIdea": "During a night ferry crossing to a storm-lashed island, maintenance engineer Alice discovers that the emergency beacon was deliberately disabled. She must navigate the lower decks, recruit skeptical deckhand Tomas, restore the beacon before the ferry reaches the reefs, and decide whether to expose the saboteur after the passengers are safe.",
+    "sequenceContext": "The ferry carries forty passengers through worsening weather. The beacon can be restored only at a lower-deck manual panel; Alice has the maintenance key, Tomas knows the vessel, and the ferry has not yet reached the reefs.",
+    "storyCreativeDirection": {
+      "toneMood": "Storm-bound maritime suspense with grounded human stakes",
+      "performanceEnergy": "Focused, practical urgency rather than melodrama",
+      "pacingRhythm": "Escalate through investigation, cooperation, repair, and aftermath",
+      "beatDurationDensity": "One meaningful decision or obstacle per Generation"
+    },
+    "narrativeSubjects": [
+      {"subjectId": "alice", "narrativeName": "Alice", "characterProfile": {"roleBackground": "Ferry maintenance engineer responsible for emergency systems.", "personality": "Methodical, resourceful, and calm under pressure.", "appearance": "Weatherproof work jacket and a compact tool pouch.", "speechMannerisms": "Uses concise technical language and asks direct questions.", "notes": "Carries the maintenance key."}},
+      {"subjectId": "tomas", "narrativeName": "Tomas", "characterProfile": {"roleBackground": "Deckhand who knows the ferry's routes and lower decks.", "personality": "Initially skeptical but protective of passengers.", "appearance": "Dark deck coat, radio earpiece, and sea-worn boots.", "speechMannerisms": "Blunt, practical, and increasingly collaborative.", "notes": "Can guide Alice through the vessel."}}
+    ],
+    "generations": [
+      {"workspacePath": "workspace.json", "incomingState": "The night ferry has just left the harbor in worsening weather.", "planning": {"relationshipToPrevious": null}}
+    ],
+    "initialRange": {"requestedTotalCount": 12}
+  },
+  "expectations": {"checks": [
+    {"kind": "story_item_count_equals", "value": 12},
+    {"kind": "story_existing_generation_count_equals", "value": 1},
+    {"kind": "story_initial_range_new_generation_count_equals", "value": 11},
+    {"kind": "story_initial_range_ordered_slots"},
+    {"kind": "story_existing_generation_ids_preserved"},
+    {"kind": "story_first_relationship_null"},
+    {"kind": "story_relationship_valid"},
+    {"kind": "story_recommendation_pairs_valid"},
+    {"kind": "story_initial_range_memory_available"}
+  ]},
+  "humanReview": [
+    "Does the requested plan form a coherent arc from discovery through repair and aftermath?",
+    "Does it use the available beats for meaningful progression without filler, rushing, or duplicated events, while later beats remain consistent?",
+    "Does the ending appropriately reflect the supplied Story Idea, and do Alice and Tomas remain consistent with the supplied cast and Character Profiles?"
+  ]
+}

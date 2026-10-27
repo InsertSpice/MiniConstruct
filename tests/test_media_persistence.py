@@ -72,7 +72,7 @@ def test_persist_restart_rename_change_and_fingerprint(store, kind, workspace_fa
     assert restored.notes == a.notes and restored.options == a.options and restored.duration_seconds == a.duration_seconds
     assert restored.media_payload.project_id == p.project_id and restored.media_payload.upload_id is None
     raw = manifest(store, p)
-    assert raw["schemaVersion"] == 5
+    assert raw["schemaVersion"] == 17
     entry = raw["sequence"]["generations"][0]["assetFiles"][0]
     assert entry["contentSha256"] == restored.media_payload.sha256
     assert "mediaPayload" not in raw["sequence"]["generations"][0]["workspace"]["assets"][0]
@@ -179,11 +179,11 @@ def test_missing_and_corrupt_saved_file_rejected(store, kind, workspace_factory)
     entry = manifest(store, p)["sequence"]["generations"][0]["assetFiles"][0]
     path = store.root / f"project-{p.project_id}" / entry["path"]
     path.write_bytes(b"x" * entry["byteLength"])
-    with pytest.raises(AssetPayloadError, match="verification failed"):
-        store.load_project(p.project_id)
+    assert store.load_project(p.project_id).workspace.assets[0].payload_availability == "corrupt"
+    with pytest.raises(AssetPayloadError):
+        store.execution_payload(p.project_id, p.active_generation_id, kind, kind, entry["contentSha256"])
     path.unlink()
-    with pytest.raises(AssetPayloadError, match="unavailable"):
-        store.load_project(p.project_id)
+    assert store.load_project(p.project_id).workspace.assets[0].payload_availability == "missing"
 
 
 def test_upload_size_and_disconnect_cleanup(store, kind, monkeypatch):

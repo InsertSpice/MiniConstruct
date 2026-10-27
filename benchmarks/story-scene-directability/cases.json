@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "suite": "story-scene-directability",
+  "cases": [
+    {
+      "id": "city-key-search-begins",
+      "title": "The search begins before the key is found",
+      "projectName": "Scene directability · city search",
+      "workspace": {
+        "schemaVersion": 1, "projectName": "Scene directability · city search",
+        "mode": "T2VA", "durationSeconds": 12, "shots": 1, "aspectRatio": "16:9",
+        "variations": 1, "creativeRequest": "", "dialogue": "",
+        "subjects": [{"id": "kent", "number": 1}, {"id": "takina", "number": 2}, {"id": "maki", "number": 3}],
+        "nextSubjectNumber": 4, "assets": []
+      },
+      "storyIdea": "Kent searches the city for an important gold key. This is the beginning of the search; in later Generations he checks other districts, follows a lead, and eventually finds the key. Takina follows him and Maki may pass in the background.",
+      "sequenceContext": "The quest unfolds across multiple city locations. Generation 1 begins the search and must not discover the key.",
+      "desiredGenerationCount": 3,
+      "h3Seed": 2718
+    },
+    {
+      "id": "quiet-platform-reconciliation",
+      "title": "A restrained exchange with a meaningful pause",
+      "projectName": "Scene directability · quiet exchange",
+      "workspace": {
+        "schemaVersion": 1, "projectName": "Scene directability · quiet exchange",
+        "mode": "T2VA", "durationSeconds": 8, "shots": 1, "aspectRatio": "16:9",
+        "variations": 1, "creativeRequest": "", "dialogue": "",
+        "subjects": [{"id": "mira", "number": 1}, {"id": "ren", "number": 2}],
+        "nextSubjectNumber": 3, "assets": []
+      },
+      "storyIdea": "At a nearly empty train platform, Mira asks Ren whether he is still leaving. Ren starts to answer, pauses, looks toward the tracks, then quietly says he will stay until the next train arrives. Their restrained exchange begins a gradual reconciliation; later Generations address the underlying disagreement.",
+      "sequenceContext": "The reconciliation unfolds over several encounters. Keep this Generation quiet and unresolved; do not settle their disagreement.",
+      "desiredGenerationCount": 3,
+      "h3Seed": 2718
+    },
+    {
+      "id": "doorway-handoff",
+      "title": "A careful object handoff across a doorway",
+      "projectName": "Scene directability · doorway handoff",
+      "workspace": {
+        "schemaVersion": 1, "projectName": "Scene directability · doorway handoff",
+        "mode": "T2VA", "durationSeconds": 10, "shots": 1, "aspectRatio": "16:9",
+        "variations": 1, "creativeRequest": "", "dialogue": "",
+        "subjects": [{"id": "aya", "number": 1}, {"id": "sol", "number": 2}],
+        "nextSubjectNumber": 3, "assets": []
+      },
+      "storyIdea": "During a storm, Aya reaches the shelter doorway with a lantern and passes it to Sol, who is already inside. Sol takes its weight, turns the lantern toward the dark hall, and makes room for Aya to enter. Later Generations reveal what is in the hall; this Generation does not reveal it.",
+      "sequenceContext": "The lantern handoff establishes trust and moves both characters into the shelter. The dark hall remains unexplored until later.",
+      "desiredGenerationCount": 3,
+      "h3Seed": 2718
+    }
+  ]
+}

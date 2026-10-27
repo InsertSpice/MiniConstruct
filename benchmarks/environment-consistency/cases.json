@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "suite": "h3-environment-consistency",
+  "cases": [
+    {
+      "id": "bedroom-new-camera",
+      "title": "Single bedroom identity with a lower, closer new camera",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "requiresVision": false,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Environment consistency pilot",
+        "mode": "Ref2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "Show the same anime bedroom from a lower, closer viewpoint in the narrow aisle beside the right-hand desk and the right side of the bed, rather than from the elevated doorway-wide viewpoint. Place the camera near mattress height, looking diagonally across the bed toward its wooden headboard and the window with tied green curtains. Retain part of the tall bookshelves on the left and the adjacent desk, chair and lamp on the right in the view so their relationships remain judgeable. Use one continuous shot with a slow, restrained lateral camera move along the aisle, without crossing furniture. No people enter. Preserve the same bedroom identity, architecture, furniture, relative spatial relationships, materials and visible colors. Do not reveal or invent the unseen wall behind the source camera.",
+        "assets": [
+          {
+            "id": "bedroom-reference",
+            "kind": "image",
+            "filename": "anime-bedroom.png",
+            "mimeType": "image/png",
+            "role": "environment",
+            "order": 1
+          }
+        ]
+      },
+      "fixtureAssets": [
+        {
+          "assetId": "bedroom-reference",
+          "path": "assets/anime-bedroom.png"
+        }
+      ]
+    },
+    {
+      "id": "bedroom-side-view-miku",
+      "title": "Lateral mattress-height bedroom reconstruction with Miku",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "requiresVision": false,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Environment viewpoint reconstruction",
+        "mode": "Ref2VA",
+        "aspectRatio": "16:9",
+        "variations": 1,
+        "creativeRequest": "Inside the same anime bedroom, Hatsune Miku lies lengthwise on top of the bed. Start from a completely new camera position beside the LONG SIDE of the bed, approximately at mattress height. The optical axis looks nearly perpendicular across the mattress in a true lateral side view rather than from the doorway. Miku's body lies lengthwise along the bed and is visible approximately head-to-toe across the horizontal frame. The bed's long edge therefore runs broadly across the image rather than receding away from the doorway camera. Use a restrained slow push or lateral move while maintaining the side-of-bed spatial relationship. Preserve the identity of the same bedroom. Do not begin from the elevated doorway-wide composition.",
+        "assets": [
+          {
+            "id": "bedroom-reference",
+            "kind": "image",
+            "filename": "anime-bedroom.png",
+            "mimeType": "image/png",
+            "role": "environment",
+            "order": 1
+          }
+        ]
+      },
+      "fixtureAssets": [
+        {
+          "assetId": "bedroom-reference",
+          "path": "assets/anime-bedroom.png"
+        }
+      ]
+    },
+    {
+      "id": "bedroom-production-environment-gate",
+      "title": "Production Environment policy: lateral bedside viewpoint",
+      "authoringPath": "one_shot",
+      "durationSeconds": 8,
+      "shotCount": 1,
+      "requiresVision": false,
+      "workspace": {
+        "schemaVersion": 1,
+        "projectName": "Production Environment policy gate",
+        "mode": "Ref2VA",
+        "aspectRatio": "4:3",
+        "variations": 1,
+        "creativeRequest": "In the bedroom from the Environment Picture, Hatsune Miku lies lengthwise on the bed, with her full body visible head-to-toe horizontally across the frame. Start immediately from a substantially new viewpoint: a true lateral side view beside the long side of the bed at mattress height, looking horizontally across the mattress. Keep the same bedroom identity and a simple, quiet scene in one continuous shot.",
+        "assets": [
+          {
+            "id": "bedroom-reference",
+            "kind": "image",
+            "filename": "anime-bedroom.png",
+            "mimeType": "image/png",
+            "role": "environment",
+            "order": 1
+          }
+        ]
+      },
+      "fixtureAssets": [
+        {
+          "assetId": "bedroom-reference",
+          "path": "assets/anime-bedroom.png"
+        }
+      ]
+    }
+  ]
+}

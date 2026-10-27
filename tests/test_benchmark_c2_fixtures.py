@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 from pathlib import Path
 
@@ -125,9 +126,12 @@ async def test_new_cases_use_native_prompt_assembly_without_transmitting_video_b
     wardrobe_item = wardrobe["cases"][0]
     assert wardrobe_item["status"] == "completed"
     assert wardrobe_item["modelInput"]["imageInputCount"] == 1
+    image_url = next(part["image_url"]["url"] for part in FakeClient.instances[-1].messages[-1]["content"] if part["type"] == "image_url")
+    transmitted_sha = hashlib.sha256(base64.b64decode(image_url.split(",", 1)[1])).hexdigest()
+    assert transmitted_sha != SUBJECT_A_SHA256
     assert wardrobe_item["modelInput"]["images"] == [{
         "index": 1,
-        "sha256": SUBJECT_A_SHA256,
+        "sha256": transmitted_sha,
         "mimeType": "image/jpeg",
         "assetId": "3e9816f2-db1f-42a0-9223-89ac5721f877",
         "filename": "Codex Image Sep 1, 2026, 05_50_06 AM.png",

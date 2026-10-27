@@ -106,11 +106,12 @@ def test_partially_missing_sets_download_only_the_missing_file(tmp_path):
     assert (tmp_path / base_spec.local_name).read_bytes() == base
 
 
-def test_existing_file_is_not_overwritten(tmp_path):
+def test_invalid_existing_file_is_rejected_and_not_overwritten(tmp_path):
     guide = spec("base-en.txt", "skills/h3-prompt-writing/references/base-en.txt", b"expected")
     target = tmp_path / guide.local_name
     target.write_bytes(b"manually supplied official guide")
-    assert acquire_missing_guides(tmp_path, [guide], lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError())) == []
+    with pytest.raises(GuideAcquisitionError, match="Existing MiniMax H3 guide"):
+        acquire_missing_guides(tmp_path, [guide], lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError()))
     assert target.read_bytes() == b"manually supplied official guide"
 
 
@@ -148,3 +149,41 @@ def test_downloaded_guides_are_ignored_but_operating_instructions_are_tracked():
     attributes = (root / ".gitattributes").read_text(encoding="utf-8")
     for guide in GUIDE_SPECS:
         assert f"/miniconstruct/h3/guides/{guide.local_name} -text" in attributes
+
+
+def test_invalid_download_hash_never_installs_file(tmp_path):
+    guide = spec('base-en.txt', 'reference', b'expected bytes')
+    with pytest.raises(GuideAcquisitionError, match='recorded SHA-256'):
+        acquire_missing_guides(tmp_path, [guide], lambda *args, **kwargs: io.BytesIO(b'wrong bytes'))
+    assert not (tmp_path / guide.local_name).exists()
+
+
+def test_real_http_acquisition_and_offline_failure(tmp_path):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+    payload = b'exact synthetic HTTP response\n'
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    guide = GuideSpec('base-en.txt', 'reference', f'http://127.0.0.1:{server.server_port}/guide', hashlib.sha256(payload).hexdigest())
+    try:
+        assert acquire_missing_guides(tmp_path, [guide]) == [tmp_path / guide.local_name]
+        assert (tmp_path / guide.local_name).read_bytes() == payload
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+    (tmp_path / guide.local_name).unlink()
+    with pytest.raises(GuideAcquisitionError, match='Could not download required'):
+        acquire_missing_guides(tmp_path, [guide], timeout=0.1)
+    assert not (tmp_path / guide.local_name).exists()

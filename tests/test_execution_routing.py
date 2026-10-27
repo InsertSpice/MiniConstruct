@@ -2,6 +2,7 @@
 import asyncio
 import json
 from copy import deepcopy
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -166,15 +167,15 @@ def test_sidecar_restart_isolation_duplicate_save_as_delete(store, tmp_path, wor
     assert project.active_generation_id not in json.loads((directory / "execution-state.json").read_text())["routing"]
 
 
-def test_audio_label_change_blocks_prepare_without_clearing_selection(store, tmp_path, workspace_factory):
+def test_audio_label_change_is_advisory_for_prompt_text(store, tmp_path, workspace_factory):
     profile = master(tmp_path)
     project = store.create_project(workspace_factory(mode="Ref2VA", assets=[_video_asset(store), audio_asset(store)]))
     prompt = VIDEO_PROMPT.replace("No supplied subjects.", "<Audio 1> is the sound reference.")
     select(store, project, prompt)
     store.set_execution_routing(project.project_id, project.active_generation_id,
         GenerationRouting(assets={"clip": AssetRouting(useEmbeddedAudio=True)}))
-    with pytest.raises(ex.InvalidBindings, match="Audio 1 has a different source"):
-        prepared(store, project, profile)
+    result = prepared(store, project, profile)
+    assert result.graph["h3"]["inputs"]["prompt"] == prompt
     status = store.execution_snapshot(project.project_id, project.active_generation_id)[1]
     assert not status.stale and status.selected.prompt == prompt
 
@@ -217,6 +218,47 @@ def test_routing_api_scope_and_unknown_asset(store, monkeypatch, workspace_facto
         assert [ref["label"] for ref in response.json()["referenceMap"]] == ["Audio 1", "Video 1"]
         assert client.put(url, json={"assets": {"wrong-generation-asset": {}}}).status_code == 422
         assert client.get(url).json()["routing"]["assets"]["clip"]["useEmbeddedAudio"]
+
+
+def test_routing_api_missing_sidecar_returns_default_without_creating_state(store, monkeypatch, workspace_factory):
+    monkeypatch.setenv("MINICONSTRUCT_PROJECTS_ROOT", str(store.root))
+    project = store.create_project(workspace_factory(mode="Ref2VA", assets=[_video_asset(store)]))
+    directory = store.root / f"project-{project.project_id}"
+    sidecar = directory / "execution-state.json"
+    assert not sidecar.exists()
+    url = f"/api/execution/projects/{project.project_id}/generations/{project.active_generation_id}/routing"
+    with TestClient(app) as client:
+        response = client.get(url)
+    assert response.status_code == 200, response.text
+    assert response.json()["routing"] == {"assets": {}}
+    assert not sidecar.exists()
+
+
+def test_routing_api_returns_saved_routing(store, monkeypatch, workspace_factory):
+    monkeypatch.setenv("MINICONSTRUCT_PROJECTS_ROOT", str(store.root))
+    project = store.create_project(workspace_factory(mode="Ref2VA", assets=[_video_asset(store)]))
+    saved = GenerationRouting(assets={"clip": AssetRouting(useEmbeddedAudio=True)})
+    store.set_execution_routing(project.project_id, project.active_generation_id, saved)
+    url = f"/api/execution/projects/{project.project_id}/generations/{project.active_generation_id}/routing"
+    with TestClient(app) as client:
+        response = client.get(url)
+    assert response.status_code == 200, response.text
+    assert response.json()["routing"] == saved.model_dump(by_alias=True)
+
+
+def test_routing_api_unknown_project_is_404(store, monkeypatch):
+    monkeypatch.setenv("MINICONSTRUCT_PROJECTS_ROOT", str(store.root))
+    url = f"/api/execution/projects/{uuid4()}/generations/{uuid4()}/routing"
+    with TestClient(app) as client:
+        assert client.get(url).status_code == 404
+
+
+def test_routing_api_unknown_generation_is_404(store, monkeypatch, workspace_factory):
+    monkeypatch.setenv("MINICONSTRUCT_PROJECTS_ROOT", str(store.root))
+    project = store.create_project(workspace_factory(mode="Ref2VA", assets=[_video_asset(store)]))
+    url = f"/api/execution/projects/{project.project_id}/generations/{uuid4()}/routing"
+    with TestClient(app) as client:
+        assert client.get(url).status_code == 404
 
 
 @pytest.mark.asyncio

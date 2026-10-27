@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform-thread-resolution",
+  "version": "1",
+  "title": "Resolved thread leaves projected Story Memory",
+  "description": "The planned continuation explicitly completes an old obligation and should remove only that thread from its projected memory.",
+  "tags": ["story", "longform", "next", "thread-resolution"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea":"Alice returns Bob's document at the station.",
+    "sequenceContext":"Keep completed obligations distinct from still-open story state.",
+    "storyMemory":{"recentSummary":"Alice is at Bob's station office with the document.","durableFacts":[{"id":"33333333-3333-4333-8333-333333333333","text":"Alice still carries the brass key."}],"openThreads":[{"id":"22222222-2222-4222-8222-222222222222","text":"Alice promised Bob she would return his signed document."},{"id":"14141414-1414-4414-8414-141414141414","text":"Alice still needs to visit the archive conservatory."}]},
+    "generations":[
+      {"workspacePath":"workspace.json","scenePlan":"Alice accepts Bob's signed document for safekeeping.","planning":{"relationshipToPrevious":null}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice completes several unrelated travel beats.","repeat":5},
+      {"workspacePath":"workspace.json","scenePlan":"Alice waits for a platform announcement."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice finds Bob's quiet station office."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice sets the signed document on Bob's desk."}
+    ],
+    "next":{"requestedCount":1,"instruction":"Plan the moment Alice returns Bob's document and completes that obligation."}
+  },
+  "expectations":{"checks":[{"kind":"story_item_count_equals","value":1}]},
+  "behavioralChecks":[
+    {"id":"document-thread-resolved","description":"The returned-document thread is removed from projected Story Memory after the generated slot.","kind":"memory_thread_resolved","memoryId":"22222222-2222-4222-8222-222222222222"},
+    {"id":"unrelated-thread-survives","description":"An unrelated archive-conservatory thread remains open after the document obligation resolves.","kind":"memory_thread_id_preserved","memoryId":"14141414-1414-4414-8414-141414141414"},
+    {"id":"unrelated-key-survives","description":"The unrelated brass-key durable fact remains available after the resolution.","kind":"memory_fact_id_preserved","memoryId":"33333333-3333-4333-8333-333333333333"},
+    {"id":"resolution-prose","description":"Review whether the generated prose genuinely fulfills the document obligation rather than merely mentioning it.","expectedConcepts":["Bob","document"]}
+  ],
+  "humanReview":["Is the obligation actually completed in the generated beat, with unrelated durable facts and threads left intact?"]
+}

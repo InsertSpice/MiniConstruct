@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "h3-continuity-bedroom",
+  "title": "Same bedroom, new camera shot",
+  "operation": "generate_prompt",
+  "description": "Synthetic illustrated reference; tests prompt-writing behavior, not rendered-video consistency. Opt-in, no LLM judge.",
+  "tags": [
+    "continuity",
+    "Ref2VA",
+    "vision"
+  ],
+  "requirements": {
+    "vision": true
+  },
+  "fixtureAssets": [
+    {
+      "assetId": "bedroom-picture",
+      "path": "assets/bedroom-desk-wide.png"
+    }
+  ],
+  "h3Project": {
+    "sequenceContext": "A quiet blue bedroom in one continuous evening.",
+    "incomingState": "The blue bedroom is unchanged; the door is closed and the cream bedspread is undisturbed.",
+    "intendedOutgoingState": "The bedroom door is open.",
+    "planning": {
+      "relationshipToPrevious": "new_shot_preserve_continuity",
+      "cameraIntent": "Low close bedside angle facing the door, completely different from the desk-side wide reference."
+    },
+    "predecessorMemory": {
+      "recentSummary": "The bedroom remains quiet after the previous shot.",
+      "durableFacts": [
+        {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "text": "The cream bedspread remains undisturbed."
+        }
+      ]
+    },
+    "inputContains": [
+      "The blue bedroom is unchanged; the door is closed and the cream bedspread is undisturbed.",
+      "Low close bedside angle facing the door, completely different from the desk-side wide reference.",
+      "Same scene, new camera shot",
+      "explicit current user authoring > Incoming State",
+      "Environment-only evidence",
+      "does NOT define target first-frame composition"
+    ],
+    "inputAbsent": [
+      "SECRET PLANNER THREAD"
+    ]
+  },
+  "humanReview": [
+    "Does the prompt retain the bedroom architecture, layout, furniture and palette?",
+    "Does the prompt honor the low bedside camera facing the door?",
+    "Does it avoid making the source wide view the mandatory first-frame composition?"
+  ]
+}

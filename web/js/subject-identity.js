@@ -24,8 +24,9 @@ const validFocus = new Set(IDENTITY_FOCUS_OPTIONS.map(([value]) => value));
 const validView = new Set(IDENTITY_VIEW_OPTIONS.map(([value]) => value));
 const validLayout = new Set(REFERENCE_LAYOUT_OPTIONS.map(([value]) => value));
 
-export function defaultSubjectIdentity() {
-  return { subjectId: "subject-1", focus: "general", view: "unspecified", layout: "auto" };
+export function defaultSubjectIdentity(sequence = null) {
+  const first = [...(sequence?.subjects || [])].sort((a, b) => a.number - b.number || a.id.localeCompare(b.id))[0];
+  return { subjectId: first?.id || "subject-1", focus: "general", view: "unspecified", layout: "auto" };
 }
 
 export function normalizeSubjectIdentity(value) {
@@ -38,7 +39,8 @@ export function normalizeSubjectIdentity(value) {
   };
 }
 
-export function normalizeSubjectRegistry(subjects, assets, nextSubjectNumber = 1) {
+export function normalizeSubjectRegistry(subjects, assets, nextSubjectNumber = 1, sequence = null) {
+  if (sequence) return normalizeProjectSubjects(subjects, assets, sequence);
   const seen = new Set(); const normalized = []; let next = Math.max(1, Number.isInteger(nextSubjectNumber) ? nextSubjectNumber : 1);
   for (const record of Array.isArray(subjects) ? subjects : []) {
     if (!record || typeof record.id !== "string" || !record.id.trim() || seen.has(record.id)) continue;
@@ -57,12 +59,99 @@ export function normalizeSubjectRegistry(subjects, assets, nextSubjectNumber = 1
   return { subjects: normalized, nextSubjectNumber: Math.max(next, ...normalized.map(subject => subject.number + 1), 1) };
 }
 
-export function createSubject(registry) {
-  const number = Math.max(1, registry.nextSubjectNumber || 1);
-  return { subject: { id: `subject-${number}`, number }, nextSubjectNumber: number + 1 };
+// Only active semantic Picture associations materialize a local Project Subject.
+// Default identity metadata on unrelated Pictures, Video, and Audio is inert.
+export function structuralSubjectIds(assets = []) {
+  const required = new Set();
+  for (const asset of assets) {
+    if (asset?.kind !== "image") continue;
+    if (asset.role === "subject_identity") required.add(normalizeSubjectIdentity(asset.subjectIdentity).subjectId);
+    else if (asset.role === "character_comparison_scale") {
+      for (const subjectId of Array.isArray(asset.comparisonSubjects) ? asset.comparisonSubjects : []) {
+        if (typeof subjectId === "string" && subjectId) required.add(subjectId);
+      }
+    }
+  }
+  return required;
 }
 
-export function subjectLabel(subjects, id) { const subject = (subjects || []).find(item => item.id === id); return subject ? `Subject ${subject.number}` : "Subject"; }
+export function createSubject(registry, sequence = null) {
+  const available = availableSubjects(registry.subjects, sequence);
+  const number = Math.max(1, sequence ? sequence.nextSubjectNumber : registry.nextSubjectNumber || 1,
+    ...available.map(s => s.number + 1));
+  // Independent unsaved creations must not masquerade as the same identity if
+  // two browsers propose the same next number. The backend rejects the loser.
+  let id = sequence ? `subject-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}` : `subject-${number}`;
+  // Imported stable IDs need not match their visible number.
+  for (let suffix = 1; available.some(s => s.id === id); suffix++) id = `subject-${number}-${suffix}`;
+  return { subject: { id, number }, nextSubjectNumber: number + 1 };
+}
+
+export function availableSubjects(subjects = [], sequence = null) {
+  const available = new Map((sequence?.subjects || []).map(s => [s.id, { ...s }]));
+  for (const subject of subjects || []) {
+    const canonical = available.get(subject.id);
+    if (canonical && canonical.number !== subject.number) throw new Error("Subject conflicts with Sequence identity; reload the Project.");
+    if ([...available.values()].some(s => s.number === subject.number && s.id !== subject.id)) throw new Error("Subject number is already used in this Sequence.");
+    available.set(subject.id, canonical || { id: subject.id, number: subject.number });
+  }
+  return [...available.values()].sort((a, b) => a.number - b.number || a.id.localeCompare(b.id));
+}
+
+export function materializeSubject(subjects, subjectId, sequence) {
+  const subject = availableSubjects(subjects, sequence).find(s => s.id === subjectId);
+  if (!subject) throw new Error("Subject is unavailable in this Sequence.");
+  if (!subjects.some(s => s.id === subjectId)) subjects.push({ id: subject.id, number: subject.number });
+  return subject;
+}
+
+export function subjectSelectorOptions(subjects, sequence = null) {
+  return [...availableSubjects(subjects, sequence).map(s => ({ value: s.id, label: subjectDisplayLabel(s) })),
+    { value: "__new_subject__", label: "+ New Subject" }];
+}
+
+function normalizeProjectSubjects(subjects, assets, sequence) {
+  const required = structuralSubjectIds(assets);
+  const local = (subjects || []).filter(s => required.has(s?.id)).map(s => ({ id: s.id, number: s.number }));
+  availableSubjects(local, sequence); // Reject divergent copies; never silently renumber.
+  let next = Math.max(1, sequence.nextSubjectNumber,
+    ...local.map(s => s.number + 1));
+  for (const asset of assets || []) {
+    if (asset?.kind !== "image") continue;
+    const assetRequired = asset.role === "subject_identity"
+      ? [(asset.subjectIdentity = normalizeSubjectIdentity(asset.subjectIdentity)).subjectId]
+      : asset.role === "character_comparison_scale" ? (asset.comparisonSubjects || []) : [];
+    for (const id of assetRequired) {
+      if (local.some(s => s.id === id)) continue;
+      if (sequence.subjects.some(s => s.id === id)) materializeSubject(local, id, sequence);
+      else if (asset.role === "subject_identity") local.push({ id, number: next++ });
+    }
+  }
+  const materialized = local.filter(subject => required.has(subject.id));
+  materialized.sort((a, b) => a.number - b.number || a.id.localeCompare(b.id));
+  return { subjects: materialized, nextSubjectNumber: next };
+}
+
+export function subjectDisplayLabel(subject) {
+  if (!subject) return "Subject";
+  const technical = `Subject ${subject.number}`;
+  return subject.narrativeName ? `${subject.narrativeName} (${technical})` : technical;
+}
+
+export function subjectLabel(subjects, id) { return subjectDisplayLabel((subjects || []).find(item => item.id === id)); }
+
+export function subjectDeleteConfirmation(subject) {
+  return `Delete ${subjectDisplayLabel(subject)} from this Sequence? This does not renumber any remaining Subjects.`;
+}
+
+export function adoptNarrativeResponse(state, project, context) {
+  if (state.currentProjectId !== context.projectId || state.activeGenerationId !== context.generationId
+      || state.activeProjectType !== "filesystem") return false;
+  // Canonical metadata only: preserve local authoring, dirty state and historical outputs.
+  state.projectSequence = project.sequence;
+  state.projectFingerprint = project.projectFingerprint;
+  return true;
+}
 
 export function isSubjectIdentityAsset(asset) {
   return asset?.kind === "image" && asset.role === "subject_identity";

@@ -10,6 +10,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from miniconstruct.app import app
+from miniconstruct.execution_authoring import execution_authoring_fingerprint
+from miniconstruct.h3.builder import assemble_prompt
 from miniconstruct.llm.client import OpenAICompatibleClient
 from miniconstruct.models.workspace import validate_authoring_workspace
 from miniconstruct.project_store import ProjectStore, ProjectStoreError, StaleProjectSnapshotError
@@ -26,7 +28,7 @@ async def test_compact_dogtest_apply_materializes_only_planned_setup(dog, select
     source = store.load_project(PROJECT_ID)
     workspace = source.workspace.model_dump(mode="json", by_alias=True)
     unrelated = deepcopy(workspace["assets"][0])
-    unrelated.update(id="unrelated", role="environment", notes="Never selected")
+    unrelated.update(id="unrelated", role="storyboard_composition", notes="Never selected")
     workspace["assets"].append(unrelated)
     workspace["subjects"].append({"id": "unrelated-subject", "number": 3})
     store.save_project(PROJECT_ID, validate_authoring_workspace(workspace), story_idea=IDEA)
@@ -34,7 +36,7 @@ async def test_compact_dogtest_apply_materializes_only_planned_setup(dog, select
     disk = files(store)
     response = compact(raw)
     for item in response["items"]:
-        for key in ("creativeRequest", "incomingState", "intendedOutgoingState", "cameraIntent"):
+        for key in ("scenePlan", "incomingState", "intendedOutgoingState", "cameraIntent"):
             item[key] = item[key] or "Synthetic planned authoring text"
     if selective:
         response["items"][2]["referenceRecommendations"] = response["items"][2]["referenceRecommendations"][1:]
@@ -49,10 +51,12 @@ async def test_compact_dogtest_apply_materializes_only_planned_setup(dog, select
         item_id_factory=lambda: next(ids))
     applied = store.apply_story_plan(PROJECT_ID, draft)
     after = store.read_story_snapshot(PROJECT_ID)
+    assert {s.id for s in applied.sequence.subjects} == {"subject-1", "subject-2", "unrelated-subject"}
+    assert ProjectStore(store.root).load_project(PROJECT_ID).sequence.subjects == applied.sequence.subjects
     assert applied.story_idea == IDEA
     assert applied.active_generation_id == before.generations[0].generation_id
     original = before.generations[0].workspace.model_dump()
-    original["creative_request"] = draft.items[0].creative_request
+    assert after.generations[0].planning.scene_plan == draft.items[0].scene_plan
     assert after.generations[0].workspace.model_dump() == original
     source_assets = before.generations[0].workspace.assets
     for index, target in enumerate(after.generations[1:], 1):
@@ -101,15 +105,9 @@ def test_conflicting_subject_authority_fails_without_any_write(dog, conflict):
     data["assets"] = data["assets"][:1]
     data["subjects"] = [{"id": "subject-1" if conflict == "id" else "other-id", "number": 9 if conflict == "id" else 1}]
     data["assets"][0]["subjectIdentity"]["subjectId"] = data["subjects"][0]["id"]
-    store.save_project(PROJECT_ID, validate_authoring_workspace(data))
-    snapshot = store.read_story_snapshot(PROJECT_ID)
-    draft = initial_story_draft(snapshot, 4)
-    from miniconstruct.models.story_planning import StoryReferenceRecommendation
-    draft.items[2].reference_recommendations = [StoryReferenceRecommendation(
-        sourceGenerationId=g.generation_id, assetId=g.workspace.assets[0].id, recommendation="Use") for g in snapshot.generations]
     disk = files(store)
-    with pytest.raises(ProjectStoreError, match="conflicting Subject"):
-        store.apply_story_plan(PROJECT_ID, draft)
+    with pytest.raises(ProjectStoreError, match="Sequence cast conflict"):
+        store.save_project(PROJECT_ID, validate_authoring_workspace(data))
     assert files(store) == disk
 
 
@@ -139,12 +137,18 @@ def test_story_idea_lifecycle_and_zip_backup(dog, tmp_path):
 
 
 @pytest.mark.parametrize("version", [1, 2, 3, 4])
-def test_old_schemas_default_blank_then_write_v5(dog, version):
+def test_old_schemas_default_blank_then_write_v7(dog, version):
     store, _, _ = dog
     path = store.root / f"project-{PROJECT_ID}" / "project.json"
     raw = json.loads(path.read_text())
     raw.pop("storyIdea")
     raw["schemaVersion"] = version
+    raw["sequence"].pop("storyMemory", None)
+    for legacy_generation in raw["sequence"]["generations"]:
+        legacy_generation.pop("storyMemoryAfter", None)
+        legacy_generation.pop("storyMemoryStatus", None)
+    raw["sequence"].pop("subjects", None)
+    raw["sequence"].pop("nextSubjectNumber", None)
     if version == 1:
         g = raw.pop("sequence")["generations"][0]
         raw.update(workspace=g["workspace"], assetFiles=g["assetFiles"])
@@ -160,7 +164,7 @@ def test_old_schemas_default_blank_then_write_v5(dog, version):
     project = store.load_project(PROJECT_ID)
     assert project.story_idea == "" and path.read_bytes() == disk
     store.save_project(PROJECT_ID, project.workspace, story_idea=IDEA)
-    assert json.loads(path.read_text())["schemaVersion"] == 5
+    assert json.loads(path.read_text())["schemaVersion"] == 17
     assert store.load_project(PROJECT_ID).story_idea == IDEA
 
 
@@ -209,7 +213,7 @@ def test_comparison_and_metadata_only_references_copy_required_authority(dog):
 
 
 @pytest.mark.parametrize("change", ["asset", "subject", "missing_blob"])
-def test_source_changes_and_missing_storage_never_partially_apply(dog, change):
+def test_source_changes_reject_and_missing_storage_allows_semantic_apply(dog, change):
     store, _, _ = dog
     snapshot = store.read_story_snapshot(PROJECT_ID)
     draft = initial_story_draft(snapshot, 4)
@@ -229,6 +233,42 @@ def test_source_changes_and_missing_storage_never_partially_apply(dog, change):
             workspace["subjects"][0]["number"] = 9
         path.write_text(json.dumps(raw))  # Deliberately retain updatedAt.
     disk = files(store)
-    with pytest.raises(ProjectStoreError):
+    if change == "missing_blob":
+        # Explicit text-only Story Apply carries authoring identity without pixels.
         store.apply_story_plan(PROJECT_ID, draft)
-    assert files(store) == disk
+        recovered = store.read_story_snapshot(PROJECT_ID)
+        reference = recovered.generations[0].workspace.assets[0]
+        assert reference.payload_availability == "missing" and reference.image is None
+        assert recovered.manifest.sequence.generations[0].asset_files == snapshot.manifest.sequence.generations[0].asset_files
+        assert reference.subject_identity == snapshot.generations[0].workspace.assets[0].subject_identity
+    else:
+        with pytest.raises(ProjectStoreError):
+            store.apply_story_plan(PROJECT_ID, draft)
+        assert files(store) == disk
+
+
+def test_story_apply_persists_exact_dialogue_only_in_existing_workspace_field_and_detects_staleness(dog):
+    store, _, _ = dog
+    snapshot = store.read_story_snapshot(PROJECT_ID)
+    draft = initial_story_draft(snapshot, 3)
+    exact = "Alice: Wait.\nBob: No."
+    draft.items[0].dialogue = exact
+    draft.items[1].dialogue = ""
+    draft.items[2].dialogue = "Subject 1: Go."
+    applied = store.apply_story_plan(PROJECT_ID, draft)
+    reloaded = ProjectStore(store.root).read_story_snapshot(PROJECT_ID)
+    assert [generation.workspace.dialogue for generation in reloaded.generations] == [exact, "", "Subject 1: Go."]
+    h3 = assemble_prompt(reloaded.generations[0].workspace, False).inspector_text
+    assert exact in h3 and "actual speech order" in h3
+    assert execution_authoring_fingerprint(reloaded.generations[0].workspace) != execution_authoring_fingerprint(
+        reloaded.generations[0].workspace.model_copy(update={"dialogue": "Different exact dialogue"})
+    )
+    manifest = reloaded.manifest.model_dump(by_alias=True)
+    assert "storyDialogue" not in json.dumps(manifest) and "plannedDialogue" not in json.dumps(manifest)
+    assert manifest["schemaVersion"] == 17
+
+    stale = initial_story_draft(reloaded, 3)
+    workspace = store.load_project(PROJECT_ID).workspace.model_copy(update={"dialogue": "Manual replacement"})
+    store.save_project(PROJECT_ID, workspace)
+    with pytest.raises(StaleProjectSnapshotError):
+        store.apply_story_plan(PROJECT_ID, stale)

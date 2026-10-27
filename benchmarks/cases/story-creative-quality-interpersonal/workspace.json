@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Story creative quality interpersonal",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "",
+  "dialogue": "",
+  "subjects": [
+    {"id": "older_sister", "number": 1},
+    {"id": "younger_sister", "number": 2}
+  ],
+  "nextSubjectNumber": 3,
+  "assets": []
+}

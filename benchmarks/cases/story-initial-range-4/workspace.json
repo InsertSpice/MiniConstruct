@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Bounded initial range 4",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "A cartographer grips a brass compass at the edge of a flooded underground station.",
+  "dialogue": "Cartographer: The map reaches the archive by dawn.\n"
+}

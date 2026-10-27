@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform-dialogue-commitment",
+  "version": "1",
+  "title": "Dialogue commitment continuity",
+  "description": "An exact early promise is absent from the local window when Alice reaches the station before sunset.",
+  "tags": ["story", "longform", "next", "dialogue", "commitment"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea":"Alice must keep an evening commitment at the station.",
+    "sequenceContext":"Dialogue commitments remain coherent without forced quotation.",
+    "storyMemory":{"recentSummary":"The sun is low as Alice reaches the station.","openThreads":[{"id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","text":"Alice committed to meet Bob at the station before sunset."}]},
+    "generations":[
+      {"workspacePath":"workspace.json","scenePlan":"Alice and Bob make plans beside the river.","dialogue":"Alice tells Bob: \"I'll meet you at the station before sunset.\"","planning":{"relationshipToPrevious":null}},
+      {"workspacePath":"workspace.json","scenePlan":"Alice spends days travelling through quiet towns.","repeat":5},
+      {"workspacePath":"workspace.json","scenePlan":"Alice boards the final afternoon train."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice crosses the station square as the light fades."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice reaches the station before sunset."}
+    ],
+    "next":{"requestedCount":1,"instruction":"Continue naturally from Alice arriving at the station before sunset."}
+  },
+  "expectations":{"checks":[{"kind":"story_item_count_equals","value":1}]},
+  "behavioralChecks":[
+    {"id":"commitment-memory-transmitted","description":"The commitment is carried as an open Story Memory thread while the exact line remains outside local narrative context.","kind":"request_memory_contains","text":"meet Bob at the station"},
+    {"id":"commitment-prose","description":"Review whether the continuation respects who promised what and the station/sunset commitment without mechanically copying the quote.","expectedConcepts":["station","sunset"],"forbiddenConcepts":["Bob promised Alice"]}
+  ],
+  "humanReview":["Does the continuation honour Alice's commitment to Bob while avoiding unnecessary verbatim quotation of the original dialogue?"]
+}

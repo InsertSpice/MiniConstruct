@@ -130,7 +130,7 @@ def test_expansive_policy_keeps_exact_dialogue_and_reference_authority(workspace
         creativeInterpretation="expansive",
     )
     assembled = assemble_prompt(workspace, False)
-    assert "EXACT DIALOGUE (preserve wording and punctuation verbatim;" in assembled.inspector_text
+    assert "EXACT RESOLVED SPOKEN OUTPUT (literal audible text only;" in assembled.inspector_text
     assert "Exact Dialogue" in assembled.inspector_text
     assert "Subject/reference identity and roles" in assembled.inspector_text
 

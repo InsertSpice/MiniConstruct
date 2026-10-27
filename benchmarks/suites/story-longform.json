@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform",
+  "title": "Targeted long-form Story continuity baseline",
+  "cases": [
+    "story-longform-durable-fact",
+    "story-longform-open-thread",
+    "story-longform-thread-resolution",
+    "story-longform-changing-fact",
+    "story-longform-returning-subject",
+    "story-longform-irrelevant-subject",
+    "story-longform-insert-history",
+    "story-longform-replan-history",
+    "story-longform-dialogue-commitment",
+    "story-longform-memory-hygiene"
+  ]
+}

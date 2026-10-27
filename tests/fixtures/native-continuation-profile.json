@@ -1,0 +1,151 @@
+{
+  "workflowJson": "{\"h3\": {\"class_type\": \"SyntheticH3\", \"inputs\": {\"prompt\": \"old prompt\", \"duration\": 99, \"model\": \"model.safetensors\", \"lora\": \"detail.safetensors\", \"sampler\": \"euler\", \"sigma\": 1.5, \"opaque\": {\"do\": [\"not\", \"interpret\"]}, \"context\": [\"context\", 0], \"image-1\": [\"image-1\", 0], \"image-2\": [\"image-2\", 0], \"image-3\": [\"image-3\", 0]}}, \"context\": {\"class_type\": \"PromptSource\", \"inputs\": {}}, \"image-1\": {\"class_type\": \"LoadImage\", \"inputs\": {\"image\": \"old_image-1.test\"}}, \"image-2\": {\"class_type\": \"LoadImage\", \"inputs\": {\"image\": \"old_image-2.test\"}}, \"image-3\": {\"class_type\": \"LoadImage\", \"inputs\": {\"image\": \"old_image-3.test\"}}, \"native\": {\"class_type\": \"FictionalAVStateAdapter\", \"inputs\": {\"enable\": \"\", \"chain_id\": \"\", \"generation_id\": \"\", \"predecessor_generation_id\": \"\", \"segment_index\": \"\", \"context_frames\": \"\", \"extension_frames\": \"\", \"save_enabled\": \"\", \"save_key\": \"\", \"load_key\": \"\", \"audio_enabled\": \"\", \"source_out_frame\": \"\"}}}",
+  "name": "Capacity",
+  "nativeContinuation": {
+    "compatibilityKey": "generic-model-mode-v1",
+    "contextFrames": 25,
+    "contextGrid": {
+      "minimum": 1,
+      "step": 4,
+      "maximum": 97,
+      "alignment": "ceil"
+    },
+    "extensionGrid": {
+      "minimum": 1,
+      "step": 4,
+      "alignment": "ceil"
+    },
+    "framesPerSecond": 24,
+    "audioContinuity": true,
+    "audioEnabled": true,
+    "requiredInputs": [
+      "context_frames",
+      "save_enabled"
+    ],
+    "inputs": {
+      "enable": {
+        "nodeId": "native",
+        "inputName": "enable"
+      },
+      "chain_id": {
+        "nodeId": "native",
+        "inputName": "chain_id"
+      },
+      "generation_id": {
+        "nodeId": "native",
+        "inputName": "generation_id"
+      },
+      "predecessor_generation_id": {
+        "nodeId": "native",
+        "inputName": "predecessor_generation_id"
+      },
+      "segment_index": {
+        "nodeId": "native",
+        "inputName": "segment_index"
+      },
+      "context_frames": {
+        "nodeId": "native",
+        "inputName": "context_frames"
+      },
+      "extension_frames": {
+        "nodeId": "native",
+        "inputName": "extension_frames"
+      },
+      "save_enabled": {
+        "nodeId": "native",
+        "inputName": "save_enabled"
+      },
+      "save_key": {
+        "nodeId": "native",
+        "inputName": "save_key"
+      },
+      "load_key": {
+        "nodeId": "native",
+        "inputName": "load_key"
+      },
+      "audio_enabled": {
+        "nodeId": "native",
+        "inputName": "audio_enabled"
+      },
+      "source_out_frame": {
+        "nodeId": "native",
+        "inputName": "source_out_frame"
+      }
+    }
+  },
+  "description": "",
+  "compatibleModes": [
+    "T2VA",
+    "I2VA",
+    "FL2VA",
+    "L2VA",
+    "Ref2VA"
+  ],
+  "bindings": [
+    {
+      "source": {
+        "kind": "generated_prompt"
+      },
+      "nodeId": "h3",
+      "inputName": "prompt"
+    },
+    {
+      "source": {
+        "kind": "duration"
+      },
+      "nodeId": "h3",
+      "inputName": "duration"
+    },
+    {
+      "source": {
+        "kind": "reference_asset",
+        "assetKind": "image",
+        "ordinal": 1
+      },
+      "nodeId": "image-1",
+      "inputName": "image",
+      "presence": "optional",
+      "controlledConsumers": [
+        {
+          "nodeId": "h3",
+          "inputName": "image-1",
+          "outputIndex": 0
+        }
+      ]
+    },
+    {
+      "source": {
+        "kind": "reference_asset",
+        "assetKind": "image",
+        "ordinal": 2
+      },
+      "nodeId": "image-2",
+      "inputName": "image",
+      "presence": "optional",
+      "controlledConsumers": [
+        {
+          "nodeId": "h3",
+          "inputName": "image-2",
+          "outputIndex": 0
+        }
+      ]
+    },
+    {
+      "source": {
+        "kind": "reference_asset",
+        "assetKind": "image",
+        "ordinal": 3
+      },
+      "nodeId": "image-3",
+      "inputName": "image",
+      "presence": "optional",
+      "controlledConsumers": [
+        {
+          "nodeId": "h3",
+          "inputName": "image-3",
+          "outputIndex": 0
+        }
+      ]
+    }
+  ]
+}

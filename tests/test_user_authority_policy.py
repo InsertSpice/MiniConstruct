@@ -15,6 +15,10 @@ TERMINOLOGY_RULE = (
     "synonym, euphemism, generic category, or only its observable description. Supporting visual description may expand "
     "or clarify the term but must not substitute for it."
 )
+IDENTITY_EXCEPTION = (
+    " Narrative Names used as structural Subject references follow the H3 Subject identity policy: "
+    "emit the mapped <Subject N> token. Literal dialogue and lyrics remain exact."
+)
 LATERALITY_ANCHOR = "laterality; audio reuse"
 
 
@@ -26,6 +30,7 @@ def test_terminology_authority_rule_is_in_actual_assembled_prompt_for_every_mode
     assert TERMINOLOGY_RULE in user
     assert user.count(TERMINOLOGY_RULE) == 1
     assert TERMINOLOGY_RULE == USER_TERMINOLOGY_AUTHORITY
+    assert user.count(IDENTITY_EXCEPTION) == 0
     assert TERMINOLOGY_RULE not in system
     assert "Creative Interpretation policy" in assembled.inspector_text
 
@@ -70,8 +75,27 @@ def test_terminology_rule_does_not_replace_exact_dialogue_contract(workspace_fac
     user = assembled.messages[1]["content"]
     assert TERMINOLOGY_RULE in user
     assert TERMINOLOGY_RULE not in system
-    assert "EXACT DIALOGUE (preserve wording and punctuation verbatim;" in assembled.inspector_text
-    assert "speaker IDs follow first vocal-event order" in assembled.inspector_text
+    assert "EXACT RESOLVED SPOKEN OUTPUT (literal audible text only;" in assembled.inspector_text
+    assert "Speaker IDs follow first vocal-event order" in assembled.inspector_text
+
+
+@pytest.mark.parametrize("mode,has_identity_rule", [("T2VA", False), ("Ref2VA", True)])
+def test_ref2va_identity_terminology_exception_is_mode_scoped(
+    workspace_factory, image_asset_factory, mode, has_identity_rule,
+):
+    from miniconstruct.models.sequence_subject import SequenceSubject
+
+    assets = [image_asset_factory("identity")] if mode == "Ref2VA" else []
+    workspace = workspace_factory(mode=mode, assets=assets,
+        subjects=[{"id": "alice", "number": 1}], creativeRequest="Alice turns.")
+    assembly = assemble_prompt(workspace, False, [SequenceSubject(id="alice", number=1, narrativeName="Alice")])
+    user = assembly.messages[1]["content"]
+    system = assembly.messages[0]["content"]
+    assert TERMINOLOGY_RULE in user
+    assert (IDENTITY_EXCEPTION in user) is has_identity_rule
+    assert ("H3 Subject identity policy" in system) is has_identity_rule
+    if not has_identity_rule:
+        assert "subject_definitions" not in system and "retention_analysis" not in system
 
 
 def test_existing_laterality_authority_wording_remains_unchanged(workspace_factory):

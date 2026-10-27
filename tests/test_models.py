@@ -7,6 +7,10 @@ from miniconstruct.models.api import EndpointProfile, GenerationRequest, LLMSett
 from miniconstruct.models.workspace import ReferenceAsset, Workspace, validate_authoring_workspace
 
 
+def test_new_workspace_defaults_to_canonical_four_by_three_aspect_ratio():
+    assert Workspace().aspect_ratio == "4:3"
+
+
 @pytest.mark.parametrize("shots", [None, 1, 5, 17])
 def test_valid_shot_counts(workspace_factory, shots):
     assert workspace_factory(shots=shots).shots == shots
@@ -108,6 +112,7 @@ def test_project_backwards_compatible_optional_defaults(image_asset_factory):
         },
     })
     assert project.workspace.dialogue == ""
+    assert project.workspace.aspect_ratio == "4:3"
     assert project.workspace.variations == 1
     assert project.workspace.creative_interpretation.value == "balanced"
     assert project.workspace.creative_controls.subject_identity_fidelity.level.value == "auto"

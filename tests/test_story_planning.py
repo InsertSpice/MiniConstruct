@@ -1,25 +1,61 @@
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 import json
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 import pytest
+from pydantic import BaseModel
 
 from miniconstruct.app import app
 from miniconstruct.llm.client import LLMBackendError
 from miniconstruct.models.api import LLMSettings
 from miniconstruct.models.story_planning import StoryBuildRequest, StoryPlanProposal, StoryRevisionRequest
+from miniconstruct.models.story_memory import StoryMemoryPatch
 from miniconstruct.models.workspace import ReferenceAsset, validate_authoring_workspace
 from miniconstruct.planning import PLANNER_MEDIA_POLICY
 from miniconstruct.project_store import ProjectStore, StaleProjectSnapshotError, _blank_workspace
-from miniconstruct.story_planning import build_story_plan, normalize_story_model_json, revise_story_plan
+from miniconstruct.story_planning import (
+    _STORY_MEMORY_PATCH_KEYS, _merge_story_warnings, build_story_plan, normalize_story_model_json,
+    revise_story_plan, sanitize_story_memory_patch_extras,
+)
+
+
+def test_memory_patch_sanitizer_uses_canonical_aliases_and_formats_locations():
+    aliases = {field.alias or name for name, field in StoryMemoryPatch.model_fields.items()}
+    assert _STORY_MEMORY_PATCH_KEYS == aliases
+    for count, label in [(1, "Generation 2"), (2, "Generations 2 and 3"),
+                         (3, "Generations 2, 3, and 4")]:
+        data = {"items": [{"memoryPatchAfter": {"recentSummary": "Kept", "\t \n": "removed"}}
+                          for _ in range(count)]}
+        assert sanitize_story_memory_patch_extras(data, generation_start=2) == [
+            f"Ignored unsupported Story Memory patch field(s): <blank/non-printable> in {label}."
+        ]
+        assert all(item["memoryPatchAfter"] == {"recentSummary": "Kept"} for item in data["items"])
+
+
+def test_story_warning_merge_preserves_order_bound_and_copies_result():
+    class WithWarnings(BaseModel):
+        warnings: list[str]
+
+    class WithoutWarnings(BaseModel):
+        value: int
+
+    original = WithWarnings(warnings=[f"model {index}" for index in range(64)])
+    assert _merge_story_warnings(original, []) is original
+    merged = _merge_story_warnings(original, ["patch", "capacity"])
+    assert merged is not original
+    assert merged.warnings == original.warnings[:62] + ["patch", "capacity"]
+    assert len(original.warnings) == 64
+    no_warnings = WithoutWarnings(value=1)
+    assert _merge_story_warnings(no_warnings, ["patch"]) is no_warnings
 
 
 def settings(vision=False):
     return LLMSettings(endpoint={"id": "fake", "displayName": "Fake", "baseUrl": "http://never-call.test/v1"},
-                       modelId="fake", supportsVision=vision)
+                       modelId="fake", supportsVision=vision, storyPlannerVision=vision)
 
 
 class Model:
@@ -49,8 +85,9 @@ class Model:
         result.setdefault("sequenceContext", "Planned world")
         result.setdefault("consistencyWarnings", [])
         for index, item in enumerate(result["items"]):
-            for field in ("creativeRequest", "incomingState", "intendedOutgoingState", "cameraIntent"):
+            for field in ("scenePlan", "incomingState", "intendedOutgoingState", "cameraIntent"):
                 item.setdefault(field, f"Planned {field}")
+            item.setdefault("dialogue", "")
             item.setdefault("relationshipToPrevious", "independent" if index else None)
             item.setdefault("referenceRecommendations", [])
         if "baseProjectId" not in result and getattr(self, "snapshot", None):
@@ -64,6 +101,35 @@ class Model:
             self.transform(result)
         raw = json.dumps(result)
         return self.wrapper(raw) if self.wrapper else raw
+
+
+class PatchModel(Model):
+    """Return only the selected fields from the actual production context."""
+    async def generate(self, messages, *, response_instruction=None):
+        self.calls.append(messages)
+        content = messages[1]["content"]
+        context = json.loads(content[0]["text"] if isinstance(content, list) else content)
+        self.context = context
+        selected = set(context["selectedPlanItemIds"])
+        result = {"patches": [{key: item[key] for key in ["planItemId", *context["editableFields"]]}
+                              for item in context["contextItems"] if item["planItemId"] in selected]}
+        if self.transform:
+            self.transform(result)
+        raw = json.dumps(result)
+        self.raw = raw
+        return self.wrapper(raw) if self.wrapper else raw
+
+
+class PausedPatchModel(PatchModel):
+    def __init__(self):
+        super().__init__()
+        self.started = asyncio.Event()
+        self.resume = asyncio.Event()
+
+    async def generate(self, messages, *, response_instruction=None):
+        self.started.set()
+        await self.resume.wait()
+        return await super().generate(messages, response_instruction=response_instruction)
 
 
 @pytest.fixture
@@ -86,6 +152,35 @@ async def build(saved, count=4, model=None, vision=False):
         model)
 
 
+@pytest.mark.parametrize("full_draft", [False, True])
+@pytest.mark.asyncio
+async def test_legacy_build_creative_request_reply_projects_to_scene_plan(saved, full_draft):
+    store, project = saved
+    def old_shape(result):
+        for item in result["items"]:
+            item["creativeRequest"] = item.pop("scenePlan")
+    model = Model(old_shape)
+    if full_draft:
+        model.snapshot = store.read_story_snapshot(project.project_id)
+    draft = await build_story_plan(store, project.project_id,
+        StoryBuildRequest(idea="A cyclist finds a lost dog and brings it home.",
+                          desiredGenerationCount=2, llm=settings()), model)
+    assert all(item.scene_plan == "Planned scenePlan" for item in draft.items)
+    before_main = project.workspace.creative_request
+    store.apply_story_plan(project.project_id, draft)
+    generations = store.read_story_snapshot(project.project_id).generations
+    assert generations[0].workspace.creative_request == before_main
+    assert generations[1].workspace.creative_request == ""
+    assert generations[1].planning.scene_plan == "Planned scenePlan"
+
+
+async def test_legacy_build_rejects_missing_provider_shot_count(saved):
+    model = Model(lambda result: result["items"][1].pop("shotCount"))
+    with pytest.raises(LLMBackendError, match="Story Planner response is missing required shotCount"):
+        await build(saved, model=model)
+    assert len(model.calls) == 1
+
+
 def revision(draft, *, selected=None, scopes=None):
     return StoryRevisionRequest(draft=draft, selectedPlanItemIds=selected or [draft.items[1].plan_item_id],
         scopes=scopes or ["camera_intent"], instruction="Make this more dynamic.", llm=settings())
@@ -94,7 +189,7 @@ def revision(draft, *, selected=None, scopes=None):
 async def revise(saved, draft, transform, *, selected=None, scopes=None):
     store, project = saved
     return await revise_story_plan(store, project.project_id,
-        revision(draft, selected=selected, scopes=scopes), Model(transform))
+        revision(draft, selected=selected, scopes=scopes), PatchModel(transform))
 
 
 async def test_build_exact_count_identity_and_no_writes(saved):
@@ -130,10 +225,15 @@ async def test_assembled_build_contract_distinguishes_authority_and_required_pla
     assert "Existing-slot references remain advisory." in system
     assert "Only recommend committed sourceGenerationId + assetId pairs present in sourceGenerations." in system
     assert "Proposed new items own no assets" not in system
+    assert "H3 Tone / Performance Controls are real per-Generation Workspace settings" not in system
+    assert "tonePerformance object is the sole Creative Control surface" not in system
+    assert "Creative Controls are not a model-editable Build surface." in system
     content = model.calls[0][1]["content"]
     context = json.loads(content[0]["text"] if vision else content)
     assert "baseProjectId" not in context["responseSchema"]["properties"]
-    assert "existingGenerationId" not in context["responseSchema"]["$defs"]["StoryBuildItem"]["properties"]
+    item_schema = context["responseSchema"]["$defs"]["LegacyStoryBuildItem"]["properties"]
+    assert "existingGenerationId" not in item_schema
+    assert "tonePerformance" not in item_schema
 
 
 
@@ -150,7 +250,7 @@ async def test_build_completes_mixed_authority_and_plans_only_provisional_relati
     before = files(store)
     def complete(d):
         for index, item in enumerate(d["items"]):
-            for field in ("creativeRequest", "incomingState", "intendedOutgoingState", "cameraIntent"):
+            for field in ("scenePlan", "incomingState", "intendedOutgoingState", "cameraIntent"):
                 if not item[field].strip():
                     item[field] = f"Proposed {field} for segment {index + 1}."
             if index and (item["existingGenerationId"] is None or saved_relationship is None):
@@ -164,11 +264,12 @@ async def test_build_completes_mixed_authority_and_plans_only_provisional_relati
     assert result.items[0].relationship_to_previous is None
     assert result.items[1].relationship_to_previous == (saved_relationship or "new_shot_preserve_continuity")
     assert all(i.relationship_to_previous == "new_shot_preserve_continuity" for i in result.items[2:])
-    assert result.items[1].creative_request == authored.creative_request
+    assert result.items[1].scene_plan == "Planned scenePlan"
+    assert store.load_project(project.project_id).workspace.creative_request == authored.creative_request
     assert result.items[1].intended_outgoing_state == "The parcel is on the doorstep."
     assert result.sequence_context == "  Keep this world.\nExactly."
     assert all(getattr(i, f).strip() for i in result.items for f in (
-        "creative_request", "incoming_state", "intended_outgoing_state", "camera_intent",
+        "scene_plan", "incoming_state", "intended_outgoing_state", "camera_intent",
     ))
     assert files(store) == before
 
@@ -243,13 +344,13 @@ async def test_full_committed_existing_order_and_too_small_before_call(saved):
     assert not model.calls
 
 
-@pytest.mark.parametrize("field", ["creativeRequest", "incomingState", "intendedOutgoingState", "cameraIntent", "relationshipToPrevious", "sequenceContext"])
+@pytest.mark.parametrize("field", ["scenePlan", "incomingState", "intendedOutgoingState", "cameraIntent", "relationshipToPrevious", "sequenceContext"])
 async def test_build_projects_authority_rewrite(saved, workspace_factory, field):
     store, project = saved
     store.create_generation(project.project_id)
     store.save_project(project.project_id, workspace_factory(), sequence_context="Canonical world",
         incoming_state="Canonical start", intended_outgoing_state="Canonical end",
-        planning={"cameraIntent": "Canonical camera", "relationshipToPrevious": "continue_previous_shot"})
+        planning={"scenePlan": "Canonical scene", "cameraIntent": "Canonical camera", "relationshipToPrevious": "continue_previous_shot"})
     before = files(store)
     def change(d):
         if field == "sequenceContext":
@@ -261,7 +362,7 @@ async def test_build_projects_authority_rewrite(saved, workspace_factory, field)
     if field == "sequenceContext":
         assert result.sequence_context == "Canonical world"
     else:
-        expected = {"creativeRequest": workspace_factory().creative_request,
+        expected = {"scenePlan": "Canonical scene",
                     "incomingState": "Canonical start", "intendedOutgoingState": "Canonical end",
                     "cameraIntent": "Canonical camera", "relationshipToPrevious": "continue_previous_shot"}
         assert result.items[1].model_dump(mode="json", by_alias=True)[field] == expected[field]
@@ -274,10 +375,10 @@ async def test_fill_blank_existing_fields_and_context(saved):
     store.save_project(project.project_id, _blank_workspace(project.project_id, project.name))
     def fill(d):
         d["sequenceContext"] = "Rainy city"
-        d["items"][0].update(creativeRequest="New idea", incomingState="Start", intendedOutgoingState="End", cameraIntent="Wide")
+        d["items"][0].update(scenePlan="New idea", incomingState="Start", intendedOutgoingState="End", cameraIntent="Wide")
     result = await build(saved, model=Model(fill))
     assert result.sequence_context == "Rainy city"
-    assert result.items[0].creative_request == "New idea"
+    assert result.items[0].scene_plan == "New idea"
     assert store.load_project(project.project_id).workspace.creative_request == ""
 
 
@@ -328,7 +429,7 @@ async def test_arbitrary_reference_sources_media_and_noncloning(tmp_path, worksp
     assert PLANNER_MEDIA_POLICY in messages[0]["content"]
     image_parts = [p for p in messages[1]["content"] if p["type"] == "image_url"]
     assert len(image_parts) == 2
-    assert all(p["image_url"]["url"] == picture.image.data_url for p in image_parts)
+    assert all(p["image_url"]["url"].startswith("data:image/jpeg;base64,") for p in image_parts)
     assert all(g in str(messages) for g in sources)
     context = json.loads(messages[1]["content"][0]["text"])
     for source in context["sourceGenerations"]:
@@ -351,7 +452,7 @@ async def test_arbitrary_reference_sources_media_and_noncloning(tmp_path, worksp
             assert UUID(generation.generation_id).version == 4
             assert generation.generation_id not in {i.plan_item_id for i in draft.items}
             expected = _blank_workspace(project.project_id, project.name).model_dump()
-            expected["creative_request"] = draft.items[index].creative_request
+            assert loaded.planning.scene_plan == draft.items[index].scene_plan
             expected["mode"] = original_workspaces[-1]["mode"]
             if index == 2:
                 assert len(loaded.workspace.assets) == 2
@@ -360,9 +461,9 @@ async def test_arbitrary_reference_sources_media_and_noncloning(tmp_path, worksp
                 assert loaded.workspace.subjects == workspace.subjects
                 expected.update(assets=loaded.workspace.model_dump()["assets"],
                                 subjects=loaded.workspace.model_dump()["subjects"], next_subject_number=2)
-            assert loaded.workspace.model_dump() == expected
+            assert loaded.workspace.model_dump() == {**expected, "shots": draft.items[index].shot_count}
     manifest = json.loads(next(p.read_text() for p in store.root.rglob("project.json")))
-    assert manifest["schemaVersion"] == 5
+    assert manifest["schemaVersion"] == 17
     assert [g["assetFiles"] for g in manifest["sequence"]["generations"][:2]] == original_mappings
     assert not any(term in json.dumps(manifest) for term in ["planItemId", "referenceRecommendations", "baseSequenceFingerprint", "lost dog"])
     assert all(g["updatedAt"] == manifest["updatedAt"] for g in manifest["sequence"]["generations"])
@@ -398,7 +499,7 @@ async def test_valid_and_duplicate_qualified_references_are_sanitized(saved, wor
     }]
 
 
-async def test_revision_filters_invented_recommendations_and_keeps_distinct_sources(tmp_path, workspace_factory, image_asset_factory):
+async def test_revision_rejects_recommendation_mutations_even_for_valid_sources(tmp_path, workspace_factory, image_asset_factory):
     store = ProjectStore(tmp_path)
     asset = image_asset_factory(asset_id="shared")
     workspace = workspace_factory(assets=[asset])
@@ -408,81 +509,64 @@ async def test_revision_filters_invented_recommendations_and_keeps_distinct_sour
     snapshot = store.read_story_snapshot(project.project_id)
     sources = [g.generation_id for g in snapshot.generations]
     def change(d):
-        d["items"][1]["cameraIntent"] = "Track"
-        d["items"][1]["referenceRecommendations"] = [
+        d["patches"][0]["cameraIntent"] = "Track"
+        d["patches"][0]["referenceRecommendations"] = [
             {"sourceGenerationId": sources[0], "assetId": "shared", "recommendation": "First source"},
             {"sourceGenerationId": sources[1], "assetId": "shared", "recommendation": "Second source"},
             {"sourceGenerationId": sources[0], "assetId": "invented", "recommendation": "Drop"},
         ]
-    result = await revise((store, store.load_project(project.project_id)), draft, change)
-    assert [(r.source_generation_id, r.asset_id, r.recommendation) for r in result.items[1].reference_recommendations] == [
-        (sources[0], "shared", "First source"), (sources[1], "shared", "Second source"),
-    ]
+    with pytest.raises(LLMBackendError, match="extra_forbidden"):
+        await revise((store, store.load_project(project.project_id)), draft, change)
 
 
 async def test_revision_latest_manual_values_selected_multiple_and_no_write(saved):
     draft = await build(saved)
-    draft.items[1].creative_request = "Manual wording\n  preserved exactly 🙂"
+    draft.items[1].scene_plan = "Manual wording\n  preserved exactly 🙂"
     draft.sequence_context = "Manually edited context"
     original = draft.model_dump()
     before = files(saved[0])
     def change(d):
-        d["items"][1]["cameraIntent"] = "Dynamic"
-        d["items"][2]["cameraIntent"] = "Close"
+        d["patches"][0]["cameraIntent"] = "Dynamic"
+        d["patches"][1]["cameraIntent"] = "Close"
     result = await revise(saved, draft, change, selected=[i.plan_item_id for i in draft.items[1:3]])
     assert result.items[1].camera_intent == "Dynamic"
     assert result.items[2].camera_intent == "Close"
-    assert result.items[1].creative_request == draft.items[1].creative_request
+    assert result.items[1].scene_plan == draft.items[1].scene_plan
     assert result.items[0] == draft.items[0] and result.items[3] == draft.items[3]
     assert result.sequence_context == draft.sequence_context
     assert draft.model_dump() == original
     assert files(saved[0]) == before
 
 
-@pytest.mark.parametrize("target", ["unselected_item", "unselected_field", "context"])
-async def test_revision_projects_selected_scope_and_restores_out_of_scope_echoes(saved, target):
+@pytest.mark.parametrize("target", ["unselected_item", "unselected_field", "context", "existing_identity", "base", "identity", "count"])
+async def test_revision_rejects_out_of_scope_and_immutable_output(saved, target):
     draft = await build(saved)
-    draft.items[1].creative_request = "Manual edit"
-    original = draft.model_copy(deep=True)
-    before = draft.model_dump()
+    original = draft.model_dump()
     def change(d):
-        if target == "unselected_item": d["items"][2]["cameraIntent"] = "Changed"
-        if target == "unselected_field": d["items"][1]["creativeRequest"] = "Changed"
+        if target == "unselected_item":
+            d["patches"].append({"planItemId": draft.items[2].plan_item_id, "cameraIntent": "Changed"})
+        if target == "unselected_field": d["patches"][0]["scenePlan"] = "Changed"
         if target == "context": d["sequenceContext"] = "Changed"
-        d["items"][1]["intendedOutgoingState"] = "Accepted selected ending"
-    result = await revise(saved, draft, change, scopes=["intended_outgoing_state"])
-    assert result.items[1].intended_outgoing_state == "Accepted selected ending"
-    assert result.items[1].creative_request == original.items[1].creative_request
-    assert result.items[2] == original.items[2]
-    assert result.sequence_context == original.sequence_context
-    assert draft.model_dump() == before
-
-
-@pytest.mark.parametrize("target", ["identity", "existing_identity", "order", "count", "base"])
-async def test_revision_still_rejects_immutable_corruption(saved, target):
-    draft = await build(saved)
-    def change(d):
-        if target == "identity": d["items"][1]["planItemId"] = str(uuid4())
-        if target == "existing_identity": d["items"][0]["existingGenerationId"] = str(uuid4())
-        if target == "order": d["items"][1], d["items"][2] = d["items"][2], d["items"][1]
-        if target == "count": d["items"].pop()
+        if target == "existing_identity": d["patches"][0]["existingGenerationId"] = str(uuid4())
         if target == "base": d["baseSequenceFingerprint"] = "0" * 64
+        if target == "identity": d["patches"][0]["planItemId"] = str(uuid4())
+        if target == "count": d["patches"].clear()
     with pytest.raises(LLMBackendError):
         await revise(saved, draft, change)
+    assert draft.model_dump() == original
 
 
-async def test_live_scoped_outgoing_revision_preserves_manual_wet_glove_and_warns_downstream(saved):
+async def test_offline_scoped_outgoing_revision_preserves_manual_wet_glove_and_warns_downstream(saved):
     draft = await build(saved)
-    draft.items[1].creative_request = "The cyclist removes one wet glove and reaches toward the dog."
+    draft.items[1].scene_plan = "The cyclist removes one wet glove and reaches toward the dog."
     draft.items[1].intended_outgoing_state = "The dog tentatively licks the cyclist's hand."
-    draft.items[3].creative_request = "The cyclist walks home with the dog."
+    draft.items[3].scene_plan = "The cyclist walks home with the dog."
     def change(d):
-        d["items"][1]["intendedOutgoingState"] = "The cyclist holds the dog's red leash beside a closed blue gate."
-        d["items"][3]["creativeRequest"] = "The cyclist returns home beneath a blue gate."
+        d["patches"][0]["intendedOutgoingState"] = "The cyclist holds the dog's red leash beside a closed blue gate."
     result = await revise(saved, draft, change, scopes=["intended_outgoing_state"])
     assert result.items[1].intended_outgoing_state == "The cyclist holds the dog's red leash beside a closed blue gate."
-    assert result.items[1].creative_request == draft.items[1].creative_request
-    assert result.items[3].creative_request == draft.items[3].creative_request
+    assert result.items[1].scene_plan == draft.items[1].scene_plan
+    assert result.items[3].scene_plan == draft.items[3].scene_plan
     assert result.items[2] == draft.items[2]
     warning = next(w for w in result.consistency_warnings if w.direction == "downstream")
     assert warning.plan_item_id == draft.items[1].plan_item_id
@@ -492,15 +576,13 @@ async def test_live_scoped_outgoing_revision_preserves_manual_wet_glove_and_warn
 async def test_camera_projection_accepts_multiple_selected_cameras_only(saved):
     draft = await build(saved)
     def change(d):
-        d["items"][1]["cameraIntent"] = "Dynamic tracking"
-        d["items"][2]["cameraIntent"] = "Low angle push-in"
-        d["items"][1]["creativeRequest"] = "Unauthorized rewrite"
-        d["items"][3]["incomingState"] = "Unauthorized neighbor rewrite"
+        d["patches"][0]["cameraIntent"] = "Dynamic tracking"
+        d["patches"][1]["cameraIntent"] = "Low angle push-in"
     selected = [draft.items[1].plan_item_id, draft.items[2].plan_item_id]
     result = await revise(saved, draft, change, selected=selected, scopes=["camera_intent"])
     assert result.items[1].camera_intent == "Dynamic tracking"
     assert result.items[2].camera_intent == "Low angle push-in"
-    assert result.items[1].creative_request == draft.items[1].creative_request
+    assert result.items[1].scene_plan == draft.items[1].scene_plan
     assert result.items[3] == draft.items[3]
 
 
@@ -508,13 +590,12 @@ async def test_camera_projection_accepts_multiple_selected_cameras_only(saved):
     ("intendedOutgoingState", "intended_outgoing_state", "downstream"),
     ("incomingState", "incoming_state", "upstream"),
     ("relationshipToPrevious", "relationship_to_previous", "upstream"),
-    ("creativeRequest", "main_prompt", "downstream"),
+    ("scenePlan", "scene_plan", "downstream"),
 ])
 async def test_deterministic_boundary_warning(saved, field, scope, direction):
     draft = await build(saved)
     def change(d):
-        d["items"][1][field] = "continue_previous_shot" if field == "relationshipToPrevious" else "Changed"
-        d["consistencyWarnings"] = []
+        d["patches"][0][field] = "continue_previous_shot" if field == "relationshipToPrevious" else "Changed"
     result = await revise(saved, draft, change, scopes=[scope])
     warning = next(w for w in result.consistency_warnings if w.direction == direction)
     assert warning.plan_item_id == draft.items[1].plan_item_id
@@ -524,9 +605,9 @@ async def test_deterministic_boundary_warning(saved, field, scope, direction):
 
 async def test_no_noisy_warning_on_camera_only_independent_or_selected_neighbor(saved):
     draft = await build(saved)
-    result = await revise(saved, draft, lambda d: d["items"][1].update(cameraIntent="Dynamic"))
+    result = await revise(saved, draft, lambda d: d["patches"][0].update(cameraIntent="Dynamic"))
     assert result.consistency_warnings == []
-    result = await revise(saved, draft, lambda d: d["items"][1].update(intendedOutgoingState="Changed"),
+    result = await revise(saved, draft, lambda d: d["patches"][0].update(intendedOutgoingState="Changed"),
         selected=[draft.items[1].plan_item_id, draft.items[2].plan_item_id], scopes=["intended_outgoing_state"])
     assert result.consistency_warnings == []
 
@@ -536,7 +617,7 @@ async def test_stale_revision_and_apply_even_with_same_updated_at(saved, workspa
     draft = await build(saved)
     path = next(store.root.rglob("project.json"))
     manifest = json.loads(path.read_text())
-    manifest["sequence"]["generations"][0]["workspace"]["creativeRequest"] = "External edit with unchanged timestamp"
+    manifest["sequence"]["generations"][0]["planning"]["scenePlan"] = "External edit with unchanged timestamp"
     path.write_text(json.dumps(manifest), encoding="utf-8")
     before = files(store)
     model = Model()
@@ -548,11 +629,54 @@ async def test_stale_revision_and_apply_even_with_same_updated_at(saved, workspa
     assert files(store) == before
 
 
+@pytest.mark.parametrize("mutation", ["none", "noop", "selection", "relevant"])
+async def test_paused_scoped_revision_checks_saved_authority(saved, mutation):
+    store, project = saved
+    if mutation == "selection":
+        store.create_generation(project.project_id)
+    draft = await build(saved)
+    model = PausedPatchModel()
+    task = asyncio.create_task(revise_story_plan(store, project.project_id, revision(draft), model))
+    await model.started.wait()
+    before = files(store)
+    if mutation == "noop":
+        authority_before_save = store._story_revision_fingerprint(
+            store.read_story_snapshot(project.project_id).manifest
+        )
+        store._now = lambda: "2099-01-01T00:00:00.000Z"
+        current = store.load_project(project.project_id)
+        store.save_project(project.project_id, current.workspace)
+        after_save = store.read_story_snapshot(project.project_id)
+        assert files(store) != before
+        assert after_save.fingerprint != draft.base_sequence_fingerprint
+        assert store._story_revision_fingerprint(after_save.manifest) == authority_before_save
+    elif mutation == "relevant":
+        current = store.load_project(project.project_id)
+        store.save_project(project.project_id, current.workspace, story_idea="A new premise")
+    elif mutation == "selection":
+        first_id = store.read_story_snapshot(project.project_id).generations[0].generation_id
+        store.activate_generation(project.project_id, first_id)
+    after_mutation = files(store)
+    model.resume.set()
+    if mutation == "relevant":
+        with pytest.raises(StaleProjectSnapshotError):
+            await task
+    else:
+        result = await task
+        assert result.items[1].plan_item_id == draft.items[1].plan_item_id
+        if mutation == "selection":
+            current = store.read_story_snapshot(project.project_id)
+            assert result.base_sequence_fingerprint == current.fingerprint
+            store.apply_story_plan(project.project_id, result)
+            return
+    assert files(store) == after_mutation
+
+
 async def test_apply_atomic_failure_and_success(saved, monkeypatch):
     store, project = saved
     draft = await build(saved)
     draft.sequence_context = "Applied context"
-    draft.items[0].creative_request = "Manual replacement"
+    draft.items[0].scene_plan = "Manual replacement"
     draft.items[1].incoming_state = "Arrives"
     before = files(store)
     import miniconstruct.project_store as storage
@@ -571,7 +695,7 @@ async def test_apply_atomic_failure_and_success(saved, monkeypatch):
     response = store.apply_story_plan(project.project_id, draft)
     assert len(writes) == 1 and writes[0].name == "project.json"
     assert response.active_generation_id == project.active_generation_id
-    assert response.workspace.creative_request == "Manual replacement"
+    assert response.planning.scene_plan == "Manual replacement"
     assert response.sequence_context == "Applied context"
     assert store.read_generation(project.project_id, response.sequence.generations[1].generation_id).incoming_state == "Arrives"
     with pytest.raises(StaleProjectSnapshotError):
@@ -611,6 +735,12 @@ async def test_legacy_read_build_no_migration_apply_v4(saved, version):
     raw = json.loads(path.read_text())
     raw.pop("storyIdea", None)
     raw["schemaVersion"] = version
+    raw["sequence"].pop("storyMemory", None)
+    for legacy_generation in raw["sequence"]["generations"]:
+        legacy_generation.pop("storyMemoryAfter", None)
+        legacy_generation.pop("storyMemoryStatus", None)
+    raw["sequence"].pop("subjects", None)
+    raw["sequence"].pop("nextSubjectNumber", None)
     if version == 1:
         first = raw.pop("sequence")["generations"][0]
         raw.update(workspace=first["workspace"], assetFiles=first["assetFiles"])
@@ -626,7 +756,7 @@ async def test_legacy_read_build_no_migration_apply_v4(saved, version):
     existing_id = store.load_project(project.project_id).active_generation_id
     result = store.apply_story_plan(project.project_id, draft)
     assert result.active_generation_id == existing_id
-    assert json.loads(path.read_text())["schemaVersion"] == 5
+    assert json.loads(path.read_text())["schemaVersion"] == 17
 
 
 async def test_api_build_revise_apply_and_conflicts(saved, monkeypatch):
@@ -636,7 +766,7 @@ async def test_api_build_revise_apply_and_conflicts(saved, monkeypatch):
     async def fake_build(s, pid, request):
         return await build_story_plan(s, pid, request, Model())
     async def fake_revise(s, pid, request):
-        return await revise_story_plan(s, pid, request, Model())
+        return await revise_story_plan(s, pid, request, PatchModel())
     monkeypatch.setattr(routes, "build_story_plan", fake_build)
     monkeypatch.setattr(routes, "revise_story_plan", fake_revise)
     with TestClient(app) as client:
@@ -701,3 +831,73 @@ async def test_apply_and_normal_save_share_transaction_lock(saved, workspace_fac
         assert apply_future.result(timeout=5).generation_count == 4
         assert save_future.result(timeout=5).generation_count == 4
     assert store.load_project(project.project_id).workspace.creative_request == "Later canonical save"
+
+
+async def test_build_proposes_blank_or_exact_dialogue_and_preserves_existing_verbatim(saved, workspace_factory):
+    store, project = saved
+    exact = "Alice: Don't open that door.\nBob: I already did."
+    store.save_project(project.project_id, workspace_factory(dialogue=exact))
+
+    def propose(payload):
+        payload["items"][0]["dialogue"] = "Model must not replace this."
+        payload["items"][1]["dialogue"] = "Alice: Where is the key?\nBob: I don't know."
+        payload["items"][2]["dialogue"] = ""
+
+    result = await build((store, store.load_project(project.project_id)), model=Model(propose))
+    assert result.items[0].dialogue == exact
+    assert result.items[1].dialogue == "Alice: Where is the key?\nBob: I don't know."
+    assert result.items[2].dialogue == ""
+    assert not any("Dialogue" in warning.message for warning in result.consistency_warnings)
+    model = Model()
+    await build((store, store.load_project(project.project_id)), model=model)
+    assert "Technical Subject N labels remain valid" in model.calls[0][0]["content"]
+    assert "canonical Name: or Subject N: textual" in model.calls[0][0]["content"]
+
+
+async def test_dialogue_revision_is_explicit_and_can_intentionally_become_blank(saved):
+    draft = await build(saved)
+    draft.items[1].dialogue = "Subject 1: Wait.\nSubject 2: No."
+    original_creative = draft.items[1].scene_plan
+
+    def change(payload):
+        payload["patches"][0]["dialogue"] = ""
+
+    result = await revise(saved, draft, change, scopes=["dialogue"])
+    assert result.items[1].dialogue == ""
+    assert result.items[1].scene_plan == original_creative
+    with pytest.raises(LLMBackendError, match="extra_forbidden"):
+        await revise(saved, draft, lambda payload: payload["patches"][0].update(dialogue="Changed"), scopes=["camera_intent"])
+    assert draft.items[1].dialogue == "Subject 1: Wait.\nSubject 2: No."
+
+
+async def test_selected_dialogue_omission_fails_without_erasing_existing_draft(saved):
+    draft = await build(saved)
+    draft.items[1].dialogue = "Alice: Wait.\nBob: No."
+
+    def omit_dialogue(payload):
+        payload["patches"][0].pop("dialogue", None)
+
+    with pytest.raises(LLMBackendError, match="dialogue: missing"):
+        await revise(saved, draft, omit_dialogue, scopes=["dialogue"])
+    assert draft.items[1].dialogue == "Alice: Wait.\nBob: No."
+
+
+async def test_unselected_dialogue_omission_or_change_preserves_submitted_exact_text(saved):
+    draft = await build(saved)
+    draft.items[1].dialogue = "Alice: Wait.\nBob: No."
+
+    def omit_or_change(payload):
+        payload["patches"][0].pop("dialogue", None)
+        payload["patches"][0]["cameraIntent"] = "Track"
+
+    result = await revise(saved, draft, omit_or_change, scopes=["camera_intent"])
+    assert result.items[1].dialogue == draft.items[1].dialogue
+
+
+def test_same_shot_story_policy_keeps_opening_framing_before_later_camera_change():
+    from miniconstruct.story_planning import STORY_SYSTEM, REVISION_AUTHORITY
+    from miniconstruct.story_operations import SAME_SHOT_OPENING_POLICY
+    assert "predecessor tight face close-up facing camera" in STORY_SYSTEM
+    assert "medium profile later" in STORY_SYSTEM
+    assert "after continuation starts" in STORY_SYSTEM
+    assert "Scene Plan and Camera Intent" in REVISION_AUTHORITY + SAME_SHOT_OPENING_POLICY

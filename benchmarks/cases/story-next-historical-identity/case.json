@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "story-next-historical-identity",
+  "version": "1",
+  "title": "Plan Next recalls a distant Subject identity Picture",
+  "tags": ["story", "next", "historical-identity", "offline"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea": "Alicia must return the brass key.",
+    "sequenceContext": "Keep established Subjects visually consistent when they return.",
+    "storyMemory": {
+      "durableFacts": [{
+        "id": "11111111-1111-4111-8111-111111111111",
+        "text": "The key still belongs to Alicia.",
+        "relatedSubjectIds": ["alice"]
+      }]
+    },
+    "narrativeSubjects": [{"subjectId": "alice", "narrativeName": "Alicia", "narrativeAliases": ["Alice"]}],
+    "generations": [
+      {"workspacePath": "identity-workspace.json","scenePlan": "The first scene establishes Alice and the brass key.", "planning": {"relationshipToPrevious": null}},
+      {"workspacePath": "recent-workspace.json","scenePlan": "Unrelated activity continues at the warehouse.", "repeat": 29, "planning": {"relationshipToPrevious": null}}
+    ],
+    "next": {"requestedCount": 3}
+  },
+  "expectations": {"checks": [
+    {"kind": "story_item_count_equals", "value": 3},
+    {"kind": "story_recommendation_pairs_valid"}
+  ]}
+}

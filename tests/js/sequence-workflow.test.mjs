@@ -38,8 +38,10 @@ test("ephemeral and dirty states keep structural controls unavailable", () => {
 
 test("dirty classification excludes Sequence controls but preserves authoring controls", () => {
   const sequenceControl = { closest: selector => selector === ".left-rail" ? {} : selector === "#sequence-panel" ? {} : null };
+  const storyDraftControl = { closest: selector => selector === ".left-rail" ? {} : selector === "#story-planner" ? {} : null };
   const authoringControl = { closest: selector => selector === ".left-rail" ? {} : null };
   assert.equal(shouldMarkWorkspaceDirty(sequenceControl), false);
+  assert.equal(shouldMarkWorkspaceDirty(storyDraftControl), false);
   assert.equal(shouldMarkWorkspaceDirty(authoringControl), true);
   assert.equal(shouldMarkWorkspaceDirty({}), false);
 });

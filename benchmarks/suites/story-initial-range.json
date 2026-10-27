@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "story-initial-range",
+  "title": "Bounded Build Initial Range regression",
+  "cases": [
+    "story-initial-range-2",
+    "story-initial-range-4"
+  ]
+}

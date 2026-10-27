@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+from io import BytesIO
 import json
 
 import httpx
 import pytest
+from PIL import Image
+from fastapi.testclient import TestClient
 
+from miniconstruct.app import app
 from miniconstruct.api.routes import stream_generation_events
 from miniconstruct.llm.client import LLMBackendError, OpenAICompatibleClient
 from miniconstruct.llm.client import LLMStreamEvent
@@ -44,6 +49,25 @@ class FakeClient:
             if isinstance(item, Exception):
                 raise item
             yield item
+
+
+@pytest.mark.asyncio
+async def test_start_diagnostics_show_canonical_and_transmitted_picture_sizes(workspace_factory, image_asset_factory):
+    asset = image_asset_factory(role="general_visual")
+    source = BytesIO()
+    Image.new("RGB", (1536, 1536), (20, 40, 60)).save(source, "PNG")
+    asset.image.data_url = "data:image/png;base64," + base64.b64encode(source.getvalue()).decode()
+    asset.image.width = asset.image.height = 1536
+    request = request_for(workspace_factory(mode="Ref2VA", assets=[asset]))
+    request.llm.supports_vision = True
+    events = [decode_event(raw) async for raw in stream_generation_events(request, lambda _: FakeClient(None))]
+    diagnostics = next(data["diagnostics"] for event, data in events if event == "start")
+    assert diagnostics["imageDimensions"] == [{"width": 1536, "height": 1536}]
+    assert diagnostics["sentVisionImages"][0]["width"] == 768
+    assert diagnostics["sentVisionImages"][0]["height"] == 768
+    assert diagnostics["sentVisionEncodedBytes"] == diagnostics["sentVisionImages"][0]["encodedBytes"]
+    assert diagnostics["sentVisionEncodedBytes"] < len(source.getvalue())
+    assert len(diagnostics["fingerprint"]) == 64
 
 
 @pytest.mark.asyncio
@@ -175,3 +199,15 @@ async def test_cancellation_during_reasoning_never_creates_prompt_completion(wor
         await pending
     assert fake.upstream_closed and fake.closed
     assert not any(event in {"delta", "complete", "done"} for event, _ in observed)
+
+
+def test_generate_stream_validation_returns_bounded_field_diagnostics():
+    client = TestClient(app)
+    response = client.post("/api/generate-stream", json={
+        "workspace": {"mode": "T2VA", "creativeRequest": "", "image": "data:image/png;base64,secret-pixels"},
+        "llm": {"baseUrl": "not-a-url", "model": "writer", "apiKey": "secret-key"},
+    })
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "generation_request_invalid" and detail["fields"]
+    assert "secret-key" not in response.text and "secret-pixels" not in response.text

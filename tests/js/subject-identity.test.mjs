@@ -1,12 +1,115 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import { Element } from "./support/dom.mjs";
+import { groupReferenceAssets } from "../../web/js/reference-asset-groups.js";
 
 import {
+  availableSubjects, materializeSubject, subjectSelectorOptions,
   createSubject, defaultSubjectIdentity, isComparisonAsset, isSubjectIdentityAsset, normalizeSubjectIdentity,
   normalizeSubjectRegistry, normalizedComparisonSubjects, subjectLabel,
+  structuralSubjectIds,
   subjectIdentityHelperText, subjectIdentityNotesGuidance, subjectIdentityNotesPlaceholder,
 } from "../../web/js/subject-identity.js";
 import { groupInputMapEntries, inputMapEmptyMessage, inputMapLabelForAsset, inputMapRefreshStatus } from "../../web/js/input-map.js";
+
+const cast = { subjects: [{ id: "subject-1", number: 1 }, { id: "subject-2", number: 2 }], nextSubjectNumber: 3 };
+
+test("Sequence selector offers dormant Subjects without materializing them", () => {
+  const local = [{ id: "subject-2", number: 2 }];
+  assert.deepEqual(subjectSelectorOptions(local, cast), [
+    { value: "subject-1", label: "Subject 1" }, { value: "subject-2", label: "Subject 2" },
+    { value: "__new_subject__", label: "+ New Subject" },
+  ]);
+  assert.deepEqual(local, [{ id: "subject-2", number: 2 }]);
+  assert.deepEqual(normalizeSubjectRegistry(local, [], 3, cast).subjects, []);
+});
+
+test("selecting a dormant Subject copies exact canonical identity without editing the cast", () => {
+  const sequence = structuredClone(cast), local = [{ id: "subject-2", number: 2 }];
+  const subject = materializeSubject(local, "subject-1", sequence);
+  const asset = { kind: "image", role: "subject_identity", subjectIdentity: { subjectId: subject.id } };
+  assert.deepEqual(normalizeSubjectRegistry(local, [asset], 3, sequence).subjects, [cast.subjects[0]]);
+  assert.notEqual(local[1], sequence.subjects[0]);
+  assert.deepEqual(sequence, cast);
+});
+
+test("default identity resolves canonical Subject 1 while only Subject 2 is local", () => {
+  const asset = { kind: "image", role: "subject_identity", subjectIdentity: defaultSubjectIdentity(cast) };
+  const result = normalizeSubjectRegistry([cast.subjects[1]], [asset], 3, cast);
+  assert.deepEqual(result, { subjects: [cast.subjects[0]], nextSubjectNumber: 3 });
+  assert.equal(asset.subjectIdentity.subjectId, "subject-1");
+});
+
+test("Project creation uses Sequence watermark and accounts for unsaved allocations", () => {
+  const sequence = { subjects: [...cast.subjects, { id: "subject-4", number: 4 }], nextSubjectNumber: 5 };
+  const registry = { subjects: [cast.subjects[1]], nextSubjectNumber: 3 };
+  const first = createSubject(registry, sequence);
+  assert.equal(first.subject.number, 5);
+  assert.equal(first.nextSubjectNumber, 6);
+  assert.notEqual(createSubject(registry, sequence).subject.id, first.subject.id);
+  registry.subjects.push(first.subject); registry.nextSubjectNumber = first.nextSubjectNumber;
+  assert.equal(createSubject(registry, sequence).subject.number, 6);
+  assert.equal(sequence.nextSubjectNumber, 5); // Proposals remain local until atomic save.
+  assert.equal(createSubject({ subjects: [cast.subjects[1]], nextSubjectNumber: 100 }, sequence).subject.number, 5);
+  assert.equal(normalizeSubjectRegistry([cast.subjects[1]], [], 100, sequence).nextSubjectNumber, 5);
+});
+
+test("imported ID spellings do not determine visible numbers or cause ID reuse", () => {
+  const sequence = { subjects: [{ id: "actual-subject-one", number: 1 }, { id: "subject-1", number: 2 }], nextSubjectNumber: 3 };
+  assert.equal(defaultSubjectIdentity(sequence).subjectId, "actual-subject-one");
+  assert.equal(defaultSubjectIdentity({ subjects: [{ id: "subject-1", number: 2 }, { id: "stable-first", number: 1 }], nextSubjectNumber: 3 }).subjectId, "stable-first");
+  const imported = { subjects: [{ id: "subject-5", number: 1 }], nextSubjectNumber: 5 };
+  const created = createSubject({ subjects: [], nextSubjectNumber: 1 }, sequence);
+  assert.equal(created.subject.number, 3);
+  assert.notEqual(created.subject.id, "subject-1");
+  assert.deepEqual(normalizeSubjectRegistry([], [{ kind: "image", role: "subject_identity",
+    subjectIdentity: { subjectId: "subject-5" } }], 1, imported).subjects, imported.subjects);
+});
+
+test("Project normalizer rejects divergent identity and materializes comparison Subjects", () => {
+  assert.throws(() => availableSubjects([{ id: "subject-1", number: 3 }], cast), /conflicts/);
+  assert.throws(() => availableSubjects([{ id: "other", number: 1 }], cast), /already used/);
+  const comparison = { kind: "image", role: "character_comparison_scale", comparisonSubjects: ["subject-1", "subject-2"] };
+  assert.deepEqual(normalizeSubjectRegistry([], [comparison], 1, cast), cast);
+});
+
+test("comparison choices include dormant canonical Subjects and materialize exact records", () => {
+  const local = [{ id: "stable-b", number: 2 }];
+  const sequence = { subjects: [{ id: "stable-a", number: 1 }, { id: "stable-b", number: 2 }], nextSubjectNumber: 3 };
+  const choices = availableSubjects(local, sequence);
+  assert.deepEqual(choices, sequence.subjects);
+  assert.equal(subjectLabel(choices, "stable-a"), "Subject 1");
+  assert.equal(subjectLabel(choices, "stable-b"), "Subject 2");
+  const comparison = { kind: "image", role: "character_comparison_scale", comparisonSubjects: [] };
+  materializeSubject(local, choices[0].id, sequence);
+  comparison.comparisonSubjects.push(choices[0].id, "stable-b");
+  assert.deepEqual(local.sort((a, b) => a.number - b.number), sequence.subjects);
+  assert.deepEqual(normalizedComparisonSubjects(comparison, choices), ["stable-a", "stable-b"]);
+  comparison.comparisonSubjects = [];
+  assert.deepEqual(normalizeSubjectRegistry(local, [comparison], 3, sequence).subjects, []);
+});
+
+test("standalone legacy normalization and last-reference removal retain their behavior", () => {
+  const asset = { kind: "image", role: "subject_identity", subjectIdentity: defaultSubjectIdentity() };
+  const local = normalizeSubjectRegistry([cast.subjects[1]], [asset], 3);
+  assert.equal(local.subjects.find(s => s.id === "subject-1").number, 3);
+  assert.deepEqual(normalizeSubjectRegistry(local.subjects, [], local.nextSubjectNumber), local);
+  assert.deepEqual(normalizeSubjectRegistry(cast.subjects, [], 3, cast), { subjects: [], nextSubjectNumber: 3 });
+});
+
+test("Project structural participation prunes only semantic Picture associations", () => {
+  const assets = [
+    { kind: "image", role: "subject_identity", subjectIdentity: { subjectId: "subject-1" } },
+    { kind: "image", role: "character_comparison_scale", comparisonSubjects: ["subject-2"] },
+    { kind: "image", role: "environment", subjectIdentity: { subjectId: "ignored-picture" } },
+    { kind: "audio", role: "voice_timbre", subjectIdentity: { subjectId: "ignored-audio" } },
+  ];
+  assert.deepEqual([...structuralSubjectIds(assets)].sort(), ["subject-1", "subject-2"]);
+  assert.deepEqual(normalizeSubjectRegistry(cast.subjects, assets, 3, cast).subjects, cast.subjects);
+  assert.deepEqual(normalizeSubjectRegistry(cast.subjects, assets.slice(2), 3, cast).subjects, []);
+});
 
 test("subject identity defaults and normalization are safe and independent", () => {
   const first = defaultSubjectIdentity();
@@ -97,4 +200,31 @@ test("canonical labels are looked up by stable asset identity and absent entries
 test("loaded wiring stays loaded during background refresh", () => {
   assert.equal(inputMapRefreshStatus(false), "pending");
   assert.equal(inputMapRefreshStatus(true), "loaded");
+});
+
+test("actual new-Picture and dormant-Subject attachment buttons express different identity choices", async () => {
+  const app = readFileSync(new URL("../../web/js/app.js", import.meta.url), "utf8");
+  const doc = { createElement: tag => new Element(tag, doc) };
+  const assets = doc.createElement("div"), actions = doc.createElement("div"), helper = doc.createElement("p");
+  const picked = [];
+  const state = { mode: "Ref2VA", subjects: [], activeProjectType: "filesystem",
+    projectSequence: { subjects: [{ id: "old-character", number: 1 }], nextSubjectNumber: 2 } };
+  const context = { state, document: doc, availableSubjects, groupReferenceAssets,
+    $: selector => selector === "#asset-list" ? assets : selector === "#asset-actions" ? actions : helper,
+    visibleAssets: () => [], renderCreativeControlsUi() {}, applyCanonicalAssetLabels() {},
+    chooseAsset: (...args) => picked.push(args) };
+  const renderer = app.match(/function renderAssets\([^\n]*\) \{[\s\S]*?\n\}/)[0];
+  const actionRenderer = app.match(/function renderAssetActions\([^\n]*\) \{[\s\S]*?\n\}/)[0];
+  runInNewContext(renderer + actionRenderer, context);
+  context.renderAssets({ refreshManifest: false });
+  context.renderAssetActions();
+  assert.equal(assets.querySelectorAll("details").find(section => section.className === "reference-subject-group")?.dataset.subjectId, "old-character");
+  const attach = assets.querySelectorAll("button").find(button => button.textContent === "Add identity Picture");
+  await attach.emit("click");
+  assert.deepEqual(picked[0], ["image", null, "old-character"]);
+  const create = actions.querySelectorAll("button").find(button => button.textContent === "+ New Subject Picture");
+  await create.emit("click");
+  assert.deepEqual(picked[1], ["image"]);
+  assert.equal(state.projectSequence.nextSubjectNumber, 2);
+  assert.deepEqual(state.subjects, []);
 });

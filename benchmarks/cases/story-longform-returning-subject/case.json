@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "story-longform-returning-subject",
+  "version": "1",
+  "title": "Returning Subject receives distant identity evidence",
+  "description": "Alice's old stable Subject identity Picture is outside the local window when she returns.",
+  "tags": ["story", "longform", "next", "identity", "vision"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea":"Alice returns to the archive after a long absence.",
+    "sequenceContext":"Preserve named Subject identity across distant returns.",
+    "storyMemory":{"durableFacts":[{"id":"55555555-5555-4555-8555-555555555555","text":"Alice is returning to the old archive.","relatedSubjectIds":["alice"]}]},
+    "narrativeSubjects":[{"subjectId":"alice","narrativeName":"Alice","characterProfile":{"roleBackground":"A patient archive conservator.","personality":"Calm and methodical.","appearance":"Silver-streaked braid and charcoal coat.","speechMannerisms":"Measured sentences.","notes":"Stable characterization only."}}],
+    "generations":[
+      {"workspacePath":"identity-workspace.json","scenePlan":"Alice leaves the archive with a map.","planning":{"relationshipToPrevious":null}},
+      {"workspacePath":"workspace.json","scenePlan":"Unrelated travellers cross distant landscapes.","repeat":5},
+      {"workspacePath":"workspace.json","scenePlan":"The archive town prepares for rain."},
+      {"workspacePath":"workspace.json","scenePlan":"A lantern burns beside the archive gate."},
+      {"workspacePath":"workspace.json","scenePlan":"Alice returns to the old archive carrying her map."}
+    ],
+    "next":{"requestedCount":1,"instruction":"Continue naturally as Alice returns to the archive."}
+  },
+  "expectations":{"checks":[{"kind":"story_item_count_equals","value":1},{"kind":"story_recommendation_pairs_valid"}]},
+  "behavioralChecks":[
+    {"id":"alice-identity-offered","description":"Alice's selected historical identity record is offered when the bounded operation makes her relevant.","kind":"historical_subject_available","subjectId":"alice"},
+    {"id":"alice-identity-prose","description":"Review whether the continuation preserves Alice's identity; a reference recommendation is optional and recorded separately.","expectedConcepts":["Alice"]}
+  ],
+  "humanReview":["With a vision-enabled provider, is Alice's old identity Picture available and, if recommended, does its sourceGenerationId plus assetId pair remain valid?"]
+}

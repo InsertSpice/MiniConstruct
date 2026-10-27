@@ -9,6 +9,8 @@ build/
 .env
 /benchmarks/models.local.json
 /benchmarks/runs/
+/.local/private/
+/.local/release-review/
 /miniconstruct/h3/guides/SKILL.md
 /miniconstruct/h3/guides/base-en.txt
 /miniconstruct/h3/guides/ref-en.txt

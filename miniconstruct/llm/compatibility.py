@@ -43,6 +43,7 @@ def build_generation_payload(
     include_optional: bool = True,
     include_seed: bool = True,
     response_instruction: str | None = DIRECT_OUTPUT_INSTRUCTION,
+    response_format: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], set[str]]:
     payload: dict[str, Any] = {
         "model": settings.selected_model_id,
@@ -51,6 +52,8 @@ def build_generation_payload(
         "max_tokens": settings.max_tokens,
         "stream": stream,
     }
+    if response_format is not None:
+        payload["response_format"] = deepcopy(response_format)
     optional_fields: set[str] = set()
     if include_seed and settings.seed is not None:
         payload["seed"] = settings.seed

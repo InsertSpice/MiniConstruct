@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -114,3 +115,55 @@ async def test_downstream_task_cancellation_closes_upstream_response():
         with pytest.raises(asyncio.CancelledError):
             await task
     assert stream.closed
+
+
+@pytest.mark.asyncio
+async def test_generate_streamed_joins_content_ignores_reasoning_and_preserves_usage():
+    observed = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed["payload"] = json.loads(request.content)
+        first = json.dumps({"choices": [{"delta": {"reasoning_content": "hidden"}}]})
+        second = json.dumps({"choices": [{"delta": {"content": ' {"ok":'}}]})
+        third = json.dumps({
+            "choices": [{"delta": {"content": "true} "}}],
+            "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+        })
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=(f"data: {first}\n\ndata: {second}\n\ndata: {third}\n\ndata: [DONE]\n\n").encode(),
+        )
+
+    async with OpenAICompatibleClient(config(), httpx.MockTransport(handler)) as client:
+        result = await client.generate_streamed(
+            [{"role": "system", "content": "Return JSON."}, {"role": "user", "content": "go"}],
+            response_instruction=None,
+        )
+
+    assert result == '{"ok":true}'
+    assert client.last_usage == {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5}
+    assert observed["payload"]["stream"] is True
+    assert "Do not use extended reasoning" not in json.dumps(observed["payload"])
+
+
+@pytest.mark.asyncio
+async def test_generate_streamed_accepts_explicit_json_response_and_uses_read_timeout():
+    observed = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed["read_timeout"] = request.extensions["timeout"]["read"]
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json; charset=utf-8"},
+            json={
+                "choices": [{"message": {"reasoning_content": "hidden", "content": " final "}}],
+                "usage": {"total_tokens": 4},
+            },
+        )
+
+    async with OpenAICompatibleClient(config(), httpx.MockTransport(handler)) as client:
+        result = await client.generate_streamed([{"role": "user", "content": "go"}])
+
+    assert result == "final"
+    assert observed["read_timeout"] == 2.0

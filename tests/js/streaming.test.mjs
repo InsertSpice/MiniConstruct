@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createEventStreamParser, snapshotGenerationRequest } from "../../web/js/streaming.js";
+import { createEventStreamParser, snapshotGenerationRequest, generationClickIntent } from "../../web/js/streaming.js";
+
+test("H3 Generate stays actionable during work without starting a duplicate", () => {
+  assert.equal(generationClickIntent(null, false), "start");
+  assert.equal(generationClickIntent(null, true), "already-starting");
+  assert.equal(generationClickIntent({ controller: new AbortController() }, false), "stop");
+});
 
 
 test("SSE parser handles arbitrary byte boundaries and distinct variations", () => {

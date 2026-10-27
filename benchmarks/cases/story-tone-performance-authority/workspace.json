@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Protected Tone Authority",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "Nia waits beside a disabled lift in a quiet underground station, listening for the returning service train.",
+  "creativeControls": {
+    "camera": {"zoom": "prefer"},
+    "music": {"mode": "on", "description": "A sparse low pulse."},
+    "visualStyle": {"preset": "watercolor"},
+    "subjectIdentityFidelity": {"level": "strong"},
+    "tonePerformance": {"sensuality": "auto", "drama": "strong", "horror": "auto", "tension": "auto", "romance": "auto", "whimsy": "auto", "performanceStyle": "auto", "performanceEnergy": "auto"}
+  },
+  "subjects": [{"id": "subject-1", "number": 1}],
+  "nextSubjectNumber": 2
+}

@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "suite": "h3-shot-timing",
+  "fixtureRevision": 2,
+  "revisionNote": "The three implicit-pacing requests specify ordered events without relative duration guidance, following review of the first live run.",
+  "cases": [
+    {
+      "id": "dialogue-reaction", "title": "Spoken line, listener reaction and visual reveal",
+      "authoringPath": "one_shot", "durationSeconds": 10, "shotCount": 4,
+      "workspace": {
+        "schemaVersion": 1, "projectName": "Timing research", "mode": "T2VA", "aspectRatio": "16:9", "variations": 1,
+        "creativeRequest": "Exactly four shots, in this order: Shot 1 shows Mara and Eli beside a closed cupboard. In Shot 2 Mara says the supplied sentence. In Shot 3 Eli silently reacts and turns toward the cupboard. In Shot 4 Mara opens it and reveals a small kitten asleep inside. No additional speech.",
+        "dialogue": "Mara: \"I think your missing visitor has been here all morning.\""
+      }
+    },
+    {
+      "id": "fast-escalation", "title": "Rolling trolley, recovery and relief",
+      "authoringPath": "one_shot", "durationSeconds": 8, "shotCount": 3,
+      "workspace": {
+        "schemaVersion": 1, "projectName": "Timing research", "mode": "T2VA", "aspectRatio": "16:9", "variations": 1,
+        "creativeRequest": "Exactly three shots, in this order: Shot 1 shows a loose shopping trolley begin rolling down a gentle slope. In Shot 2 a nearby worker notices it, runs several steps, catches the handle and stops it safely. In Shot 3 the worker sees that the eggs in the trolley are intact and reacts with relief. No dialogue or extra hazards."
+      }
+    },
+    {
+      "id": "slow-atmosphere", "title": "Dawn mist, falling dew, ripple and horizon",
+      "authoringPath": "one_shot", "durationSeconds": 12, "shotCount": 4,
+      "workspace": {
+        "schemaVersion": 1, "projectName": "Timing research", "mode": "T2VA", "aspectRatio": "16:9", "variations": 1,
+        "creativeRequest": "Exactly four shots, in this order, on an empty lakeside jetty at dawn: Shot 1 shows mist moving over the jetty and water. Shot 2 shows a bead of dew detach from the railing and fall. Shot 3 shows the resulting ripple expanding across the water. Shot 4 shows the dawn horizon. No people or dialogue."
+      }
+    },
+    {
+      "id": "regular-rhythm", "title": "Four comparable actions with a steady regular rhythm",
+      "authoringPath": "one_shot", "durationSeconds": 8, "shotCount": 4,
+      "workspace": {
+        "schemaVersion": 1, "projectName": "Timing research", "mode": "T2VA", "aspectRatio": "16:9", "variations": 1,
+        "creativeRequest": "Exactly four shots in a steady rhythmic sequence: a hand sets down a red cup, then a blue cup, then a green cup, then a yellow cup. Each shot contains the same simple placing action, comparable framing and a brief settled hold. Cut with the same recurring musical pulse; no action needs special emphasis or extra time. No dialogue."
+      }
+    },
+    {
+      "id": "explicit-timing", "title": "User-authored opening hold and door-slam cut",
+      "authoringPath": "one_shot", "durationSeconds": 10, "shotCount": 3,
+      "workspace": {
+        "schemaVersion": 1, "projectName": "Timing research", "mode": "T2VA", "aspectRatio": "16:9", "variations": 1,
+        "creativeRequest": "Exactly three shots. Hold the opening shot until exactly 4 seconds, looking at a quiet doorway; start Shot 2 at 4 seconds, showing a hand pulling the door shut. Cut when the door slams at exactly 6 seconds; start Shot 3 at 6 seconds on the startled cat beside the door, then let it settle for the rest of the clip. Preserve those exact cut times. No dialogue."
+      },
+      "explicitCuts": [
+        {"shot": 2, "startMs": 4000, "requirement": "start Shot 2 at 4 seconds"},
+        {"shot": 3, "startMs": 6000, "requirement": "start Shot 3 at 6 seconds"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Bounded initial range 2",
+  "mode": "T2VA",
+  "durationSeconds": 6,
+  "shots": 1,
+  "aspectRatio": "16:9",
+  "variations": 1,
+  "creativeRequest": "A courier shields a sealed letter beneath a coat in steady rain outside a closed city gate.",
+  "dialogue": "Courier: The seal stays intact.\n"
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "h3-visual-handoff",
+  "title": "Relationship-driven visual handoff (opt-in; rendered human review required)",
+  "cases": [
+    "h3-visual-tail",
+    "h3-visual-cut",
+    "h3-visual-endpoint",
+    "h3-visual-independent"
+  ]
+}

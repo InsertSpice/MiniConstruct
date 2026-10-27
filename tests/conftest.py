@@ -2,21 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from miniconstruct.h3 import builder
 from miniconstruct.models.workspace import ReferenceAsset, Workspace
-
-
-@pytest.fixture(autouse=True)
-def isolated_h3_guides(monkeypatch, tmp_path):
-    """Keep public tests offline while preserving builder/validator coverage."""
-    guides = tmp_path / "guides"
-    guides.mkdir()
-    (guides / "base-en.txt").write_text("integrated_multimodal_description", encoding="utf-8")
-    (guides / "ref-en.txt").write_text("official six-section full-reference grammar", encoding="utf-8")
-    monkeypatch.setattr(builder, "GUIDES", guides)
-    builder._read_text.cache_clear()
-    yield
-    builder._read_text.cache_clear()
 
 
 @pytest.fixture
@@ -35,7 +21,7 @@ def image_asset_factory():
                 "mimeType": "image/png",
                 "role": role,
                 "order": order,
-                "image": {"data_url": "data:image/png;base64,AA==", "width": 1, "height": 1},
+                "image": {"data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC", "width": 1, "height": 1},
             }
         )
     return make
@@ -60,4 +46,3 @@ def workspace_factory():
         data.update(overrides)
         return Workspace.model_validate(data)
     return make
-

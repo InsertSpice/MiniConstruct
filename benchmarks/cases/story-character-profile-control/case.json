@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "story-character-profile-control",
+  "version": "1",
+  "title": "Character Profile A/B: control",
+  "description": "Plan Next 2 for a neutral municipal-archive discovery with Alice's Character Profile blank.",
+  "tags": ["story", "character-profile", "ab"],
+  "operation": "plan_story_next",
+  "story": {
+    "storyIdea": "At a municipal archive, Alice opens a newly delivered records box and notices an unfamiliar sealed envelope inside.",
+    "sequenceContext": "The archive is operating normally. The envelope is unexplained but not established as dangerous or supernatural.",
+    "storyMemory": {"recentSummary": "Alice has just received the sealed records box.", "durableFacts": [], "openThreads": []},
+    "narrativeSubjects": [
+      {"subjectId": "alice", "narrativeName": "Alice", "characterProfile": {"roleBackground": "", "personality": "", "appearance": "", "speechMannerisms": "", "notes": ""}}
+    ],
+    "generations": [
+      {"workspacePath": "workspace.json", "scenePlan": "Alice receives a sealed municipal records box at the archive.", "planning": {"relationshipToPrevious": null}}
+    ],
+    "next": {"requestedCount": 2, "instruction": "Continue naturally as Alice examines the unfamiliar envelope."}
+  },
+  "expectations": {"checks": [
+    {"kind": "story_item_count_equals", "value": 2},
+    {"kind": "story_new_items_have_no_existing_generation_id"},
+    {"kind": "story_relevant_subject_ids_equals", "value": ["alice"]},
+    {"kind": "story_character_profile_absent", "value": "alice"},
+    {"kind": "story_character_profile_policy_absent"}
+  ]},
+  "humanReview": [
+    "Compared with the guided case, is the plan equally sound while remaining free to characterize Alice without the Profile guidance?",
+    "Does the control avoid inventing dramatic danger or mechanically reciting Profile prose?",
+    "Does factual continuity remain equally sound in both cases?"
+  ]
+}

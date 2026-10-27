@@ -14,6 +14,7 @@ export const VISUAL_STYLE_PRESETS = [
 export const TONE_LEVELS = ["auto", "subtle", "moderate", "strong", "intense"];
 export const PERFORMANCE_STYLE_LEVELS = ["restrained", "subtle", "auto", "expressive", "exaggerated"];
 export const PERFORMANCE_ENERGY_LEVELS = ["calm", "low", "auto", "energetic", "intense"];
+export const H3_PROMPT_DETAIL_LEVELS = ["concise", "standard", "detailed"];
 export const TONE_FIELDS = [
   ["sensuality", "Sensuality"], ["drama", "Drama"], ["horror", "Horror"],
   ["tension", "Tension"], ["romance", "Romance"], ["whimsy", "Whimsy"],
@@ -32,7 +33,8 @@ export function rangeForSemantic(levels, value) {
 
 export function defaultCreativeControls() {
   return {
-    music: { mode: "auto", description: "" },
+    // New Generations default to no independently generated score; authors may opt in.
+    music: { mode: "off", description: "" },
     camera: Object.fromEntries(CAMERA_FIELDS.map(([key]) => [key, "auto"])),
     visualStyle: { preset: "auto", custom: "" },
     subjectIdentityFidelity: { level: "auto" },
@@ -40,6 +42,7 @@ export function defaultCreativeControls() {
       sensuality: "auto", drama: "auto", horror: "auto", tension: "auto", romance: "auto", whimsy: "auto",
       performanceStyle: "auto", performanceEnergy: "auto",
     },
+    promptDetail: "standard",
   };
 }
 
@@ -52,7 +55,7 @@ export function normalizeCreativeControls(value = {}) {
   const tonePerformance = value.tonePerformance || {};
   return {
     music: {
-      mode: ["auto", "off", "on"].includes(music.mode) ? music.mode : "auto",
+      mode: ["auto", "off", "on"].includes(music.mode) ? music.mode : "off",
       description: typeof music.description === "string" ? music.description : "",
     },
     camera: Object.fromEntries(CAMERA_FIELDS.map(([key]) => [
@@ -71,7 +74,20 @@ export function normalizeCreativeControls(value = {}) {
       performanceStyle: PERFORMANCE_STYLE_LEVELS.includes(tonePerformance.performanceStyle) ? tonePerformance.performanceStyle : "auto",
       performanceEnergy: PERFORMANCE_ENERGY_LEVELS.includes(tonePerformance.performanceEnergy) ? tonePerformance.performanceEnergy : "auto",
     },
+    promptDetail: H3_PROMPT_DETAIL_LEVELS.includes(value.promptDetail) ? value.promptDetail : defaults.promptDetail,
   };
+}
+
+export function renderH3PromptDetailControl(root, controls) {
+  const selected = normalizeCreativeControls(controls).promptDetail;
+  root.querySelector("#h3-prompt-detail-controls").innerHTML = H3_PROMPT_DETAIL_LEVELS.map(value => {
+    const label = value[0].toUpperCase() + value.slice(1);
+    return `<button type="button" class="control-choice ${selected === value ? "active" : ""}" data-prompt-detail="${value}" aria-pressed="${selected === value}">${label}</button>`;
+  }).join("");
+}
+
+export function selectH3PromptDetail(controls, value) {
+  return normalizeCreativeControls({ ...controls, promptDetail: value });
 }
 
 export function resetCameraControls(controls) {
@@ -90,6 +106,19 @@ export function resetCreativeControls(controls) {
 
 export function resetTonePerformance(controls) {
   return { ...normalizeCreativeControls(controls), tonePerformance: defaultCreativeControls().tonePerformance };
+}
+
+export function createRangeRow(doc, label, field, levels, value) {
+  const row = doc.createElement("label"); row.className = "tone-range-row";
+  const title = doc.createElement("span"); title.textContent = label;
+  const group = doc.createElement("div");
+  const input = doc.createElement("input");
+  input.type = "range"; input.min = "0"; input.max = String(levels.length - 1); input.step = "1";
+  input.value = String(rangeForSemantic(levels, value)); input.dataset.toneField = field;
+  input.setAttribute("aria-label", label); input.setAttribute("aria-valuetext", semanticLabel(value));
+  const output = doc.createElement("output"); output.textContent = semanticLabel(value);
+  group.append(input, output); row.append(title, group);
+  return row;
 }
 
 export function renderCreativeControls(root, controls, hasSubjectIdentityPicture) {
@@ -122,15 +151,11 @@ export function renderCreativeControls(root, controls, hasSubjectIdentityPicture
   root.querySelector("#subject-identity-fidelity-helper").textContent = hasSubjectIdentityPicture
     ? "Applies only to Subject Identity Picture references; pose and composition remain free."
     : "Inactive until a Picture reference uses the Subject Identity role.";
-  const rangeRow = (label, field, levels, value) => {
-    const rangeValue = rangeForSemantic(levels, value);
-    return `<label class="tone-range-row"><span>${label}</span><div><input type="range" min="0" max="${levels.length - 1}" step="1" value="${rangeValue}" data-tone-field="${field}" aria-label="${label}" aria-valuetext="${semanticLabel(value)}"><output>${semanticLabel(value)}</output></div></label>`;
-  };
-  root.querySelector("#tone-mood-controls").innerHTML = TONE_FIELDS.map(([key, label]) =>
-    rangeRow(label, key, TONE_LEVELS, normalized.tonePerformance[key]),
-  ).join("");
-  root.querySelector("#performance-controls").innerHTML = [
-    rangeRow("Performance style", "performanceStyle", PERFORMANCE_STYLE_LEVELS, normalized.tonePerformance.performanceStyle),
-    rangeRow("Performance energy", "performanceEnergy", PERFORMANCE_ENERGY_LEVELS, normalized.tonePerformance.performanceEnergy),
-  ].join("");
+  root.querySelector("#tone-mood-controls").replaceChildren(...TONE_FIELDS.map(([key, label]) =>
+    createRangeRow(root.ownerDocument, label, key, TONE_LEVELS, normalized.tonePerformance[key]),
+  ));
+  root.querySelector("#performance-controls").replaceChildren(...[
+    createRangeRow(root.ownerDocument, "Performance style", "performanceStyle", PERFORMANCE_STYLE_LEVELS, normalized.tonePerformance.performanceStyle),
+    createRangeRow(root.ownerDocument, "Performance energy", "performanceEnergy", PERFORMANCE_ENERGY_LEVELS, normalized.tonePerformance.performanceEnergy),
+  ]);
 }
