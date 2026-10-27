@@ -31,6 +31,74 @@ MiniConstruct can:
 
 MiniConstruct handles the H3-specific instructions behind the scenes while keeping the creative request itself editable.
 
+## Installation
+
+### Requirements
+
+- Python 3.12 or newer
+- A modern Chromium, Firefox, or Safari browser
+- An OpenAI Chat Completions-compatible prompt-writing server
+
+Typical local options include LM Studio, Ollama, Unsloth Studio, and other compatible servers.
+
+No Node.js frontend toolchain, database server, account, or cloud service is required.
+
+### Windows
+
+For first-time setup, double-click `setup-miniconstruct.bat` (or run it from any directory). It creates or reuses the repository-local `.venv`, installs MiniConstruct, and acquires the pinned official MiniMax H3 guides. Existing environments are never deleted or replaced automatically.
+
+When launched from a source checkout, the app serves the repository's top-level `web/` assets directly, including with the documented editable install. Built distributions bundle those same assets inside `miniconstruct/web/`.
+
+Prepare and Send appear directly beneath H3 execution selection. Before Prepare, MiniConstruct synchronizes only the active Generation's current H3 Setup duration into its saved Workspace; unrelated unsaved Project edits remain unsaved. Workflow duration bindings use that current value, and changing duration or aspect ratio after Prepare invalidates the prepared result.
+
+The setup helper offers to launch MiniConstruct when it finishes. To launch it later from the repository directory in PowerShell:
+
+```powershell
+.\run.ps1
+```
+
+Open:
+
+```text
+http://127.0.0.1:8743
+```
+
+To deliberately allow LAN access:
+
+```powershell
+.\run.ps1 -BindHost 0.0.0.0 -Port 8743
+```
+
+The default loopback binding is safer. Binding to all interfaces can expose MiniConstruct and its configured API credentials to other devices on the network.
+
+### Unix-like systems
+
+```sh
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e '.[dev]'
+chmod +x run.sh
+./run.sh
+```
+
+You can also start MiniConstruct directly:
+
+```sh
+python -m miniconstruct --host 127.0.0.1 --port 8743
+```
+
+The health endpoint is:
+
+```text
+http://127.0.0.1:8743/api/health
+```
+
+Local API documentation is available at:
+
+```text
+http://127.0.0.1:8743/api/docs
+```
+
 ## Example workflows
 
 ### Reference-driven character performance
@@ -243,74 +311,6 @@ Exact dialogue is entered separately from the main creative request so wording c
 MiniConstruct also supports the official `[video continuation]` relationship for continuing from a source video's ending state.
 
 **Tail continuation reference** uses the ending portion of a previous clip as bounded Ref2VA evidence so the next generation can continue from its ending state with less risk of reset, camera discontinuity, or lost momentum. For native overlap, an optional continuation-capable Workflow Profile can carry the predecessor’s accepted H3 AV state through execution; the workflow owns protected context, suffix generation and removal of repeated context.
-
-## Installation
-
-### Requirements
-
-- Python 3.12 or newer
-- A modern Chromium, Firefox, or Safari browser
-- An OpenAI Chat Completions-compatible prompt-writing server
-
-Typical local options include LM Studio, Ollama, Unsloth Studio, and other compatible servers.
-
-No Node.js frontend toolchain, database server, account, or cloud service is required.
-
-### Windows
-
-For first-time setup, double-click `setup-miniconstruct.bat` (or run it from any directory). It creates or reuses the repository-local `.venv`, installs MiniConstruct, and acquires the pinned official MiniMax H3 guides. Existing environments are never deleted or replaced automatically.
-
-When launched from a source checkout, the app serves the repository's top-level `web/` assets directly, including with the documented editable install. Built distributions bundle those same assets inside `miniconstruct/web/`.
-
-Prepare and Send appear directly beneath H3 execution selection. Before Prepare, MiniConstruct synchronizes only the active Generation's current H3 Setup duration into its saved Workspace; unrelated unsaved Project edits remain unsaved. Workflow duration bindings use that current value, and changing duration or aspect ratio after Prepare invalidates the prepared result.
-
-The setup helper offers to launch MiniConstruct when it finishes. To launch it later from the repository directory in PowerShell:
-
-```powershell
-.\run.ps1
-```
-
-Open:
-
-```text
-http://127.0.0.1:8743
-```
-
-To deliberately allow LAN access:
-
-```powershell
-.\run.ps1 -BindHost 0.0.0.0 -Port 8743
-```
-
-The default loopback binding is safer. Binding to all interfaces can expose MiniConstruct and its configured API credentials to other devices on the network.
-
-### Unix-like systems
-
-```sh
-python3.12 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e '.[dev]'
-chmod +x run.sh
-./run.sh
-```
-
-You can also start MiniConstruct directly:
-
-```sh
-python -m miniconstruct --host 127.0.0.1 --port 8743
-```
-
-The health endpoint is:
-
-```text
-http://127.0.0.1:8743/api/health
-```
-
-Local API documentation is available at:
-
-```text
-http://127.0.0.1:8743/api/docs
-```
 
 ## Connect a prompt-writing model
 
