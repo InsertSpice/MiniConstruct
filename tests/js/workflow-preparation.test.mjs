@@ -82,6 +82,134 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+test("concurrent continuation reads share a request and unchanged truth does not reload controls or manifest", async () => {
+  let manifests = 0;
+  const s = setup({ onRoutingChanged: () => manifests++ });
+  const status = { settings: { profileId: "profile-a" }, executions: [], resolution: { reason: "unchanged" } };
+  s.api.continuationStatus = async () => structuredClone(status);
+  s.api.workflowControls = async () => ({ controls: [], warnings: [] });
+  await s.ui.refresh(); manifests = 0;
+  let reads = 0, controls = 0;
+  const gate = deferred();
+  s.api.continuationStatus = () => { reads++; return gate.promise; };
+  s.api.workflowControls = async () => { controls++; return { controls: [], warnings: [] }; };
+  const pending = [s.ui.refreshContinuation(), s.ui.refreshContinuation(), s.ui.refreshContinuation()];
+  assert.equal(reads, 1);
+  gate.resolve(structuredClone(status)); await Promise.all(pending);
+  assert.equal(reads, 1); assert.equal(controls, 0); assert.equal(manifests, 0);
+});
+
+test("slow Profile details are shared by overlapping startup and continuation renders", async () => {
+  const s = setup(); const gate = deferred(), started = deferred(); let reads = 0;
+  s.api.continuationStatus = async () => ({ settings: { profileId: "profile-a" }, executions: [] });
+  s.api.executionProfile = () => { reads++; started.resolve(); return gate.promise; };
+  const startup = s.ui.refresh(); await started.promise;
+  await Promise.all([s.ui.refreshContinuation(), s.ui.refreshContinuation()]);
+  assert.equal(reads, 1);
+  gate.resolve({ bindings: [] }); await startup;
+  assert.equal(reads, 1);
+});
+
+test("reconciliation invalidations during an older continuation read coalesce into one final fresh request", async () => {
+  const s = setup(); s.profiles[0].nativeContinuation = { contextFrames: 22, contextGrid: { minimum: 1, step: 1, alignment: "reject" }, inputs: {} };
+  s.api.continuationStatus = async () => ({ settings: {}, executions: [], resolution: { reason: "Original eligibility" } });
+  await s.ui.refresh();
+  const old = deferred(), fresh = deferred(); let reads = 0;
+  s.api.continuationStatus = () => (++reads === 1 ? old.promise : fresh.promise);
+  const first = s.ui.refreshContinuation();
+  const changes = [s.ui.refreshContinuation({ afterChange: true }), s.ui.refreshContinuation({ afterChange: true })];
+  assert.doesNotMatch(s.find("native").textContent, /Original eligibility/);
+  old.resolve({ settings: {}, executions: [], resolution: { reason: "STALE eligible" } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads, 2); assert.doesNotMatch(s.find("native").textContent, /STALE eligible/);
+  fresh.resolve({ settings: {}, executions: [], resolution: { reason: "Native state missing; continuation blocked" } });
+  await Promise.all([first, ...changes]);
+  assert.match(s.find("native").textContent, /Native state missing; continuation blocked/);
+});
+
+for (const field of ["projectId", "generationId", "navigationTicket"]) {
+  test(`continuation reads cannot leak across ${field} changes, including a return to the original IDs`, async () => {
+    const s = setup(); s.profiles[0].nativeContinuation = { contextFrames: 22, contextGrid: { minimum: 1, step: 1, alignment: "reject" }, inputs: {} };
+    s.api.continuationStatus = async () => ({ settings: {}, executions: [], resolution: { reason: "Initial" } });
+    await s.ui.refresh();
+    const late = deferred(); s.api.continuationStatus = () => late.promise;
+    const pending = s.ui.refreshContinuation();
+    const original = s.context[field]; s.context[field] = field === "navigationTicket" ? { id: 2 } : "other";
+    s.api.continuationStatus = async () => ({ settings: {}, executions: [], resolution: { reason: "Current authority" } });
+    await Promise.all(s.ui.sync());
+    s.context[field] = original; await Promise.all(s.ui.sync());
+    late.resolve({ settings: {}, executions: [], resolution: { reason: "STALE old eligible" } }); await pending;
+    assert.doesNotMatch(s.find("native").textContent, /STALE old eligible/);
+    assert.match(s.find("native").textContent, /Current authority/);
+  });
+}
+
+test("profile changes reject an in-flight continuation response and saved Profile refresh reloads details", async () => {
+  const s = setup(); s.profiles[1].compatibleModes = ["Ref2VA"];
+  for (const p of s.profiles) p.nativeContinuation = { contextFrames: 22, contextGrid: { minimum: 1, step: 1, alignment: "reject" }, inputs: {} };
+  s.api.continuationStatus = async () => ({ settings: {}, executions: [], resolution: { reason: "Current" } });
+  await s.ui.refresh();
+  const late = deferred(); s.api.continuationStatus = () => late.promise;
+  const pending = s.ui.refreshContinuation();
+  s.find("profile").value = "profile-b"; await s.find("profile").emit("change");
+  late.resolve({ settings: { profileId: "profile-a" }, executions: [], resolution: { reason: "STALE profile" } }); await pending;
+  assert.equal(s.find("profile").value, "profile-b");
+  assert.doesNotMatch(s.find("native").textContent, /STALE profile/);
+  let reads = 0;
+  s.api.executionProfile = async id => { reads++; return { id, bindings: [] }; };
+  await s.ui.refreshProfiles(); await s.ui.refreshProfiles();
+  assert.equal(reads, 2, "saved Profile edits must not reuse prior bindings");
+});
+
+test("revoking acceptance cannot be undone by an older continuation GET", async () => {
+  const s = setup(); s.profiles[0].nativeContinuation = { contextFrames: 22, contextGrid: { minimum: 1, step: 1, alignment: "reject" }, inputs: {} };
+  const accepted = { settings: {}, acceptedId: "native-a", executions: [{ id: "native-a", status: "available", confirmed: true }],
+    resolution: { reason: "Accepted predecessor" } };
+  s.api.continuationStatus = async () => structuredClone(accepted);
+  s.api.decideContinuation = async () => ({ ...accepted, acceptedId: null, executions: [{ id: "native-a", status: "available", confirmed: false }],
+    resolution: { reason: "Acceptance revoked; blocked" } });
+  await s.ui.refresh();
+  const late = deferred(); s.api.continuationStatus = () => late.promise;
+  const pending = s.ui.refreshContinuation();
+  await s.find("native").querySelectorAll("button").find(b => b.textContent === "Revoke acceptance").emit("click");
+  late.resolve(accepted); await pending;
+  assert.match(s.find("native").textContent, /Acceptance revoked; blocked/);
+  assert.equal(s.find("native").querySelectorAll("button").some(b => b.textContent === "Revoke acceptance"), false);
+});
+
+test("setup changes refresh effective controls without joining an older Aspect Ratio read", async () => {
+  const s = setup();
+  s.profiles[0].exposedControls = [{ id: "steps", label: "Steps", type: "integer", defaultValue: 20 }];
+  s.api.workflowControls = async () => ({ controls: [], warnings: [] });
+  await s.ui.refresh();
+  const old = deferred(), started = deferred(); let reads = 0;
+  s.api.workflowControls = () => { reads++; started.resolve(); return reads === 1 ? old.promise : Promise.resolve({ controls: [], warnings: ["Current ratio"] }); };
+  s.context.aspectRatio = "4:3";
+  const first = s.ui.sync(); await started.promise;
+  s.context.aspectRatio = "1:1"; await Promise.all(s.ui.sync());
+  old.resolve({ controls: [], warnings: ["STALE ratio"] }); await Promise.all(first);
+  assert.equal(reads, 2); assert.doesNotMatch(s.root.textContent, /STALE ratio/);
+  assert.match(s.root.textContent, /Current ratio/);
+});
+
+for (const change of ["references", "saved Profile"]) {
+  test(`${change} changes retire pending continuation truth and fetch current authority`, async () => {
+    const s = setup(); s.profiles[0].nativeContinuation = { contextFrames: 22, contextGrid: { minimum: 1, step: 1, alignment: "reject" }, inputs: {} };
+    s.api.continuationStatus = async () => ({ settings: {}, executions: [], resolution: { reason: "Initial" } });
+    await s.ui.refresh();
+    const old = deferred(); let reads = 0;
+    s.api.continuationStatus = async () => ++reads === 1 ? old.promise
+      : { settings: {}, executions: [], resolution: { reason: "Changed authority blocked" } };
+    const first = s.ui.refreshContinuation();
+    const changed = change === "references" ? s.ui.invalidateReferences() : s.ui.refreshProfiles();
+    await new Promise(resolve => setImmediate(resolve));
+    old.resolve({ settings: {}, executions: [], resolution: { reason: "STALE eligible" } });
+    await Promise.all([first, changed]);
+    assert.equal(reads, 2); assert.doesNotMatch(s.find("native").textContent, /STALE eligible/);
+    assert.match(s.find("native").textContent, /Changed authority blocked/);
+  });
+}
+
 test("local staging fallback warning preserves actual queue acceptance and provenance warning", async () => {
   const s = setup(); await s.ready();
   let sends = 0;
@@ -499,8 +627,10 @@ test("Workflow Control drafts survive delayed continuation refresh, keep focused
     if (generationId === "generation-a") { started.resolve(); return delayed.promise; }
     return stateFor(generationId);
   };
-  const continuationRefresh = s.ui.refreshContinuation();
-  await continuationRefresh;
+  await s.ui.refreshContinuation();
+  // Continuation renders no longer reload unchanged Workflow Controls. A
+  // saved-Profile refresh still does, preserving the active unsaved draft.
+  const profileRefresh = s.ui.refreshProfiles();
   await started.promise;
   assert.equal(s.find("control-spectrum"), switchInput);
   assert.equal(s.find("control-megapixels"), numericInput);
@@ -508,6 +638,7 @@ test("Workflow Control drafts survive delayed continuation refresh, keep focused
   assert.equal(s.doc.activeElement, numericInput);
   assert.equal(numericInput.value, "12.");
   delayed.resolve(stateFor("generation-a"));
+  await profileRefresh;
   await new Promise(resolve => setImmediate(resolve));
   s.api.workflowControls = async (_projectId, generationId) => stateFor(generationId);
   assert.equal(s.find("control-spectrum"), switchInput);

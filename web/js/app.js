@@ -761,6 +761,10 @@ function renderInputMap() {
 
 async function refreshReferenceManifest() {
   const requestId = ++referenceManifestRequest;
+  // Workspace restoration and same-turn status callbacks can request several
+  // manifests. Issue only the last snapshot after synchronous adoption ends.
+  await Promise.resolve();
+  if (requestId !== referenceManifestRequest) return;
   try {
     const result = await api.referenceManifest(manifestRequestBody());
     if (requestId !== referenceManifestRequest) return;
@@ -3006,7 +3010,11 @@ async function init() {
         state.projectSequence.nextSubjectNumber = response.nextSubjectNumber;
       }
       if (response.changed) {
-        if (state.generation || state.inferRunning || state.planRevisionRunning || state.repairRunning || state.revision?.running) invalidateProviderContext();
+        // H3 owns an immutable request snapshot. Reference authoring changes
+        // invalidate execution state, not that request's stream or provenance.
+        const activity = providerActivity.active();
+        if (!["h3-main", "h3-story"].includes(activity?.id)
+            && (state.inferRunning || state.planRevisionRunning || state.repairRunning || state.revision?.running)) invalidateProviderContext();
         state.planningRecommendations = state.planningRecommendations.filter(item => item.source !== "current_generation");
         renderPlanningRecommendations();
         const summary = state.sequenceGenerations.find(item => item.generationId === state.activeGenerationId);
@@ -3015,6 +3023,7 @@ async function init() {
         for (const output of state.outputs) output.validation = null;
         markRevisionStale("Reference Assets changed. Generate a new H3 prompt.");
         await workflowPreparation?.invalidateReferences();
+        if (!navigationAuthority.current(context.navigationTicket) || context.projectId !== state.currentProjectId) return;
         storyPlanner?.invalidateReferences();
         void savedPrompts?.load();
         state.referenceManifest = null;
@@ -3038,7 +3047,7 @@ async function init() {
       generationId: state.activeGenerationId, projectFingerprint: state.projectFingerprint, ...projectMutationContext() }),
     canChangeObservedState: context => !storyPlanner?.pendingAffectsObservedGeneration(context.generationId),
     onMutation: outputMutation,
-    onReconciled: () => { void workflowPreparation?.refreshContinuation(); } });
+    onReconciled: () => { void workflowPreparation?.refreshContinuation({ afterChange: true }); } });
   renderedTakes.sync();
   continuationDrafting = mountContinuationDrafting({ root: $("#continuation-drafting"), api,
     activity: providerActivity, navigationAuthority, getSettings: () => ({ ...settings(), seed: resolveSeed(settings()) }),

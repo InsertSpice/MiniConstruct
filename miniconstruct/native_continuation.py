@@ -252,7 +252,7 @@ class NativeContinuationStoreMixin:
         status = {"completed": "available", "failed": "unavailable",
                   "cancelled": "unavailable"}.get(submission.job.status)
         if status is None:
-            return
+            return False
         with transaction():
             directory, *_ = self._output_context(project_id, generation_id)
             state = self._read_execution_state(directory)
@@ -265,6 +265,7 @@ class NativeContinuationStoreMixin:
                     changed = True
             if changed:
                 self._write_execution_state(directory, state)
+            return changed
 
     def continuation_status(self, project_id, generation_id, *, renderer_summary=False):
         with transaction():

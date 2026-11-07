@@ -97,7 +97,15 @@ Network access is needed for public refs, Python dependencies and official guide
 Prepare requires the GitHub checkout HEAD to equal the actual remote branch.
 It fetches public history into the disposable repository only. Public-only
 changes since the latest release tag must match the new snapshot or preparation
-stops with their paths. Integrate those changes into development or the overlay,
+stops with their paths. The one-time `reviewed_readme_replacement` record in the
+public overlay authorizes only README.md for v0.5.1. It contains fixed expected
+values for the release version, public baseline commit, previous release-tag
+commit, old public README SHA-256 and reviewed exported README SHA-256. Any
+mismatch blocks Prepare, including a later release version. Remove the obsolete
+approval for future releases; never refresh its hashes automatically. Every other
+public-only change still requires exact exported bytes. Development README is
+authoritative; the public overlay appends only a small licensing notice.
+Integrate future public changes into development or the overlay,
 review them, and prepare again. A dirty staging tree is never a source of patches.
 
 Publish verifies source/staging state, tool/overlay hash, public author and remote

@@ -135,7 +135,7 @@ async def upload_reference_media(kind: str, request: Request):
 
 @router.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "application": "MiniConstruct", "version": "0.5.0"}
+    return {"status": "ok", "application": "MiniConstruct", "version": "0.5.1"}
 
 
 def _filesystem_project_response(project) -> FilesystemProjectResponse:

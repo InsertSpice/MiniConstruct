@@ -245,7 +245,8 @@ def save_json(path: Path, data: dict) -> None:
     temporary.replace(path)
 
 
-def validate_public_delta(repo: Path, base: str, refs: dict, files: dict[str, bytes]) -> str:
+def validate_public_delta(repo: Path, base: str, refs: dict, files: dict[str, bytes], *,
+                          version: str | None = None, approval: dict | None = None) -> str:
     versions = sorted((tuple(map(int, ref[11:].split("."))), ref) for ref in refs
                       if re.fullmatch(r"refs/tags/v\d+\.\d+\.\d+", ref))
     if not versions:
@@ -255,7 +256,29 @@ def validate_public_delta(repo: Path, base: str, refs: dict, files: dict[str, by
     git(repo, "merge-base", "--is-ancestor", tagged, base)
     old, _ = read_tree(repo, tagged)
     public, _ = read_tree(repo, base)
-    conflicts = [p for p in set(old) | set(public) if old.get(p) != public.get(p) and public.get(p) != files.get(p)]
+    approved = False
+    if approval is not None:
+        # Fixed reviewed values come from the overlay. Never create approvals here.
+        expected_keys = {"path", "version", "base", "previous_tag_commit",
+                         "public_sha256", "replacement_sha256"}
+        if set(approval) != expected_keys:
+            raise ReleaseError("Reviewed README replacement approval mismatch: fields; "
+                               f"expected {sorted(expected_keys)!r}, actual {sorted(approval)!r}")
+        actual = {"path": "README.md", "version": version, "base": base,
+                  "previous_tag_commit": tagged,
+                  "public_sha256": digest(public["README.md"]) if "README.md" in public else None,
+                  "replacement_sha256": digest(files["README.md"]) if "README.md" in files else None}
+        mismatches = [f"{field}: expected {approval[field]!r}, actual {actual[field]!r}"
+                      for field in actual if approval[field] != actual[field]]
+        if approval["version"] != "0.5.1":
+            mismatches.append(f"version scope: expected '0.5.1', actual {approval['version']!r}")
+        if mismatches:
+            # Only public release metadata and hashes are reported, never file contents.
+            raise ReleaseError("Reviewed README replacement approval mismatch: " + "; ".join(mismatches))
+        approved = True
+    conflicts = [p for p in set(old) | set(public)
+                 if old.get(p) != public.get(p) and public.get(p) != files.get(p)
+                 and not (approved and p == "README.md")]
     if conflicts:
         raise ReleaseError("Public-only changes since " + tag + " must be integrated into source/overlay: " + ", ".join(sorted(conflicts)))
     return tag.removeprefix("refs/tags/v")
@@ -349,7 +372,8 @@ def prepare(dev: Path, staging: Path, github: Path, output: Path, *, version=Non
         git(snapshot, "fetch", "--no-tags", config["remote"], f"refs/heads/{config['branch']}", "+refs/tags/*:refs/tags/*")
         if git(snapshot, "rev-parse", "FETCH_HEAD") != base:
             raise ReleaseError("Remote changed during preparation; prepare again")
-        manifest["previous_version"] = validate_public_delta(snapshot, base, refs, files)
+        manifest["previous_version"] = validate_public_delta(snapshot, base, refs, files, version=version,
+                                                            approval=config.get("reviewed_readme_replacement"))
         write_files(snapshot, files)
         tree = index_tree(snapshot, files, modes)
         manifest["public_tree"] = tree

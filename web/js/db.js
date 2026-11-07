@@ -61,4 +61,3 @@ export async function listHistory() {
 }
 
 export const clearHistory = () => transact("history", "readwrite", store => store.clear());
-

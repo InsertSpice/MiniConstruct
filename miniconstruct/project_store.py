@@ -1938,7 +1938,7 @@ class ProjectStore(NativeContinuationStoreMixin, VisualHandoffStoreMixin, Observ
             active.planning.model_copy(deep=True),
             self._story_idea(manifest), self._story_creative_direction(manifest), self._story_planning_style(manifest),
             active.story_memory_after.model_copy(deep=True),
-            self._manifest_fingerprint(manifest), language, self._output_summary(directory, active),
+            self._manifest_fingerprint(manifest), language, self._output_summary(directory, active, manifest.project_id),
             self._project_edit_fingerprint(manifest),
         )
 

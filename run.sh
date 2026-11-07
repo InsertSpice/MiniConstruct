@@ -11,4 +11,3 @@ else
 fi
 
 exec "$PYTHON_CMD" -m miniconstruct --host "$BIND_HOST" --port "$PORT" "$@"
-

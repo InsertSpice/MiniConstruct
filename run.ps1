@@ -1,7 +1,8 @@
 param(
     [string]$BindHost = "127.0.0.1",
     [int]$Port = 8743,
-    [switch]$Reload
+    [switch]$Reload,
+    [switch]$VerboseHttp
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,7 +19,7 @@ $Arguments = @()
 if ($PythonCommand -eq "py") { $Arguments += "-3.12" }
 $Arguments += @("-m", "miniconstruct", "--host", $BindHost, "--port", $Port)
 if ($Reload) { $Arguments += "--reload" }
+if ($VerboseHttp) { $Arguments += "--verbose-http" }
 
 Set-Location -LiteralPath $ProjectRoot
 & $PythonCommand @Arguments
-

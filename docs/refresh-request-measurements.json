@@ -1,0 +1,40 @@
+{
+  "before": {
+    "fixture": "50 finalized submissions (40 completed/imported, 10 failed)",
+    "counts": {
+      "reconciliation": 50,
+      "continuation": 51,
+      "profiles": 2,
+      "controlsRouting": 52,
+      "manifests": 53,
+      "selection": 2,
+      "total": 214
+    },
+    "stableCounts": true,
+    "durationMs": {
+      "median": 261.92679999999996,
+      "minimum": 251.971,
+      "maximum": 290.37510000000003
+    },
+    "scope": "mounted Rendered Takes + Workflow Preparation and manifest callbacks; mocked HTTP, minimal DOM, no artificial latency"
+  },
+  "after": {
+    "fixture": "50 finalized submissions (40 completed/imported, 10 failed)",
+    "counts": {
+      "reconciliation": 0,
+      "continuation": 1,
+      "profiles": 2,
+      "controlsRouting": 2,
+      "manifests": 3,
+      "selection": 2,
+      "total": 13
+    },
+    "stableCounts": true,
+    "durationMs": {
+      "median": 8.3583,
+      "minimum": 7.354900000000001,
+      "maximum": 23.3679
+    },
+    "scope": "mounted Rendered Takes + Workflow Preparation and manifest callbacks; mocked HTTP, minimal DOM, no artificial latency"
+  }
+}

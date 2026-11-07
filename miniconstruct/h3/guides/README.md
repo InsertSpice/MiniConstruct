@@ -25,4 +25,3 @@ The exact upstream paths, revision, retrieval date, and hashes are recorded in
 `provenance.json`. Do not edit the official guide files to implement
 MiniConstruct behavior; application-specific rules belong in
 `../operating/miniconstruct.md`.
-

@@ -66,21 +66,6 @@
       "path": "miniconstruct/h3/builder.py",
       "before": "    official_path = GUIDES / (\"ref-en.txt\" if workspace.mode == H3Mode.REF2VA else \"base-en.txt\")",
       "after": "    official_path = GUIDES / (\"ref-en.txt\" if workspace.mode == H3Mode.REF2VA else \"base-en.txt\")\n    if not official_path.is_file():\n        raise GuideAcquisitionError(guide_setup_message([official_path]))"
-    },
-    {
-      "path": "start-miniconstruct.bat",
-      "before": "-m uvicorn miniconstruct.app:app",
-      "after": "-m miniconstruct"
-    },
-    {
-      "path": "README.md",
-      "before": "The development snapshot currently corresponds to upstream commit:",
-      "after": "The public release acquires official guides at upstream commit:"
-    },
-    {
-      "path": "README.md",
-      "before": "Exact upstream paths and SHA-256 hashes are recorded in `provenance.json`.",
-      "after": "Exact upstream paths and SHA-256 hashes are recorded in `miniconstruct/h3/guides/provenance.json`. Complete official guides are acquired during setup and are not redistributed."
     }
   ],
   "version_fields": {
@@ -138,5 +123,13 @@
   },
   "strip_png_metadata": {
     "benchmarks/environment-consistency/assets/anime-bedroom.png": "1d926e21e663c1b3de53ba216c16d2175b1e5735aa134d894d1f34aeb257ecbe"
+  },
+  "reviewed_readme_replacement": {
+    "path": "README.md",
+    "version": "0.5.1",
+    "base": "0723b1335f5f02a805b564655230352dfbd162a2",
+    "previous_tag_commit": "de5a2a8329d3333c49dabd345e61d9a68daba0b6",
+    "public_sha256": "89cca8e6f8b69eb2c1d9f9800f8d5112c76820294db62688fd9f0fa147a3c6f8",
+    "replacement_sha256": "94431ede54b5873091d3f97c5e9b3a61b9eba3de42c8b21a92da596209a18f11"
   }
 }

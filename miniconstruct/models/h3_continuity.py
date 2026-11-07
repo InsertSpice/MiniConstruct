@@ -16,4 +16,3 @@ class H3ContinuityContext(BaseModel):
     predecessor_observation: dict | None = Field(default=None, alias="predecessorObservation")
     # Warnings are not authoring facts and do not fingerprint omitted memory.
     warnings: list[str] = Field(default_factory=list, exclude=True)
-

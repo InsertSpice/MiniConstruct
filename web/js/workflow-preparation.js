@@ -82,6 +82,7 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
   let controlState = null, controlStateKey = "", controlEpoch = 0, controlProfileId = "";
   let controlDraft = null, controlRows = new Map(), controlDefinitionKey = "", presetDefinitionKey = "";
   let continuation = null, continuationEpoch = 0, inspectedAttemptId = null;
+  let continuationPending = null, controlsPending = null, profileDetailsPending = null, refreshPending = null;
   let seedDraft = null, nativeDraft = null, nativeIdentity = "";
   let explicitProfileId = null;
   let connections = [], connectionEpoch = 0, sendReady = false, receipt = null, sending = false, sendAttempted = false;
@@ -182,7 +183,7 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
   const profile = el("select", null, label); profile.id = "preparation-profile";
   // Browsing is deliberately ephemeral. The explicit action below is the only
   // route that makes a profile the Generation's saved continuity preference.
-  profile.addEventListener("change", () => { explicitProfileId = profile.value; setControlProfile(profile.value); invalidate(); refreshControls(); profileDetailPending = refreshProfileDetails(); render(); });
+  profile.addEventListener("change", () => { explicitProfileId = profile.value; setControlProfile(profile.value); continuationEpoch++; invalidate(); refreshControls(); profileDetailPending = refreshProfileDetails(); render(); });
   el("p", "This Workflow Profile is used by the current Prepare and Send. Saved profiles can be reused whenever you switch H3 modes; no re-import or Load action is needed.", connectionGroup).className = "helper";
   const applyProfile = button("apply-profile", "Save as native-continuation profile", () => saveContinuation({ profileId: profile.value }), connectionGroup);
   el("p", "Saving a native-continuation preference is optional for an ordinary render. It changes continuation setup, not just the current execution choice.", connectionGroup).className = "helper";
@@ -290,7 +291,8 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
   }
   function invalidateSend() { epoch++; sendReady = false; receipt = null; sendAttempted = false; error = ""; notice = ""; }
   function invalidate() { invalidateSend(); prepared = null; result.replaceChildren(); preparationStatus.textContent = ""; }
-  const controlsRequestKey = (c, profileId = profile.value) => JSON.stringify([c.projectId, c.generationId, profileId]);
+  const controlsRequestKey = (c, profileId = profile.value) => JSON.stringify([c.projectId, c.generationId, profileId,
+    c.mode, c.durationSeconds, c.aspectRatio, c.navigationTicket?.id, resetEpoch]);
   const controlsDraftKey = (c, profileId = profile.value, scope = controlScope.value) => JSON.stringify([c.projectId, c.generationId, profileId, scope]);
   const profileControlDefinitions = item => JSON.stringify({ controls: item?.exposedControls || [], presets: item?.workflowControlPresets || [] });
   function clearControlDraft() { controlDraft = null; }
@@ -479,7 +481,16 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
     clearScope.textContent = controlScope.value === "project" ? "Clear Project defaults" : "Clear Generation overrides";
     updateControlRows();
   }
-  async function refreshControls() {
+  function refreshControls() {
+    const key = controlsRequestKey(getContext());
+    if (controlsPending?.key === key && controlsPending.epoch === controlEpoch) return controlsPending.promise;
+    const request = { key };
+    request.promise = readControls().finally(() => { if (controlsPending === request) controlsPending = null; });
+    request.epoch = controlEpoch;
+    controlsPending = request;
+    return request.promise;
+  }
+  async function readControls() {
     const c = { ...getContext() }, selectedId = profile.value, requestKey = controlsRequestKey(c, selectedId), ticket = ++controlEpoch;
     if (!saved(c) || !selectedId || !api.workflowControls) {
       controlState = null; controlStateKey = ""; renderControls(); return;
@@ -491,7 +502,16 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
     } catch (e) { if (ticket === controlEpoch && requestKey === controlsRequestKey(getContext(), profile.value)) error = e.message; }
     render();
   }
-  async function refreshProfileDetails() {
+  function refreshProfileDetails() {
+    const key = JSON.stringify([controlsRequestKey(getContext()), profileEpoch]);
+    if (profileDetailsPending?.key === key && profileDetailsPending.epoch === profileDetailEpoch) return profileDetailsPending.promise;
+    const request = { key };
+    request.promise = readProfileDetails().finally(() => { if (profileDetailsPending === request) profileDetailsPending = null; });
+    request.epoch = profileDetailEpoch;
+    profileDetailsPending = request;
+    return request.promise;
+  }
+  async function readProfileDetails() {
     const selectedId = profile.value;
     if (!selectedId || !api.executionProfile) return;
     const activeProfile = profiles.find(item => item.id === selectedId);
@@ -798,18 +818,38 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
     }
     el("p", "Successful exact render completion makes a pending native attempt Available. Accept native state explicitly confirms its saved artifact and makes it the default. A Selected Take requires its exact attempt to be Accepted; selecting a Take never accepts native state. Revoke acceptance removes that attempt's confirmation.", nativeContent).className = "helper";
   }
-  async function refreshContinuation() {
+  function refreshContinuation({ afterChange = false } = {}) {
     if (!api.continuationStatus) return;
-    const c = { ...getContext() }, ticket = ++continuationEpoch, key = contextKey;
-    if (!saved(c)) { continuation = null; return; }
+    const c = { ...getContext() }, key = contextKey;
+    if (!saved(c)) { continuationEpoch++; continuation = null; return; }
+    if (afterChange) { continuationEpoch++; continuation = null; invalidate(); render(); }
+    if (continuationPending?.key === key && currentContext(continuationPending.context)) {
+      // A pre-change read must settle before one fresh read. All callers await
+      // the final truth; the earlier response cannot restore stale eligibility.
+      if (afterChange || continuationPending.epoch !== continuationEpoch) continuationPending.dirty = true;
+      return continuationPending.promise;
+    }
+    const request = { key, context: c, dirty: false };
+    continuationPending = request;
+    request.promise = (async () => {
+      do {
+        request.dirty = false;
+        request.epoch = ++continuationEpoch;
+        await readContinuation(c, key, request.epoch);
+      } while (request.dirty && continuationPending === request && key === contextKey && currentContext(c));
+    })().finally(() => { if (continuationPending === request) continuationPending = null; });
+    return request.promise;
+  }
+  async function readContinuation(c, key, ticket) {
     try {
       const response = await api.continuationStatus(c.projectId, c.generationId);
-      if (ticket !== continuationEpoch || key !== contextKey) return;
+      if (ticket !== continuationEpoch || key !== contextKey || !currentContext(c)) return;
+      const changed = JSON.stringify(continuation) !== JSON.stringify(response);
       continuation = response;
       renderProfiles();
       // Continuation authority also affects the current handoff warning state.
       // Refresh its manifest even when status was refreshed outside a button action.
-      onRoutingChanged();
+      if (changed) onRoutingChanged();
     } catch (e) { if (ticket === continuationEpoch && key === contextKey) error = e.message; }
     render();
   }
@@ -875,7 +915,7 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
     } catch (e) { if (ticket === epoch) { invalidate(); error = e.message; } }
     finally { busy = false; render(); }
   }
-  function renderProfiles() {
+  function renderProfiles({ refresh = false } = {}) {
     const compatible = profiles.filter(p => p.compatibleModes.includes(getContext().mode));
     const previous = profile.value;
     const prior = [explicitProfileId, continuation?.settings?.profileId, previous]
@@ -885,10 +925,14 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
     profile.value = compatible.some(p => p.id === prior) ? prior : compatible[0]?.id || "";
     if (previous !== profile.value) invalidate();
     setControlProfile(profile.value);
-    refreshControls();
+    if (refresh || previous !== profile.value || !currentControlState(getContext(), profile.value)) refreshControls();
     profileDetailPending = refreshProfileDetails();
   }
-  async function refreshProfiles() {
+  async function refreshProfiles({ refreshContinuation: refreshNative = true } = {}) {
+    // Direct configuration callbacks follow an edit/delete that already saved.
+    // Retire any eligibility read issued before that change. Full status refresh
+    // already owns its continuation read and does not need this extra one.
+    if (refreshNative) { continuationEpoch++; continuation = null; }
     invalidate(); const ticket = ++profileEpoch; render();
     try {
       const response = await api.executionProfiles(); if (ticket !== profileEpoch) return;
@@ -900,9 +944,13 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
       if (oldSelected && newSelected && JSON.stringify(oldSelected.exposedControls || []) !== JSON.stringify(newSelected.exposedControls || [])) {
         controlEpoch++; controlStateKey = "";
       }
-      profiles = response; renderProfiles(); await profileDetailPending;
+      // A saved Profile edit/deletion must refresh effective controls even when
+      // its ID is unchanged. Ordinary continuation renders do not do this.
+      controlEpoch++;
+      profiles = response; renderProfiles({ refresh: true }); await Promise.all([profileDetailPending, controlsPending?.promise]);
     }
     catch (e) { if (ticket === profileEpoch) { profiles = []; renderProfiles(); error = e.message; } }
+    if (refreshNative && ticket === profileEpoch) await refreshContinuation({ afterChange: true });
     render();
   }
   async function refreshSelection() {
@@ -999,8 +1047,8 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
   }
   function sync() {
     const c = getContext(); const key = JSON.stringify([c.saved, c.projectId, c.generationId, c.mode,
-      c.durationSeconds, c.aspectRatio]);
-    const identity = JSON.stringify([c.saved, c.projectId, c.generationId]);
+      c.durationSeconds, c.aspectRatio, c.navigationTicket?.id]);
+    const identity = JSON.stringify([c.saved, c.projectId, c.generationId, c.navigationTicket?.id]);
     const pending = [];
     if (identity !== controlsIdentityKey) {
       explicitProfileId = null;
@@ -1013,14 +1061,22 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
     }
     if (key !== contextKey) {
       contextKey = key; invalidate(); selection = null; routingState = null; routingEpoch++; continuation = null; continuationEpoch++;
-      renderProfiles(); pending.push(refreshSelection(), refreshRouting(), refreshContinuation(), refreshControls());
+      renderProfiles(); pending.push(refreshSelection(), refreshRouting(), refreshContinuation(), refreshControls(), profileDetailPending);
     }
     render(); return pending;
   }
-  async function refresh() {
+  function refresh() {
+    const key = JSON.stringify([getContext(), resetEpoch]);
+    if (refreshPending?.key === key) return refreshPending.promise;
+    const request = { key };
+    request.promise = refreshAll().finally(() => { if (refreshPending === request) refreshPending = null; });
+    refreshPending = request;
+    return request.promise;
+  }
+  async function refreshAll() {
     const pending = sync();
     if (!pending.length) pending.push(refreshSelection(), refreshRouting(), refreshContinuation());
-    await Promise.allSettled([...pending, refreshProfiles(), refreshConnections()]);
+    await Promise.allSettled([...pending, refreshProfiles({ refreshContinuation: false }), refreshConnections()]);
   }
   async function prepareSavedSelection(profileId) {
     const resetTicket = resetEpoch;
@@ -1045,7 +1101,7 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
   function invalidateReferences() {
     invalidate(); selection = null; selectionEpoch++; referenceSelectionRequired = true;
     notice = "Reference Assets changed. Generate a new prompt, then explicitly Use for execution.";
-    render(); return Promise.all([refreshRouting(), refreshSelection()]);
+    render(); return Promise.all([refreshRouting(), refreshSelection(), refreshContinuation({ afterChange: true })]);
   }
   function reset() {
     ++resetEpoch;
@@ -1054,6 +1110,7 @@ export function createWorkflowPreparation({ root, primaryRoot = root, detailsRoo
     inspectedAttemptId = null; controlState = null; controlStateKey = ""; clearControlDraft();
     explicitProfileId = null;
     seedDraft = nativeDraft = null; nativeIdentity = ""; busy = sending = false; render();
+    continuationPending = controlsPending = profileDetailsPending = refreshPending = null;
   }
   return { sync, refresh, reset, invalidateReferences, prepareSavedSelection, refreshProfiles, refreshSelection, refreshConnections, refreshContinuation, get prepared() { return prepared; },
     get routingReady() { return !saved(getContext()) || (routingState !== null && !busy); },

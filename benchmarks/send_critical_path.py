@@ -270,4 +270,3 @@ if __name__ == "__main__":
                           for case in (("five_pictures", "five_pictures_local") if args.local_comparison else ("prepared_repeat", "pictures", "five_pictures", "large_video", "renderer_mutation", "slow_transport"))], indent=2))
     if baseline_tree:
         baseline_tree.cleanup()
-

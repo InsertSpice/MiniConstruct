@@ -69,8 +69,29 @@ class TakeStoreMixin:
             raise invalid("Managed output links are not supported")
         return path
 
-    def _output_summary(self, directory, generation):
+    def _output_summary(self, directory, generation, project_id):
         submissions = {s.id: s for s in generation.render_submissions}
+        # A restart can leave the sidecar pending after the Project committed a
+        # terminal job. Include only exact matching pending native records.
+        terminal_ids = {s.id for s in generation.render_submissions if s.job.status in {"completed", "failed", "cancelled"}}
+        native_pending = set()
+        if terminal_ids:
+            native_pending = {(r.render_submission_id, r.connection_id)
+                              for r in self._read_execution_state(directory).continuation_executions
+                              if str(r.project_id) == str(project_id)
+                              and str(r.generation_id) == str(generation.generation_id)
+                              and r.render_submission_id in terminal_ids and r.status == "pending"}
+        def needs_reconciliation(submission):
+            job = submission.job
+            if job.status not in {"completed", "failed", "cancelled"}:
+                return True
+            if (submission.id, submission.connection_id) in native_pending:
+                return True
+            # Missing metadata and a single not-yet-imported candidate can still
+            # recover. Multiple candidates require explicit output selection;
+            # imported/deleted Takes must never be resurrected by loading a page.
+            return job.status == "completed" and (not job.outputs or
+                (len(job.outputs) == 1 and job.outputs[0].imported_take_id is None))
         takes = []
         for take in generation.takes:
             row = take.model_dump(mode="json", by_alias=True, exclude={"prompt_snapshot", "managed_media_path"})
@@ -80,13 +101,14 @@ class TakeStoreMixin:
             row["comfyPromptId"] = str(submissions[take.render_submission_id].comfy_prompt_id) if take.render_submission_id else None
             takes.append(row)
         return {"takeObservations": [o.model_dump(mode="json", by_alias=True) for o in generation.take_observations], "takes": takes, "selectedTakeId": str(generation.selected_take_id) if generation.selected_take_id else None,
-                "renderSubmissions": [s.model_dump(mode="json", by_alias=True, exclude={"prompt_snapshot"})
+                "renderSubmissions": [{**s.model_dump(mode="json", by_alias=True, exclude={"prompt_snapshot"}),
+                                       "reconciliationRequired": needs_reconciliation(s)}
                                       for s in generation.render_submissions]}
 
     def generation_outputs(self, project_id, generation_id):
         with transaction():
             directory, manifest, _, _, generation = self._output_context(project_id, generation_id)
-            return {**self._output_summary(directory, generation), **self._revision_receipt(manifest)}
+            return {**self._output_summary(directory, generation, project_id), **self._revision_receipt(manifest)}
 
     def foreground_renders(self, project_id, generation_id=None, submission_id=None, *, include_revision=False):
         """Two bounded presentation rows; reads never reconcile or rewrite a Project.
@@ -197,7 +219,14 @@ class TakeStoreMixin:
             if expected_job is not None and submission.job != expected_job:
                 return submission.model_copy(deep=True)
             # Concurrent older polls cannot undo a terminal result or imported associations.
-            if submission.job.status not in {"completed", "failed", "cancelled"}:
+            # A completed job may publish its video descriptors later. Permit
+            # that one-way discovery without reopening terminal status or losing
+            # any imported output association from a concurrent request.
+            discovering_outputs = (submission.job.status == job.status == "completed"
+                                   and not submission.job.outputs and bool(job.outputs))
+            if submission.job.status not in {"completed", "failed", "cancelled"} or discovering_outputs:
+                if submission.job == job:
+                    return submission.model_copy(deep=True)
                 updated = submission.model_copy(update={"job": job}, deep=True)
                 generation.render_submissions[generation.render_submissions.index(submission)] = updated
                 self._commit_sequence(directory, manifest, generations, active, hydrate_result=False)

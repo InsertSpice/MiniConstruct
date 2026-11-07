@@ -222,6 +222,7 @@ async def discover_foreground(project_id, generation_id=None, submission_id=None
     connections = list(dict.fromkeys(s.connection_id for _, s in records))
     selected = [connections[(cursor + i) % len(connections)] for i in range(min(4, len(connections)))]
     errors, observations, queue_active = [], [], set()
+    continuation_changed = False
     async def discover(connection_id):
         try:
             connection = config.get("connections", connection_id)
@@ -264,28 +265,30 @@ async def discover_foreground(project_id, generation_id=None, submission_id=None
                 async with asyncio.timeout(10):
                     job = await client.job(submission)
             current = store.update_render_job(project_id, row["generationId"], submission.id, job, expected_job=submission.job)
-            store.reconcile_native_status(project_id, row["generationId"], current)
+            native_changed = store.reconcile_native_status(project_id, row["generationId"], current)
+            continuation_changed |= native_changed or current.job.status != submission.job.status
         except (ConfigNotFound, httpx.RequestError, TimeoutError, ReconciliationError):
             errors.append("Exact ComfyUI foreground status is temporarily unavailable; no terminal state was inferred.")
         summary = store.foreground_renders(project_id, generation_id, submission_id, include_revision=True)
     return {**summary, "discoveryCursor": (cursor + len(selected)) % max(1, len(connections)),
-            "discoveryError": errors[0] if errors else None}
+            "discoveryError": errors[0] if errors else None, "continuationChanged": continuation_changed}
 
 
 async def reconcile_submission(project_id, generation_id, submission_id, *, output_id=None,
                                store=None, config=None, transport=None):
     store, config = store or ProjectStore(), config or ExecutionStore()
     submission = store.render_submission(project_id, generation_id, submission_id)
-    store.reconcile_native_status(project_id, generation_id, submission)
+    before = submission.job.model_dump(exclude={"last_checked_at"})
+    native_changed = store.reconcile_native_status(project_id, generation_id, submission)
     error = None
     try:
         # Resolve only the recorded Connection, even after browser restart.
         connection = config.get("connections", submission.connection_id)
         async with ComfyJobClient(connection, transport=transport) as client:
-            if submission.job.status not in TERMINAL:
+            if submission.job.status not in TERMINAL or (submission.job.status == "completed" and not submission.job.outputs):
                 job = await client.job(submission)
                 submission = store.update_render_job(project_id, generation_id, submission.id, job, expected_job=submission.job)
-            store.reconcile_native_status(project_id, generation_id, submission)
+            native_changed |= store.reconcile_native_status(project_id, generation_id, submission)
             if output_id is not None:
                 candidate = next((o for o in submission.job.outputs if o.id == output_id), None)
                 if candidate is None or submission.job.status != "completed":
@@ -305,4 +308,7 @@ async def reconcile_submission(project_id, generation_id, submission_id, *, outp
     if error:
         store.update_render_job(project_id, generation_id, submission.id,
             RendererJobState(status="unknown", lastCheckedAt=timestamp(), message=error), expected_job=submission.job)
-    return {**store.generation_outputs(project_id, generation_id), "reconciliationError": error}
+    current = store.render_submission(project_id, generation_id, submission_id)
+    changed = before != current.job.model_dump(exclude={"last_checked_at"})
+    return {**store.generation_outputs(project_id, generation_id), "reconciliationError": error,
+            "continuationChanged": bool(native_changed or changed)}

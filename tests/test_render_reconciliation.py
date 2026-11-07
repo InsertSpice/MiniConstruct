@@ -362,6 +362,91 @@ def test_new_render_submission_constructor_starts_queued_and_legacy_json_is_unkn
     assert RenderSubmission.model_validate(raw).job.status == "unknown"
 
 
+async def test_delayed_completed_outputs_are_discovered_once_without_reopening_job(env):
+    first = await reconcile(env, transport(env, completed(env, {}), []))
+    assert first["renderSubmissions"][0]["reconciliationRequired"] is True
+    assert first["continuationChanged"] is True
+    calls = []
+    recovered = await reconcile(env, transport(env, completed(env), calls))
+    assert len(recovered["takes"]) == 1
+    assert recovered["renderSubmissions"][0]["reconciliationRequired"] is False
+    assert recovered["continuationChanged"] is True
+    assert len(calls) == 2
+    stable = await reconcile(env, lambda _: pytest.fail("Finalized output must not refetch"))
+    assert stable["continuationChanged"] is False
+    assert stable["selectedTakeId"] is None
+
+
+@pytest.mark.parametrize("status", ["pending", "in_progress", "failed", "cancelled", "unknown"])
+async def test_delayed_output_lookup_never_downgrades_completed_job(env, status):
+    await reconcile(env, transport(env, completed(env, {}), []))
+    result = await reconcile(env, transport(env, completed(env, status=status), []))
+    assert result["renderSubmissions"][0]["job"]["status"] == "completed"
+    assert result["continuationChanged"] is False
+    assert result["takes"] == []
+
+
+async def test_unchanged_status_check_does_not_invalidate_continuation(env):
+    first = await reconcile(env, transport(env, completed(env, status="pending"), []))
+    second = await reconcile(env, transport(env, completed(env, status="pending"), []))
+    assert first["renderSubmissions"][0]["job"]["lastCheckedAt"]
+    assert second["continuationChanged"] is False
+
+
+def test_active_only_outputs_need_no_native_sidecar_read(env, monkeypatch):
+    store, _, p, _ = env
+    monkeypatch.setattr(store, "_read_execution_state", lambda *_: pytest.fail("Active jobs already require reconciliation"))
+    assert store.generation_outputs(p.project_id, p.active_generation_id)["renderSubmissions"][0]["reconciliationRequired"]
+
+
+def test_fifty_finalized_records_and_recovery_hints_are_authoritative_read_only(env):
+    store, _, p, original = env
+    directory, manifest, generations, active, generation = store._output_context(p.project_id, p.active_generation_id)
+    output = RendererOutput(id="c" * 64, filename="done.mp4", subfolder="", type="output", importedTakeId=uuid4())
+    statuses = ["completed", "failed", "cancelled"]
+    generation.render_submissions = [original.model_copy(update={"id": uuid4(),
+        "job": RendererJobState(status=statuses[i % 3], outputs=[output] if i % 3 == 0 else [])}, deep=True)
+        for i in range(50)]
+    store._commit_sequence(directory, manifest, generations, active, hydrate_result=False)
+    before = (directory / "project.json").read_bytes()
+    rows = store.generation_outputs(p.project_id, p.active_generation_id)["renderSubmissions"]
+    assert len(rows) == 50 and not any(row["reconciliationRequired"] for row in rows)
+    assert (directory / "project.json").read_bytes() == before
+    for status, outputs, required in [("queued", [], True), ("running", [], True), ("unknown", [], True),
+            ("completed", [], True), ("completed", [output.model_copy(update={"imported_take_id": None})], True),
+            ("completed", [output, output.model_copy(update={"id": "d" * 64, "imported_take_id": None})], False)]:
+        generation.render_submissions[0] = original.model_copy(update={"job": RendererJobState(status=status, outputs=outputs)}, deep=True)
+        store._commit_sequence(directory, manifest, generations, active, hydrate_result=False)
+        assert store.generation_outputs(p.project_id, p.active_generation_id)["renderSubmissions"][0]["reconciliationRequired"] is required
+
+
+async def test_restart_recovers_terminal_native_sidecar_without_accepting_or_provider_reads(native_env):
+    store, config, _, _, project = native_env
+    choose(store, project)
+    receipt, _ = send(native_env)
+    store.update_render_job(project.project_id, project.active_generation_id, receipt.render_submission_id,
+        RendererJobState(status="failed"))
+    store = ProjectStore()  # New application instance, terminal Project + pending sidecar.
+    assert store.generation_outputs(project.project_id, project.active_generation_id)["renderSubmissions"][0]["reconciliationRequired"]
+    result = await rr.reconcile_submission(project.project_id, project.active_generation_id, receipt.render_submission_id,
+        store=store, config=config, transport=httpx.MockTransport(lambda _: pytest.fail("No provider read for terminal repair")))
+    assert result["continuationChanged"] is True
+    assert result["renderSubmissions"][0]["reconciliationRequired"] is False
+    status = store.continuation_status(project.project_id, project.active_generation_id)
+    assert status["executions"][0].status == "unavailable"
+    assert status["acceptedId"] is None
+
+
+async def test_restart_recovers_unknown_submission_without_resubmitting(env):
+    store, config, p, submission = env
+    store.update_render_job(p.project_id, p.active_generation_id, submission.id, RendererJobState(status="unknown"))
+    reopened = (ProjectStore(), config, p, submission)
+    calls = []
+    result = await reconcile(reopened, transport(reopened, completed(reopened), calls))
+    assert len(result["takes"]) == 1 and result["continuationChanged"]
+    assert all(request.method == "GET" for request in calls)
+
+
 async def test_native_exact_failure_and_success_keep_accepted_authority(native_env):
     store, config, _, _, p = native_env
     choose(store, p)

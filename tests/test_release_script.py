@@ -58,7 +58,7 @@ def repos(tmp_path):
         shutil.copytree(ROOT / folder, dev / folder, ignore=shutil.ignore_patterns('__pycache__'))
     shutil.copy2(ROOT / 'release.ps1', dev / 'release.ps1')
     config = json.loads((dev / 'release/overlay.json').read_text())
-    config.update(remote=str(origin), replace=[], append={'README.md': 'files/README-public.md'},
+    config.update(remote=str(origin), replace=[], reviewed_readme_replacement=None, append={'README.md': 'files/README-public.md'},
                   version_fields={'pyproject.toml': r'^(version = ")[^"\n]+(")$'})
     # Local bare-remote paths are test infrastructure, never public snapshot data.
     config['copy']['release/overlay.json'] = 'files/public-config.json'
@@ -193,6 +193,57 @@ def test_public_only_readme_change_requires_integration(repos, tmp_path):
     git(repos[2], 'push', 'origin', 'master')
     with pytest.raises(ReleaseError, match='Public-only changes.*README.md'):
         prepare(repos, tmp_path / 'candidate')
+
+
+@pytest.mark.parametrize('mutation', [None, 'path', 'version', 'base', 'previous_tag_commit',
+                                    'public_sha256', 'replacement_sha256', 'candidate',
+                                    'future-version', 'future-remote', 'unrelated'])
+@pytest.mark.parametrize('review', [False, True], ids=['committed-source', 'working-tree'])
+def test_reviewed_readme_replacement_is_exact(repos, tmp_path, mutation, review):
+    dev, _, github, _ = repos
+    (github / 'README.md').write_bytes(b'Public editorial revision\n')
+    if mutation == 'unrelated':
+        (github / 'extra.md').write_bytes(b'Unintegrated remote documentation\n')
+    commit(github)
+    git(github, 'push', 'origin', 'master')
+    config_path = dev / 'release/overlay.json'
+    config = json.loads(config_path.read_text())
+    config['reviewed_readme_replacement'] = approval = {
+        'path': 'README.md', 'version': '0.5.1',
+        'base': git(github, 'rev-parse', 'HEAD'),
+        'previous_tag_commit': git(github, 'rev-parse', 'v0.4.0^{commit}'),
+        'public_sha256': digest(b'Public editorial revision\n'),
+        'replacement_sha256': digest(b'modern development\n\n' +
+            (dev / 'release/files/README-public.md').read_bytes().replace(b'\r\n', b'\n')),
+    }
+    if mutation in approval:
+        approval[mutation] = 'wrong'
+    if mutation == 'candidate':
+        (dev / 'README.md').write_text('Different replacement\n')
+    if mutation == 'future-remote':
+        (github / 'README.md').write_bytes(b'Unexpected later public edit\n')
+        commit(github)
+        git(github, 'push', 'origin', 'master')
+    r.save_json(config_path, config)
+    if not review:
+        commit(dev, 'Reviewed replacement fixture')
+    before = states(repos)
+    options = dict(version='0.5.2' if mutation == 'future-version' else '0.5.1',
+                   dry_run=True, review=review)
+    if mutation is None:
+        result = prepare(repos, tmp_path / 'review', **options)
+        assert result['status'] == 'verified' and not result['publishable']
+    else:
+        with pytest.raises(ReleaseError, match='Public-only changes.*extra.md' if mutation == 'unrelated'
+                           else 'README replacement approval mismatch') as error:
+            prepare(repos, tmp_path / 'review', **options)
+        if mutation != 'unrelated':
+            message = str(error.value)
+            field = {'candidate': 'replacement_sha256', 'future-version': 'version',
+                     'future-remote': 'base'}.get(mutation, mutation)
+            assert field + ':' in message
+            assert 'expected ' in message and 'actual ' in message
+    assert states(repos) == before
 
 
 def test_divergent_remote_before_prepare(repos, tmp_path):
@@ -432,3 +483,62 @@ def test_staging_artifact_directory_does_not_dirty_staging(repos):
     before = states(repos)
     prepare(repos, repos[1] / '.release-artifacts' / 'candidate', dry_run=True)
     assert states(repos) == before
+
+
+def test_current_public_snapshot_preserves_cli_and_is_deterministic():
+    # Assemble tracked working-tree inputs so this checks uncommitted overlay edits
+    # as well as committed sources, without preparing or publishing a release.
+    paths = r.git_bytes(ROOT, 'ls-files', '-z').decode().split('\0')
+    source = {}
+    for path in filter(None, paths):
+        data = (ROOT / path).read_bytes()
+        if (ROOT / path).suffix in {'.py', '.md', '.txt', '.json', '.toml', '.mjs', '.js', '.css', '.html', '.ps1', '.sh', '.bat', '.svg'}:
+            data = data.replace(b'\r\n', b'\n')
+        source[path] = data
+    config, content, _ = r.overlay(ROOT)
+    if b'license = "GPL-3.0-or-later"' in source['pyproject.toml']:
+        # The fresh-install runner tests an already exported Git tree. Never
+        # reapply non-idempotent source overlays or relax their anchor checks.
+        first = source
+    else:
+        first, inventory = r.assemble(source, config, content, '0.5.1')
+        second, repeated_inventory = r.assemble(source, config, content, '0.5.1')
+        assert first == second and inventory == repeated_inventory
+        # A review export alone cannot prove that committing the README preserves
+        # its approval. Exercise raw Git blobs independently of working-tree bytes.
+        committed, _ = r.read_tree(ROOT, 'HEAD')
+        committed_export, _ = r.assemble(committed, config, content, '0.5.1')
+        assert committed_export['README.md'] == first['README.md']
+        assert digest(committed_export['README.md']) == config['reviewed_readme_replacement']['replacement_sha256']
+    audit(first, config)
+    assert first['start-miniconstruct.bat'] == source['start-miniconstruct.bat']
+    assert b'-m miniconstruct --host 127.0.0.1 --port 8743' in first['start-miniconstruct.bat']
+    assert b'-m uvicorn' not in first['start-miniconstruct.bat']
+    assert b'GPL-3.0-or-later' in first['pyproject.toml']
+    assert b'require_guides()' in first['miniconstruct/app.py']
+    assert b'require_guides()' in first['miniconstruct/__main__.py']
+    assert b'miniconstruct.http_logging:quiet_app' in first['miniconstruct/__main__.py']
+    assert not any(path in first for path in GUIDES)
+    readme = first['README.md'].decode()
+    assert readme.count('## Installation\n') == 1
+    assert 100 <= len(readme.splitlines()) <= 160
+    assert readme.index('## Installation') < readme.index('## Connect your prompt-writing LLM')
+    assert readme.splitlines().index('## Installation') < 15
+    import re
+    from urllib.parse import unquote
+    from posixpath import normpath, dirname
+    for name in ('README.md', 'docs/authoring.md', 'docs/setup-and-troubleshooting.md'):
+        text = first[name].decode('utf-8')
+        assert '\ufffd' not in text
+        for target in re.findall(r'\]\(([^)]+)\)', text):
+            if '://' in target:
+                continue
+            path, _, anchor = unquote(target).partition('#')
+            resolved = normpath(dirname(name) + '/' + path) if dirname(name) else normpath(path)
+            assert resolved in first, (name, target)
+            if anchor:
+                headings = re.findall(r'^#+ (.+)$', first[resolved].decode('utf-8'), re.MULTILINE)
+                slugs = [re.sub(r'[^\w -]', '', h.lower()).replace(' ', '-') for h in headings]
+                assert anchor in slugs, (name, target)
+    assert 'GPL-3.0-or-later' in readme
+    assert 'python -m miniconstruct.h3.guide_acquisition' in readme

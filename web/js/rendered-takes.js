@@ -3,6 +3,16 @@ import { formatLocalTimestamp } from "./local-time.js";
 import { renderSubmissionLabels } from "./render-submission-label.js";
 import { beginProviderActivity, createProviderActivity } from "./provider-activity.js";
 
+// The server includes interrupted native-sidecar recovery in this decision.
+// The fallback also supports older output snapshots and isolated UI consumers.
+export function requiresRenderReconciliation(item) {
+  if (typeof item.reconciliationRequired === "boolean") return item.reconciliationRequired;
+  const job = item.job || {};
+  return !["completed", "failed", "cancelled"].includes(job.status)
+    || (job.status === "completed" && (!job.outputs?.length
+      || (job.outputs.length === 1 && !job.outputs[0].importedTakeId)));
+}
+
 // Actual outputs are Project-owned; UI selection is never inferred from chronology.
 export function createRenderedTakes({ root, liveRoot = root, api, getContext: readContext, getSettings = () => ({}), onMutation: notifyMutation = () => {}, confirmDelete = message => confirm(message),
   confirmRetry = message => confirm(message),
@@ -19,7 +29,7 @@ export function createRenderedTakes({ root, liveRoot = root, api, getContext: re
   };
   const onReconciled = (response, c) => {
     const { generatedResetEpoch, ...context } = c;
-    if (generatedResetEpoch === resetEpoch) notifyReconciled(response, context);
+    if (generatedResetEpoch === resetEpoch && response.continuationChanged !== false) notifyReconciled(response, context);
   };
   let key = "", epoch = 0, busy = false, state = null, selection = null, error = "", analysisError = "", previewId = null, inspectedTakeId = null;
   let timer = null, disposed = false, live = null, liveSocket = null, liveUrl = null, liveMime = null, liveClock = null;
@@ -29,6 +39,7 @@ export function createRenderedTakes({ root, liveRoot = root, api, getContext: re
   let discoveryCursor = 0;
   let foregroundUpdatedAt = null, foregroundUnavailable = false;
   let foregroundPending = null, historyTicket = null;
+  let refreshPending = null;
   const outputVersions = new Map();
   const outputVersion = generationId => outputVersions.get(generationId) || 0;
   const advanceOutputs = generationId => outputVersions.set(generationId, outputVersion(generationId) + 1);
@@ -237,6 +248,7 @@ export function createRenderedTakes({ root, liveRoot = root, api, getContext: re
     if (summary.projectFingerprint) onMutation(summary, c);
     if (Number.isInteger(summary.discoveryCursor)) discoveryCursor = summary.discoveryCursor;
     if (summary.discoveryError) error = summary.discoveryError;
+    if (summary.continuationChanged) onReconciled(summary, c);
   }
   const watchedSubmission = () => live && foregroundRows.find(row => row.id === live.id && row.generationId === live.generationId);
   function ensureLiveObservation() {
@@ -289,6 +301,8 @@ export function createRenderedTakes({ root, liveRoot = root, api, getContext: re
         : await api.generationOutputs(session.projectId, session.generationId);
       if (disposed || live !== session || !sameLiveProject(getContext(), session)
           || version !== outputVersion(session.generationId)) return;
+      if (response.projectUpdatedAt && foregroundUpdatedAt
+          && Date.parse(response.projectUpdatedAt) < Date.parse(foregroundUpdatedAt)) return;
       if (api.reconcileRenderSubmission) onMutation(response, context);
       if (!disposed && live === session && sameLiveProject(getContext(), session)) {
         advanceOutputs(session.generationId);
@@ -649,7 +663,18 @@ export function createRenderedTakes({ root, liveRoot = root, api, getContext: re
     if (imported) file.value = "";
     render();
   }
-  async function refresh({ pendingOnly = false } = {}) {
+  function refresh(options = {}) {
+    const identity = contextKey(getContext());
+    // Share startup/local reads. During a slow history import the existing
+    // foreground lane remains independent so live observation can advance.
+    if (refreshPending?.key === identity && historyTicket !== epoch) return refreshPending.promise;
+    if (refreshPending?.key === identity) return refreshHistory(options);
+    const request = { key: identity };
+    request.promise = refreshHistory(options).finally(() => { if (refreshPending === request) refreshPending = null; });
+    refreshPending = request;
+    return request.promise;
+  }
+  async function refreshHistory({ pendingOnly = false } = {}) {
     if (disposed) return;
     stopPolling();
     const c = { ...getContext() };
@@ -670,6 +695,7 @@ export function createRenderedTakes({ root, liveRoot = root, api, getContext: re
     key = contextKey(c); const ticket = ++epoch;
     if (!saved(c)) { busy = false; historyTicket = null; state = selection = null; options(); render(); return; }
     busy = false; historyTicket = null; error = "";
+    let reconciled = null, continuationChanged = false;
     try {
       const version = outputVersion(c.generationId);
       // Foreground selection must not wait for local/history reads or downloads.
@@ -691,7 +717,8 @@ export function createRenderedTakes({ root, liveRoot = root, api, getContext: re
       const items = [...(state.renderSubmissions || []).map(item => ({ ...item, generationId: c.generationId })),
         ...foregroundRows.filter(item => item.generationId !== c.generationId && activeSubmission(item)
           && (api.foregroundRenders || live?.id === item.id))];
-      const unique = [...new Map(items.map(item => [JSON.stringify([item.generationId, item.id]), item])).values()];
+      const unique = [...new Map(items.filter(requiresRenderReconciliation)
+        .map(item => [JSON.stringify([item.generationId, item.id]), item])).values()];
       busy = Boolean(api.reconcileRenderSubmission && unique.length);
       historyTicket = busy ? ticket : null; render(); schedulePolling();
       // Sequential bounded polling, with a fresh context check before every request.
@@ -712,11 +739,15 @@ export function createRenderedTakes({ root, liveRoot = root, api, getContext: re
         rememberOutputs(response, exact);
         if (item.generationId === c.generationId) { state = response; options(); }
         error = response.reconciliationError || error; render();
-        onReconciled(response, exact);
+        reconciled = response;
+        continuationChanged ||= response.continuationChanged !== false;
       }
-      await refreshForeground(c);
+      if (unique.length) await refreshForeground(c);
     } catch (e) { if (ticket === epoch) error = e.message; }
-    finally { if (!disposed && ticket === epoch) { busy = false; historyTicket = null; ensureLiveObservation(); render(); schedulePolling(); } }
+    finally { if (!disposed && ticket === epoch) {
+      if (reconciled && continuationChanged) onReconciled({ ...reconciled, continuationChanged: true }, c);
+      busy = false; historyTicket = null; ensureLiveObservation(); render(); schedulePolling();
+    } }
   }
   async function refreshForeground(c) {
     if (!api.foregroundRenders) return;
@@ -771,7 +802,7 @@ export function createRenderedTakes({ root, liveRoot = root, api, getContext: re
     ++resetEpoch;
     stopPolling(); clearLive(); ++epoch; key = ""; busy = false;
     foregroundProjectId = null; foregroundRows = []; foregroundUnavailable = false; outputVersions.clear(); discoveryCursor = 0; foregroundUpdatedAt = null;
-    foregroundPending = null; historyTicket = null;
+    foregroundPending = refreshPending = null; historyTicket = null;
     state = selection = null; inspectedTakeId = previewId = null; error = analysisError = "";
     observationDraft.key = ""; observationDraft.value = null; observationDraft.dirty = false; observationDraft.editError = "";
     source.value = submission.value = file.value = ""; submissions.open = false;
